@@ -63,17 +63,30 @@ export function AdminMenuPage() {
   const [nombre, setNombre] = useState('')
   const [categoria, setCategoria] = useState<CategoriaMenu>('principal')
   const [stock, setStock] = useState(0)
+  const [aceptaGuarnicionNuevo, setAceptaGuarnicionNuevo] = useState(true)
   const [filtroActivo, setFiltroActivo] = useState<CategoriaMenu>('principal')
   const [loading, setLoading] = useState(false)
   const [busyId, setBusyId] = useState<string | null>(null)
+  const [busyStockId, setBusyStockId] = useState<string | null>(null)
   const [busyNombreId, setBusyNombreId] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [draftNombre, setDraftNombre] = useState('')
+  const [draftAceptaGuarnicion, setDraftAceptaGuarnicion] = useState(true)
+  const [draftStock, setDraftStock] = useState<Record<string, number>>({})
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     return subscribeMenu(setItems)
   }, [])
+
+  const draftStockView = useMemo(() => {
+    const next: Record<string, number> = {}
+    for (const it of items) {
+      const v = draftStock[it.id]
+      next[it.id] = Number.isFinite(v) ? Math.max(0, Math.floor(v)) : it.stock
+    }
+    return next
+  }, [draftStock, items])
 
   const itemsFiltrados = useMemo(
     () => items.filter((it) => it.categoria === filtroActivo),
@@ -85,9 +98,15 @@ export function AdminMenuPage() {
     setError(null)
     setLoading(true)
     try {
-      await addMenuItem({ nombre, categoria, stock: Number(stock) })
+      await addMenuItem({
+        nombre,
+        categoria,
+        stock: Number(stock),
+        aceptaGuarnicion: categoria === 'principal' ? aceptaGuarnicionNuevo : undefined,
+      })
       setNombre('')
       setStock(0)
+      setAceptaGuarnicionNuevo(true)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo agregar el plato')
     } finally {
@@ -95,16 +114,29 @@ export function AdminMenuPage() {
     }
   }
 
-  async function adjustStock(id: string, delta: number, current: number) {
-    const next = Math.max(0, current + delta)
+  function setDraftStockValue(id: string, value: number) {
+    const v = Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0
+    setDraftStock((prev) => ({ ...prev, [id]: v }))
+  }
+
+  async function saveStock(id: string) {
+    const current = items.find((it) => it.id === id)
+    if (!current) return
+    const next = Math.max(0, draftStockView[id] ?? current.stock)
+    if (next === current.stock) return
+    if (!confirm('¿Deseas confirmar el nuevo stock?')) {
+      setDraftStockValue(id, current.stock)
+      return
+    }
     setError(null)
-    setBusyId(id)
+    setBusyStockId(id)
     try {
       await updateMenuStock(id, next)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo actualizar el stock')
+      setDraftStockValue(id, current.stock)
     } finally {
-      setBusyId(null)
+      setBusyStockId(null)
     }
   }
 
@@ -125,18 +157,25 @@ export function AdminMenuPage() {
     setError(null)
     setEditingId(it.id)
     setDraftNombre(it.nombre)
+    setDraftAceptaGuarnicion(it.aceptaGuarnicion)
   }
 
   function cancelEditNombre() {
     setEditingId(null)
     setDraftNombre('')
+    setDraftAceptaGuarnicion(true)
   }
 
   async function saveEditNombre(id: string) {
     setError(null)
     setBusyNombreId(id)
     try {
-      await updateMenuNombre(id, draftNombre)
+      const it = items.find((x) => x.id === id)
+      await updateMenuNombre(
+        id,
+        draftNombre,
+        it?.categoria === 'principal' ? draftAceptaGuarnicion : undefined,
+      )
       cancelEditNombre()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo guardar el nombre')
@@ -207,6 +246,17 @@ export function AdminMenuPage() {
                 <option value="guarnicion">Guarnición</option>
               </select>
             </label>
+            {categoria === 'principal' ? (
+              <label className="flex items-center gap-3 rounded-xl border border-brand-muted/20 bg-brand-muted/5 px-3 py-2 text-sm font-medium text-brand-accent sm:col-span-1">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 accent-brand-accent"
+                  checked={aceptaGuarnicionNuevo}
+                  onChange={(e) => setAceptaGuarnicionNuevo(e.target.checked)}
+                />
+                ¿Acepta guarnición?
+              </label>
+            ) : null}
             <label className="block">
               <span className="text-xs font-medium text-brand-muted">
                 Stock inicial
@@ -324,6 +374,20 @@ export function AdminMenuPage() {
                                   aria-label="Editar nombre del plato"
                                   disabled={nombreBusy}
                                 />
+                                {it.categoria === 'principal' ? (
+                                  <label className="flex items-center gap-2 rounded-lg border border-brand-muted/25 bg-brand-muted/5 px-3 py-2 text-xs font-semibold text-brand-accent">
+                                    <input
+                                      type="checkbox"
+                                      className="h-4 w-4 accent-brand-accent"
+                                      checked={draftAceptaGuarnicion}
+                                      onChange={(e) =>
+                                        setDraftAceptaGuarnicion(e.target.checked)
+                                      }
+                                      disabled={nombreBusy}
+                                    />
+                                    ¿Acepta guarnición?
+                                  </label>
+                                ) : null}
                                 <div className="flex shrink-0 flex-wrap gap-2">
                                   <button
                                     type="button"
@@ -379,27 +443,42 @@ export function AdminMenuPage() {
                             </span>
                           </td>
                           <td className="whitespace-nowrap px-3 py-2.5 align-middle sm:px-4">
-                            <div className="inline-flex items-center gap-0.5 rounded-lg border border-brand-muted/20 bg-brand-muted/5 p-0.5">
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="number"
+                                min={0}
+                                step={1}
+                                value={draftStockView[it.id] ?? it.stock}
+                                disabled={busyStockId === it.id}
+                                onChange={(e) =>
+                                  setDraftStockValue(
+                                    it.id,
+                                    Number.isNaN(e.target.valueAsNumber)
+                                      ? Number(e.target.value) || 0
+                                      : e.target.valueAsNumber,
+                                  )
+                                }
+                                onBlur={() => void saveStock(it.id)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    e.preventDefault()
+                                    void saveStock(it.id)
+                                  }
+                                }}
+                                className="min-w-[4.5rem] rounded-lg border border-brand-muted/30 bg-brand-muted/5 px-3 py-2 text-sm font-semibold tabular-nums text-brand-accent outline-none transition focus:border-brand-accent focus:ring-2 focus:ring-brand-accent/25 disabled:opacity-50"
+                                aria-label={`Stock de ${it.nombre}`}
+                              />
                               <button
                                 type="button"
-                                disabled={busy || it.stock <= 0}
-                                onClick={() => adjustStock(it.id, -1, it.stock)}
-                                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-base font-semibold text-brand-accent transition hover:bg-brand-surface disabled:opacity-35"
-                                aria-label="Restar una unidad"
+                                onMouseDown={(e) => e.preventDefault()}
+                                disabled={
+                                  busyStockId === it.id ||
+                                  (draftStockView[it.id] ?? it.stock) === it.stock
+                                }
+                                onClick={() => void saveStock(it.id)}
+                                className="flex items-center gap-1 rounded-lg bg-brand-accent px-3 py-2 text-xs font-semibold text-white shadow-sm shadow-brand-accent/25 transition hover:brightness-105 disabled:cursor-not-allowed disabled:bg-brand-muted/35 disabled:text-brand-surface disabled:shadow-none"
                               >
-                                −
-                              </button>
-                              <span className="min-w-[2rem] text-center text-sm font-bold tabular-nums text-brand-accent">
-                                {it.stock}
-                              </span>
-                              <button
-                                type="button"
-                                disabled={busy}
-                                onClick={() => adjustStock(it.id, 1, it.stock)}
-                                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-base font-semibold text-brand-accent transition hover:bg-brand-surface disabled:opacity-35"
-                                aria-label="Sumar una unidad"
-                              >
-                                +
+                                {busyStockId === it.id ? 'Guardando…' : 'Guardar'}
                               </button>
                             </div>
                           </td>

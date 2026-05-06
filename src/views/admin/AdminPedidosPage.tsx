@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import * as XLSX from 'xlsx'
 import { Link } from 'react-router-dom'
 import {
   archivarPedidosActivos,
@@ -14,10 +15,19 @@ function formatHora(fecha: Date | null): string {
   return `${h}:${m}`
 }
 
+function formatFechaArchivo(d: Date): string {
+  const day = String(d.getDate()).padStart(2, '0')
+  const month = String(d.getMonth() + 1).padStart(2, '0')
+  const year = d.getFullYear()
+  return `${day}-${month}-${year}`
+}
+
 export function AdminPedidosPage() {
   const [pedidos, setPedidos] = useState<PedidoDelDia[]>([])
   const [loadingTurno, setLoadingTurno] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [paginaActual, setPaginaActual] = useState(1)
+  const registrosPorPagina = 10
 
   useEffect(() => {
     return subscribePedidos(setPedidos)
@@ -114,6 +124,45 @@ export function AdminPedidosPage() {
     }
   }
 
+  const totalPaginas = useMemo(
+    () => Math.max(1, Math.ceil(pedidos.length / registrosPorPagina)),
+    [pedidos.length, registrosPorPagina],
+  )
+
+  const paginaSegura = useMemo(
+    () => Math.min(Math.max(1, paginaActual), totalPaginas),
+    [paginaActual, totalPaginas],
+  )
+
+  const pedidosPagina = useMemo(() => {
+    const start = (paginaSegura - 1) * registrosPorPagina
+    const end = start + registrosPorPagina
+    return pedidos.slice(start, end)
+  }, [paginaSegura, pedidos, registrosPorPagina])
+
+  function exportarPedidos() {
+    if (pedidos.length === 0) return
+    const headers = [
+      'Hora del Pedido',
+      'Nombre y Apellido',
+      'Lugar de Entrega',
+      'Plato Principal',
+      'Guarnición',
+    ]
+    const rows = pedidos.map((p) => [
+      formatHora(p.fecha),
+      p.nombreCliente,
+      p.lugarEntrega,
+      p.platoPrincipal,
+      p.guarnicion,
+    ])
+    const ws = XLSX.utils.aoa_to_sheet([headers, ...rows])
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Pedidos')
+    const nombreArchivo = `Planilla_Pedidos_${formatFechaArchivo(new Date())}.xlsx`
+    XLSX.writeFile(wb, nombreArchivo)
+  }
+
   return (
     <div className="flex flex-1 flex-col">
       <header className="border-b border-brand-muted/15 bg-brand-surface px-4 py-4 shadow-sm sm:px-6 lg:px-8">
@@ -173,6 +222,27 @@ export function AdminPedidosPage() {
                 {resumenViandas.totalPedidos === 1 ? 'pedido' : 'pedidos'})
               </p>
             </div>
+            <button
+              type="button"
+              onClick={exportarPedidos}
+              disabled={pedidos.length === 0}
+              className="inline-flex items-center gap-2 rounded-xl bg-brand-accent px-4 py-2.5 text-sm font-semibold text-white shadow-md shadow-brand-accent/25 transition hover:brightness-110 active:brightness-95 disabled:cursor-not-allowed disabled:bg-brand-muted/35 disabled:text-brand-surface disabled:shadow-none"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                className="h-4 w-4"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth="2"
+                aria-hidden
+              >
+                <path d="M12 3v12" />
+                <path d="m7 12 5 5 5-5" />
+                <path d="M5 21h14" />
+              </svg>
+              Exportar a Excel
+            </button>
           </div>
 
           <div className="grid gap-4 lg:grid-cols-2">
@@ -310,7 +380,7 @@ export function AdminPedidosPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-brand-muted/12">
-                  {pedidos.map((p) => (
+                  {pedidosPagina.map((p) => (
                     <tr
                       key={p.id}
                       className="transition-colors hover:bg-brand-muted/5"
@@ -337,6 +407,31 @@ export function AdminPedidosPage() {
                   ))}
                 </tbody>
               </table>
+              <div className="flex flex-wrap items-center justify-between gap-3 border-t border-brand-muted/15 bg-brand-muted/4 px-4 py-3 text-sm text-brand-accent">
+                <span className="font-medium">
+                  Página {paginaSegura} de {totalPaginas}
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setPaginaActual((p) => Math.max(1, p - 1))}
+                    disabled={paginaSegura === 1}
+                    className="rounded-lg border border-brand-muted/30 px-3 py-2 text-xs font-semibold text-brand-accent transition hover:border-brand-accent/60 hover:text-brand-accent focus:outline-none focus:ring-2 focus:ring-brand-accent/30 disabled:cursor-not-allowed disabled:border-brand-muted/25 disabled:text-brand-muted"
+                  >
+                    Anterior
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setPaginaActual((p) => Math.min(totalPaginas, p + 1))
+                    }
+                    disabled={paginaSegura === totalPaginas}
+                    className="rounded-lg border border-brand-muted/30 px-3 py-2 text-xs font-semibold text-brand-accent transition hover:border-brand-accent/60 hover:text-brand-accent focus:outline-none focus:ring-2 focus:ring-brand-accent/30 disabled:cursor-not-allowed disabled:border-brand-muted/25 disabled:text-brand-muted"
+                  >
+                    Siguiente
+                  </button>
+                </div>
+              </div>
             </div>
           )}
         </div>

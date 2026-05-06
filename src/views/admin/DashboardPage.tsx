@@ -106,9 +106,12 @@ export function DashboardPage() {
     }
   }, [fechaInicio, fechaFin])
 
+  /* eslint-disable react-hooks/set-state-in-effect */
+  // Necesitamos disparar la carga inicial/reload; aceptamos setState dentro del efecto.
   useEffect(() => {
     void cargar()
   }, [cargar])
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const metricas = useMemo(() => {
     const total = pedidos.length

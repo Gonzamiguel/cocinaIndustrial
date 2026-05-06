@@ -24,12 +24,18 @@ export interface MenuItem {
   nombre: string
   categoria: CategoriaMenu
   stock: number
+  aceptaGuarnicion: boolean
 }
 
 const MENU_COLLECTION = 'menu'
 const PEDIDOS_COLLECTION = 'pedidos'
 
-export const LUGARES_ENTREGA = ['Oficinas', 'Depósito', 'Predio'] as const
+export const LUGARES_ENTREGA = [
+  'Oficinas',
+  'Depósito',
+  'Predio',
+  'Cocina Central',
+] as const
 export type LugarEntrega = (typeof LUGARES_ENTREGA)[number]
 
 export type EstadoPedido = 'activo' | 'archivado'
@@ -219,7 +225,14 @@ function mapDoc(id: string, data: Record<string, unknown>): MenuItem {
   const categoria = data.categoria === 'guarnicion' ? 'guarnicion' : 'principal'
   const stock = typeof data.stock === 'number' ? data.stock : 0
   const nombre = typeof data.nombre === 'string' ? data.nombre : 'Sin nombre'
-  return { id, nombre, categoria, stock }
+  const aceptaGuarnicionRaw = data.aceptaGuarnicion
+  const aceptaGuarnicion =
+    categoria === 'principal'
+      ? aceptaGuarnicionRaw === false
+        ? false
+        : true
+      : false
+  return { id, nombre, categoria, stock, aceptaGuarnicion }
 }
 
 /** Suscripción en tiempo real a todo el menú (ordenado por nombre). */
@@ -246,6 +259,7 @@ export async function addMenuItem(input: {
   nombre: string
   categoria: CategoriaMenu
   stock: number
+  aceptaGuarnicion?: boolean
 }): Promise<void> {
   const db = getDb()
   const nombre = input.nombre.trim()
@@ -257,6 +271,9 @@ export async function addMenuItem(input: {
     nombre,
     categoria: input.categoria,
     stock: Math.floor(input.stock),
+    ...(input.categoria === 'principal'
+      ? { aceptaGuarnicion: input.aceptaGuarnicion ?? true }
+      : {}),
   })
 }
 
@@ -268,12 +285,23 @@ export async function updateMenuStock(id: string, stock: number): Promise<void> 
   await updateDoc(doc(db, MENU_COLLECTION, id), { stock: Math.floor(stock) })
 }
 
-/** Actualiza el nombre del plato en la colección `menu`. */
-export async function updateMenuNombre(id: string, nombre: string): Promise<void> {
+/**
+ * Actualiza el nombre del plato en la colección `menu`.
+ * Para platos principales permite, opcionalmente, ajustar si aceptan guarnición.
+ */
+export async function updateMenuNombre(
+  id: string,
+  nombre: string,
+  aceptaGuarnicion?: boolean,
+): Promise<void> {
   const db = getDb()
   const n = nombre.trim()
   if (!n) throw new Error('El nombre no puede estar vacío')
-  await updateDoc(doc(db, MENU_COLLECTION, id), { nombre: n })
+  const payload: Record<string, unknown> = { nombre: n }
+  if (typeof aceptaGuarnicion === 'boolean') {
+    payload.aceptaGuarnicion = aceptaGuarnicion
+  }
+  await updateDoc(doc(db, MENU_COLLECTION, id), payload)
 }
 
 export async function deleteMenuItem(id: string): Promise<void> {

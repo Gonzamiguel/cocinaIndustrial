@@ -78,17 +78,22 @@ export function ClientView() {
     [items],
   )
 
-  useEffect(() => {
-    if (principalId && !principales.some((p) => p.id === principalId)) {
-      setPrincipalId(null)
-    }
-  }, [principalId, principales])
+  const principalSeleccionado = useMemo(
+    () => principales.find((p) => p.id === principalId) ?? null,
+    [principalId, principales],
+  )
 
-  useEffect(() => {
-    if (guarnicionId && !guarniciones.some((g) => g.id === guarnicionId)) {
-      setGuarnicionId(null)
-    }
-  }, [guarnicionId, guarniciones])
+  const aceptaGuarnicion =
+    principalSeleccionado?.aceptaGuarnicion === false ? false : true
+
+  const principalIdEfectivo = principalSeleccionado?.id ?? null
+  const guarnicionSeleccionada = useMemo(
+    () => guarniciones.find((g) => g.id === guarnicionId) ?? null,
+    [guarnicionId, guarniciones],
+  )
+  const guarnicionIdEfectivo = aceptaGuarnicion
+    ? guarnicionSeleccionada?.id ?? null
+    : null
 
   function resetForm() {
     setNombreCliente('')
@@ -104,8 +109,8 @@ export function ClientView() {
     const msg = validarPedidoCliente({
       nombreCliente,
       lugarEntrega,
-      principalId,
-      guarnicionId,
+      principalId: principalIdEfectivo,
+      guarnicionId: guarnicionIdEfectivo,
     })
     if (msg) {
       setError(msg)
@@ -115,8 +120,8 @@ export function ClientView() {
     setLoading(true)
     try {
       await confirmarPedidoConTransaccion({
-        principalId,
-        guarnicionId,
+        principalId: principalIdEfectivo,
+        guarnicionId: guarnicionIdEfectivo,
         nombreCliente,
         lugarEntrega,
       })
@@ -218,7 +223,7 @@ export function ClientView() {
                   <PickCard
                     key={p.id}
                     item={p}
-                    selected={principalId === p.id}
+                    selected={principalIdEfectivo === p.id}
                     onSelect={() => {
                       setError(null)
                       setPrincipalId(p.id)
@@ -236,7 +241,11 @@ export function ClientView() {
                 (opcional si elegís principal)
               </span>
             </h2>
-            {guarniciones.length === 0 ? (
+            {!aceptaGuarnicion ? (
+              <p className="mt-3 rounded-xl border border-brand-muted/20 bg-brand-muted/8 px-3 py-2 text-sm text-brand-accent">
+                Este plato no requiere guarnición.
+              </p>
+            ) : guarniciones.length === 0 ? (
               <p className="mt-3 text-sm text-brand-muted">
                 No hay guarniciones disponibles por el momento.
               </p>
@@ -246,7 +255,7 @@ export function ClientView() {
                   <PickCard
                     key={g.id}
                     item={g}
-                    selected={guarnicionId === g.id}
+                    selected={guarnicionIdEfectivo === g.id}
                     onSelect={() => {
                       setError(null)
                       setGuarnicionId(g.id)
