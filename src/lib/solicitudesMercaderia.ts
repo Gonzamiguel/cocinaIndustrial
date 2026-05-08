@@ -41,13 +41,13 @@ export function estiloBadgeEstadoSolicitud(estado: EstadoSolicitud): {
 } {
   switch (estado) {
     case 'Pendiente':
-      return { backgroundColor: '#fef3c7', color: '#92400e' }
+      return { backgroundColor: '#f3f4f6', color: '#4b5563' }
     case 'En Preparación':
-      return { backgroundColor: 'rgba(0, 51, 102, 0.12)', color: '#003366' }
+      return { backgroundColor: 'rgba(190, 24, 24, 0.12)', color: '#be1818' }
     case 'Enviado':
-      return { backgroundColor: '#e0f2fe', color: '#0369a1' }
+      return { backgroundColor: '#e5e7eb', color: '#374151' }
     case 'Recibido':
-      return { backgroundColor: '#dcfce7', color: '#166534' }
+      return { backgroundColor: '#f5f5f5', color: '#525252' }
     case 'Rechazado':
       return { backgroundColor: '#fee2e2', color: '#991b1b' }
     default:
@@ -60,6 +60,7 @@ export interface ItemSolicitudMercaderia {
   cantidad: number
   unidadMedida: string
   presentacion: string
+  observacion: string
 }
 
 export interface SolicitudMercaderia {
@@ -93,12 +94,15 @@ function mapItem(raw: unknown): ItemSolicitudMercaderia | null {
     typeof o.unidadMedida === 'string' ? o.unidadMedida.trim() : ''
   const presentacion =
     typeof o.presentacion === 'string' ? o.presentacion.trim() : ''
+  const observacion =
+    typeof o.observacion === 'string' ? o.observacion.trim() : ''
   if (!producto || !Number.isFinite(cantidad) || cantidad <= 0) return null
   return {
     producto,
     cantidad,
     unidadMedida: unidadMedida || '—',
     presentacion: presentacion || '—',
+    observacion,
   }
 }
 
@@ -194,6 +198,7 @@ export async function crearSolicitudMercaderia(
       cantidad: it.cantidad,
       unidadMedida: it.unidadMedida.trim() || '—',
       presentacion: it.presentacion.trim() || '—',
+      observacion: it.observacion.trim(),
     }))
     .filter((it) => it.producto.length > 0 && it.cantidad > 0)
 

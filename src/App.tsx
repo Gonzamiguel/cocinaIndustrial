@@ -4,6 +4,7 @@ import { LayoutAdmin } from './layouts/LayoutAdmin'
 import { LayoutDeposito } from './layouts/LayoutDeposito'
 import { AdminMenuPage } from './views/admin/AdminMenuPage'
 import { AdminPedidosPage } from './views/admin/AdminPedidosPage'
+import { AdminRecetarioPage } from './views/admin/AdminRecetarioPage'
 import { AdminSolicitudMercaderiaPage } from './views/admin/AdminSolicitudMercaderiaPage'
 import { DashboardPage } from './views/admin/DashboardPage'
 import { ClientView } from './views/ClientView'
@@ -28,6 +29,7 @@ export default function App() {
         <Route path="pedidos" element={<AdminPedidosPage />} />
         <Route path="dashboard" element={<DashboardPage />} />
         <Route path="menu" element={<AdminMenuPage />} />
+        <Route path="recetario" element={<AdminRecetarioPage />} />
         <Route path="mercaderia" element={<AdminSolicitudMercaderiaPage />} />
       </Route>
 

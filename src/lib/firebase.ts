@@ -4,6 +4,7 @@
  * Colecciones esperadas:
  * - menu: { nombre, categoria: 'principal' | 'guarnicion', stock: number }
  * - pedidos: { ... }
+ * - recetario: biblioteca documental de fichas técnicas para admin cocina
  * - solicitudes_mercaderia: cocina → depósito (fechaCreacion, items, estado, etc.)
  * - usuarios: { rol: 'admin_cocina' | 'admin_deposito' } (doc id = UID de Auth)
  *

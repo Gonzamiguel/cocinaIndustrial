@@ -11,10 +11,8 @@ import { exportarSolicitudMercaderiaExcel } from '../../lib/mercaderiaExcel'
 import { exportarSolicitudMercaderiaPdf } from '../../lib/mercaderiaPdf'
 import { useToast } from '../../context/ToastContext'
 
-const corporate = { blue: '#003366', orange: '#F39200' } as const
-
 const btnExportOutline =
-  'inline-flex items-center justify-center gap-2 rounded-xl border border-[#003366] bg-white px-3 py-2 text-xs font-semibold text-[#003366] shadow-sm transition hover:bg-[#003366]/5'
+  'inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-[#CD1818] shadow-sm transition hover:bg-gray-50'
 
 function ordenPrioridadVisual(a: SolicitudMercaderia): number {
   if (a.estado === 'Pendiente') return 0
@@ -37,13 +35,13 @@ function formatFechaCreacion(d: Date | null): string {
 function bordeEstado(s: SolicitudMercaderia): string {
   switch (s.estado) {
     case 'Pendiente':
-      return `4px solid ${corporate.orange}`
+      return '4px solid #a3a3a3'
     case 'En Preparación':
-      return `4px solid ${corporate.blue}`
+      return '4px solid #CD1818'
     case 'Enviado':
-      return '4px solid #0284c7'
+      return '4px solid #737373'
     case 'Recibido':
-      return '4px solid #16a34a'
+      return '4px solid #d4d4d4'
     case 'Rechazado':
       return '4px solid #dc2626'
     default:
@@ -136,7 +134,7 @@ function ModalGestionSolicitud({
 
   return (
     <div
-      className="fixed inset-0 z-[100] flex items-end justify-center bg-black/50 p-0 sm:items-center sm:p-4"
+      className="fixed inset-0 z-[100] flex items-end justify-center bg-black/45 p-0 sm:items-center sm:p-4"
       role="presentation"
       onClick={onClose}
     >
@@ -153,23 +151,23 @@ function ModalGestionSolicitud({
         >
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-neutral-500">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-[#8997A6]">
                 Solicitud
               </p>
               <h2
                 id="modal-gestion-solicitud-titulo"
-                className="truncate font-mono text-sm font-semibold text-neutral-900"
+                className="truncate font-mono text-sm font-semibold text-[#171717]"
                 title={solicitud.id}
               >
                 {solicitud.id}
               </h2>
-              <div className="mt-2 space-y-1 text-sm text-neutral-700">
+              <div className="mt-2 space-y-1 text-sm text-[#171717]">
                 <p>
-                  <span className="font-medium text-neutral-900">Creada:</span>{' '}
+                  <span className="font-medium text-[#171717]">Creada:</span>{' '}
                   {fechaCreacionStr}
                 </p>
                 <p>
-                  <span className="font-medium text-neutral-900">
+                  <span className="font-medium text-[#171717]">
                     Entrega esperada:
                   </span>{' '}
                   {solicitud.fechaEntregaEsperada || '—'}
@@ -180,14 +178,14 @@ function ModalGestionSolicitud({
                     style={{
                       backgroundColor:
                         solicitud.prioridad === 'Urgente'
-                          ? `${corporate.orange}22`
+                          ? '#FEE2E2'
                           : solicitud.prioridad === 'Alta'
-                            ? '#fef3c7'
+                            ? '#F3F4F6'
                             : '#e5e7eb',
                       color:
                         solicitud.prioridad === 'Urgente'
-                          ? corporate.orange
-                          : '#374151',
+                          ? '#CD1818'
+                          : '#8997A6',
                     }}
                   >
                     {solicitud.prioridad}
@@ -204,7 +202,7 @@ function ModalGestionSolicitud({
             <button
               type="button"
               onClick={onClose}
-              className="shrink-0 rounded-lg p-2 text-neutral-500 transition hover:bg-neutral-100 hover:text-neutral-800"
+              className="shrink-0 rounded-lg p-2 text-[#8997A6] transition hover:bg-neutral-100 hover:text-[#171717]"
               aria-label="Cerrar"
             >
               <svg
@@ -254,36 +252,34 @@ function ModalGestionSolicitud({
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-5">
-          <p
-            className="mb-2 text-xs font-semibold uppercase tracking-wide"
-            style={{ color: corporate.blue }}
-          >
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[#CD1818]">
             Insumos solicitados
           </p>
           <div className="overflow-x-auto rounded-xl border border-neutral-200">
-            <table className="w-full min-w-[520px] border-collapse text-sm">
+            <table className="w-full min-w-[720px] border-collapse text-sm">
               <thead>
-                <tr
-                  className="border-b border-neutral-200 text-left text-xs uppercase"
-                  style={{ backgroundColor: `${corporate.blue}0d`, color: corporate.blue }}
-                >
+                <tr className="border-b border-neutral-200 bg-gray-50 text-left text-xs uppercase text-[#8997A6]">
                   <th className="px-3 py-2.5 font-semibold">Producto</th>
                   <th className="px-3 py-2.5 font-semibold">Cantidad</th>
                   <th className="px-3 py-2.5 font-semibold">Unidad</th>
                   <th className="px-3 py-2.5 font-semibold">Presentación</th>
+                  <th className="px-3 py-2.5 font-semibold">Observación</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-neutral-100">
                 {solicitud.items.map((it, idx) => (
                   <tr key={idx} className="bg-white">
-                    <td className="px-3 py-2.5 font-medium text-neutral-900">
+                    <td className="px-3 py-2.5 font-medium text-[#171717]">
                       {it.producto}
                     </td>
-                    <td className="px-3 py-2.5 tabular-nums text-neutral-800">
+                    <td className="px-3 py-2.5 tabular-nums text-[#171717]">
                       {it.cantidad}
                     </td>
-                    <td className="px-3 py-2.5 text-neutral-700">{it.unidadMedida}</td>
-                    <td className="px-3 py-2.5 text-neutral-700">{it.presentacion}</td>
+                    <td className="px-3 py-2.5 text-[#171717]">{it.unidadMedida}</td>
+                    <td className="px-3 py-2.5 text-[#171717]">{it.presentacion}</td>
+                    <td className="px-3 py-2.5 text-[#171717]">
+                      {it.observacion || '—'}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -294,14 +290,14 @@ function ModalGestionSolicitud({
         <div className="shrink-0 border-t border-neutral-200 bg-neutral-50 px-4 py-4 sm:px-5">
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="text-left sm:col-span-1">
-              <span className="text-xs font-medium text-neutral-600">Estado</span>
+              <span className="text-xs font-medium text-[#8997A6]">Estado</span>
               {depositoPuedeCambiarEstado ? (
                 <select
                   value={estado}
                   onChange={(e) =>
                     setEstado(e.target.value as EstadoSolicitudDeposito)
                   }
-                  className="mt-1.5 w-full min-h-11 rounded-xl border border-neutral-200 bg-white px-3 text-sm outline-none focus:border-[#003366] focus:ring-2 focus:ring-[#003366]/15"
+                  className="mt-1.5 w-full min-h-11 rounded-xl border border-gray-200 bg-white px-3 text-sm text-[#171717] outline-none focus:border-[#CD1818]/30 focus:ring-2 focus:ring-[#CD1818]/10"
                 >
                   {ESTADOS_DEPOSITO.map((es) => (
                     <option key={es} value={es}>
@@ -317,7 +313,7 @@ function ModalGestionSolicitud({
                   >
                     {solicitud.estado}
                   </span>
-                  <p className="text-xs text-neutral-500">
+                  <p className="text-xs text-[#8997A6]">
                     La cocina confirmó la recepción. El estado no puede modificarse
                     desde depósito.
                   </p>
@@ -326,7 +322,7 @@ function ModalGestionSolicitud({
             </div>
           </div>
           <label className="mt-3 block text-left">
-            <span className="text-xs font-medium text-neutral-600">
+            <span className="text-xs font-medium text-[#8997A6]">
               Observaciones del depósito
             </span>
             <textarea
@@ -334,14 +330,14 @@ function ModalGestionSolicitud({
               onChange={(e) => setObservaciones(e.target.value)}
               rows={3}
               placeholder='Ej. "Enviamos puré de tomate en vez de perita"'
-              className="mt-1.5 w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm outline-none focus:border-[#003366] focus:ring-2 focus:ring-[#003366]/15"
+              className="mt-1.5 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-[#171717] outline-none focus:border-[#CD1818]/30 focus:ring-2 focus:ring-[#CD1818]/10"
             />
           </label>
           <div className="mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
             <button
               type="button"
               onClick={onClose}
-              className="min-h-11 w-full rounded-xl border border-neutral-300 bg-white px-4 text-sm font-semibold text-neutral-800 shadow-sm transition hover:bg-neutral-50 sm:w-auto"
+              className="min-h-11 w-full rounded-xl border border-gray-200 bg-white px-4 text-sm font-semibold text-[#171717] shadow-sm transition hover:bg-neutral-50 sm:w-auto"
             >
               Cerrar
             </button>
@@ -349,8 +345,7 @@ function ModalGestionSolicitud({
               type="button"
               onClick={() => void guardar()}
               disabled={guardando}
-              className="min-h-11 w-full rounded-xl px-5 text-sm font-semibold text-white shadow-md transition hover:brightness-105 disabled:opacity-45 sm:w-auto"
-              style={{ backgroundColor: corporate.orange }}
+              className="min-h-11 w-full rounded-xl bg-[#CD1818] px-5 text-sm font-semibold text-white shadow-sm transition hover:brightness-105 disabled:opacity-45 sm:w-auto"
             >
               {guardando ? 'Guardando…' : 'Guardar estado y observaciones'}
             </button>
@@ -404,26 +399,20 @@ export function DepositoSolicitudesPage() {
   }
 
   return (
-    <div className="flex flex-1 flex-col bg-neutral-50">
+    <div className="flex flex-1 flex-col bg-gray-50">
       <header className="border-b border-neutral-200 bg-white px-4 py-4 shadow-sm sm:px-6">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h1
-              className="text-xl font-semibold tracking-tight"
-              style={{ color: corporate.blue }}
-            >
+            <h1 className="text-xl font-semibold tracking-tight text-[#CD1818]">
               Solicitudes de mercadería
             </h1>
-            <p className="mt-1 text-sm text-neutral-600">
+            <p className="mt-1 text-sm text-[#8997A6]">
               Lista compacta: abrí cada pedido para ver insumos, exportar y actualizar
               estado.
             </p>
           </div>
           {pendientes > 0 ? (
-            <span
-              className="rounded-full px-3 py-1 text-xs font-bold text-white"
-              style={{ backgroundColor: corporate.orange }}
-            >
+            <span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-[#171717] ring-1 ring-gray-200">
               {pendientes} activa{pendientes === 1 ? '' : 's'}
             </span>
           ) : null}
@@ -432,18 +421,15 @@ export function DepositoSolicitudesPage() {
 
       <div className="flex-1 px-4 py-6 sm:px-6 lg:px-8">
         {ordenadas.length === 0 ? (
-          <div className="mx-auto max-w-lg rounded-2xl border border-dashed border-neutral-300 bg-white p-10 text-center text-sm text-neutral-600">
+          <div className="mx-auto max-w-lg rounded-xl border border-dashed border-gray-300 bg-white p-10 text-center text-sm text-[#8997A6] shadow-sm">
             No hay solicitudes registradas.
           </div>
         ) : (
-          <div className="mx-auto max-w-6xl overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm">
+          <div className="mx-auto max-w-6xl overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
             <div className="overflow-x-auto">
               <table className="w-full min-w-[800px] border-collapse text-left text-sm">
                 <thead className="sticky top-0 z-10 shadow-sm">
-                  <tr
-                    className="text-xs uppercase tracking-wide text-white"
-                    style={{ backgroundColor: corporate.blue }}
-                  >
+                  <tr className="border-b border-gray-200 bg-gray-50 text-xs uppercase tracking-wide text-[#8997A6]">
                     <th className="px-4 py-3">ID / Creación</th>
                     <th className="px-4 py-3">Entrega esperada</th>
                     <th className="px-4 py-3">Prioridad</th>
@@ -460,14 +446,14 @@ export function DepositoSolicitudesPage() {
                       style={{ borderLeft: bordeEstado(s) }}
                     >
                       <td className="px-4 py-3 align-top">
-                        <p className="font-mono text-xs text-neutral-600" title={s.id}>
+                        <p className="font-mono text-xs text-[#8997A6]" title={s.id}>
                           {s.id.slice(0, 10)}…
                         </p>
-                        <p className="mt-1 whitespace-nowrap text-neutral-800">
+                        <p className="mt-1 whitespace-nowrap text-[#171717]">
                           {formatFechaCreacion(s.fechaCreacion)}
                         </p>
                       </td>
-                      <td className="px-4 py-3 align-top text-neutral-800">
+                      <td className="px-4 py-3 align-top text-[#171717]">
                         {s.fechaEntregaEsperada || '—'}
                       </td>
                       <td className="px-4 py-3 align-top">
@@ -476,14 +462,14 @@ export function DepositoSolicitudesPage() {
                           style={{
                             backgroundColor:
                               s.prioridad === 'Urgente'
-                                ? `${corporate.orange}22`
+                                ? '#FEE2E2'
                                 : s.prioridad === 'Alta'
-                                  ? '#fef3c7'
+                                  ? '#e5e7eb'
                                   : '#e5e7eb',
                             color:
                               s.prioridad === 'Urgente'
-                                ? corporate.orange
-                                : '#374151',
+                                ? '#CD1818'
+                                : '#8997A6',
                           }}
                         >
                           {s.prioridad}
@@ -497,15 +483,14 @@ export function DepositoSolicitudesPage() {
                           {s.estado}
                         </span>
                       </td>
-                      <td className="px-4 py-3 align-top tabular-nums text-neutral-700">
+                      <td className="px-4 py-3 align-top tabular-nums text-[#171717]">
                         {s.items.length} {s.items.length === 1 ? 'insumo' : 'insumos'}
                       </td>
                       <td className="px-4 py-3 align-top text-right">
                         <button
                           type="button"
                           onClick={() => setSolicitudActivaId(s.id)}
-                          className="inline-flex min-h-10 w-full items-center justify-center rounded-xl px-4 text-sm font-semibold text-white shadow-md transition hover:brightness-105 sm:w-auto"
-                          style={{ backgroundColor: corporate.orange }}
+                          className="inline-flex min-h-10 w-full items-center justify-center rounded-xl bg-[#CD1818] px-4 text-sm font-semibold text-white shadow-sm transition hover:brightness-105 sm:w-auto"
                         >
                           Gestionar pedido
                         </button>

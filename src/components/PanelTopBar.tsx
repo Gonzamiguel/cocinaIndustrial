@@ -3,9 +3,13 @@ import { useAuth } from '../context/AuthContext'
 
 type PanelTopBarProps = {
   titulo: string
+  mostrarMarca?: boolean
 }
 
-export function PanelTopBar({ titulo }: PanelTopBarProps) {
+export function PanelTopBar({
+  titulo,
+  mostrarMarca = false,
+}: PanelTopBarProps) {
   const { logout } = useAuth()
   const navigate = useNavigate()
 
@@ -15,16 +19,30 @@ export function PanelTopBar({ titulo }: PanelTopBarProps) {
   }
 
   return (
-    <header className="sticky top-0 z-40 flex w-full shrink-0 items-center justify-between gap-4 border-b border-neutral-200/90 bg-white px-4 py-3 shadow-sm sm:px-6">
-      <div className="min-w-0">
-        <p className="truncate text-sm font-semibold tracking-tight text-neutral-900 sm:text-base">
+    <header className="sticky top-0 z-40 flex w-full shrink-0 items-center justify-between gap-4 border-b border-neutral-200/90 bg-white px-5 py-3.5 shadow-sm sm:px-6 lg:px-8">
+      <div className="flex min-w-0 items-center gap-3">
+        {mostrarMarca ? (
+          <>
+            <span className="shrink-0 whitespace-nowrap rounded-full bg-neutral-100 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-neutral-500">
+              Panel corporativo
+            </span>
+            <span className="truncate text-sm font-semibold tracking-tight text-brand-accent sm:text-base">
+              Comedor industrial
+            </span>
+            <span
+              className="hidden h-5 w-px shrink-0 bg-neutral-200 sm:block"
+              aria-hidden
+            />
+          </>
+        ) : null}
+        <p className="truncate whitespace-nowrap text-sm font-semibold tracking-tight text-neutral-900 sm:text-base">
           {titulo}
         </p>
       </div>
       <button
         type="button"
         onClick={() => void handleCerrarSesión()}
-        className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm font-medium text-[#003366] shadow-sm transition hover:bg-neutral-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#003366]/25"
+        className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-neutral-200 bg-white px-3.5 py-2 text-sm font-medium text-brand-accent shadow-sm transition hover:bg-neutral-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-accent/25"
       >
         <svg
           xmlns="http://www.w3.org/2000/svg"

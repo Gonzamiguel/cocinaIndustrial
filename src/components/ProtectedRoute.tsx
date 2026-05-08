@@ -19,7 +19,7 @@ export function ProtectedRoute({
     return (
       <div className="flex min-h-dvh flex-col items-center justify-center gap-3 bg-brand-surface px-4">
         <div
-          className="h-10 w-10 animate-spin rounded-full border-2 border-[#003366] border-t-transparent"
+          className="h-10 w-10 animate-spin rounded-full border-2 border-brand-accent border-t-transparent"
           aria-hidden
         />
         <p className="text-sm text-brand-muted">Verificando sesión…</p>
@@ -37,7 +37,7 @@ export function ProtectedRoute({
     return (
       <div className="flex min-h-dvh flex-col items-center justify-center bg-neutral-50 px-6 py-12">
         <div className="w-full max-w-md rounded-2xl border border-neutral-200 bg-white p-8 text-center shadow-sm">
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#003366]">
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-brand-accent">
             Acceso denegado
           </p>
           <h1 className="mt-3 text-xl font-bold text-neutral-900">
@@ -50,7 +50,7 @@ export function ProtectedRoute({
           <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:justify-center">
             <a
               href="/"
-              className="inline-flex min-h-11 items-center justify-center rounded-xl bg-[#003366] px-5 text-sm font-semibold text-white shadow-sm transition hover:brightness-110"
+              className="inline-flex min-h-11 items-center justify-center rounded-xl bg-brand-accent px-5 text-sm font-semibold text-white shadow-sm transition hover:brightness-110"
             >
               Ir al inicio
             </a>

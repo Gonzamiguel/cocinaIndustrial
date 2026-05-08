@@ -37,11 +37,12 @@ export function exportarSolicitudMercaderiaPdf(s: SolicitudMercaderia): void {
     String(it.cantidad),
     it.unidadMedida,
     it.presentacion,
+    it.observacion || '—',
   ])
 
   autoTable(doc, {
     startY: y,
-    head: [['Producto', 'Cantidad', 'Unidad', 'Presentación']],
+    head: [['Producto', 'Cantidad', 'Unidad', 'Presentación', 'Observación']],
     body,
     styles: { fontSize: 9, cellPadding: 2 },
     headStyles: {

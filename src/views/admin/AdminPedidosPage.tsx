@@ -164,26 +164,26 @@ export function AdminPedidosPage() {
   }
 
   return (
-    <div className="flex flex-1 flex-col">
-      <header className="border-b border-brand-muted/15 bg-brand-surface px-4 py-4 shadow-sm sm:px-6 lg:px-8">
+    <div className="flex flex-1 flex-col bg-gray-50">
+      <header className="border-b border-gray-200 bg-white px-4 py-4 shadow-sm sm:px-6 lg:px-8">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h1 className="text-xl font-semibold tracking-tight text-brand-accent">
+            <h1 className="text-xl font-semibold tracking-tight text-[#CD1818]">
               Pedidos del día
             </h1>
-            <p className="mt-1 text-sm text-brand-muted">
+            <p className="mt-1 text-sm text-[#8997A6]">
               Solo pedidos activos · Resumen para cocina · Detalle abajo
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
-            <span className="rounded-full bg-brand-accent px-3 py-1 text-xs font-semibold text-white">
+            <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-[#171717] ring-1 ring-gray-200">
               {pedidos.length} activo{pedidos.length === 1 ? '' : 's'}
             </span>
             <button
               type="button"
               disabled={loadingTurno || pedidos.length === 0}
               onClick={handleFinalizarTurno}
-              className="rounded-xl bg-brand-accent px-4 py-2.5 text-sm font-semibold text-white shadow-md shadow-brand-accent/25 transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
+              className="rounded-xl bg-[#CD1818] px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
             >
               {loadingTurno ? 'Procesando…' : 'Finalizar turno'}
             </button>
@@ -192,7 +192,7 @@ export function AdminPedidosPage() {
         <div className="mt-3 md:hidden">
           <Link
             to="/"
-            className="text-xs font-medium text-brand-accent underline-offset-2 hover:text-brand-muted hover:underline"
+            className="text-xs font-medium text-[#CD1818] underline-offset-2 hover:text-[#171717] hover:underline"
           >
             Ir a vista cliente
           </Link>
@@ -203,7 +203,7 @@ export function AdminPedidosPage() {
         {error ? (
           <div
             role="alert"
-            className="mb-4 rounded-xl border border-brand-accent/35 bg-brand-accent/5 px-4 py-3 text-sm text-brand-accent"
+            className="mb-4 rounded-xl border border-[#CD1818]/20 bg-white px-4 py-3 text-sm text-[#CD1818]"
           >
             {error}
           </div>
@@ -213,11 +213,11 @@ export function AdminPedidosPage() {
           <div className="mb-4 flex flex-wrap items-end justify-between gap-2">
             <div>
               <h2
-                className="text-xs font-bold uppercase tracking-[0.15em] text-brand-accent"
+                className="text-xs font-bold uppercase tracking-[0.15em] text-[#CD1818]"
               >
                 Resumen rápido — viandas
               </h2>
-              <p className="mt-1 text-sm text-brand-muted">
+              <p className="mt-1 text-sm text-[#8997A6]">
                 Totales según pedidos activos ({resumenViandas.totalPedidos}{' '}
                 {resumenViandas.totalPedidos === 1 ? 'pedido' : 'pedidos'})
               </p>
@@ -226,7 +226,7 @@ export function AdminPedidosPage() {
               type="button"
               onClick={exportarPedidos}
               disabled={pedidos.length === 0}
-              className="inline-flex items-center gap-2 rounded-xl bg-brand-accent px-4 py-2.5 text-sm font-semibold text-white shadow-md shadow-brand-accent/25 transition hover:brightness-110 active:brightness-95 disabled:cursor-not-allowed disabled:bg-brand-muted/35 disabled:text-brand-surface disabled:shadow-none"
+              className="inline-flex items-center gap-2 rounded-xl bg-[#CD1818] px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:brightness-110 active:brightness-95 disabled:cursor-not-allowed disabled:bg-gray-200 disabled:text-white disabled:shadow-none"
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
@@ -246,32 +246,32 @@ export function AdminPedidosPage() {
           </div>
 
           <div className="grid gap-4 lg:grid-cols-2">
-            <div className="overflow-hidden rounded-2xl border border-brand-muted/20 bg-brand-surface shadow-[0_4px_20px_rgba(129,129,129,0.12)]">
-              <div className="flex items-center gap-2 bg-brand-accent px-4 py-3 text-sm font-semibold text-white">
+            <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+              <div className="flex items-center gap-2 border-b border-gray-100 bg-gray-50 px-4 py-3 text-sm font-semibold text-[#CD1818]">
                 <span
-                  className="flex h-7 w-7 items-center justify-center rounded-lg bg-brand-accent text-xs font-bold text-white ring-1 ring-white/25"
+                  className="flex h-7 w-7 items-center justify-center rounded-lg bg-white text-xs font-bold text-[#CD1818] ring-1 ring-gray-200"
                   aria-hidden
                 >
                   P
                 </span>
                 Platos principales
               </div>
-              <div className="max-h-56 overflow-y-auto bg-brand-muted/6 p-3">
+              <div className="max-h-56 overflow-y-auto bg-white p-3">
                 {resumenViandas.principales.length === 0 ? (
-                  <p className="py-6 text-center text-sm text-brand-muted">
+                  <p className="py-6 text-center text-sm text-[#8997A6]">
                     Sin datos
                   </p>
                 ) : (
-                  <ul className="divide-y divide-brand-muted/15">
+                  <ul className="divide-y divide-gray-100">
                     {resumenViandas.principales.map(([nombre, cantidad]) => (
                       <li
                         key={nombre}
                         className="flex items-center justify-between gap-3 py-2.5 text-sm first:pt-0 last:pb-0"
                       >
-                        <span className="min-w-0 truncate font-medium text-brand-accent">
+                        <span className="min-w-0 truncate font-medium text-[#171717]">
                           {nombre}
                         </span>
-                        <span className="shrink-0 rounded-lg bg-brand-accent px-2.5 py-1 text-base font-bold tabular-nums text-white shadow-sm shadow-brand-muted/10">
+                        <span className="shrink-0 rounded-lg bg-gray-50 px-2.5 py-1 text-base font-bold tabular-nums text-[#171717] ring-1 ring-gray-200">
                           ×{cantidad}
                         </span>
                       </li>
@@ -281,32 +281,32 @@ export function AdminPedidosPage() {
               </div>
             </div>
 
-            <div className="overflow-hidden rounded-2xl border border-brand-muted/20 bg-brand-surface shadow-[0_4px_20px_rgba(129,129,129,0.12)]">
-              <div className="flex items-center gap-2 bg-brand-accent px-4 py-3 text-sm font-semibold text-white">
+            <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+              <div className="flex items-center gap-2 border-b border-gray-100 bg-gray-50 px-4 py-3 text-sm font-semibold text-[#CD1818]">
                 <span
-                  className="flex h-7 w-7 items-center justify-center rounded-lg bg-brand-accent text-xs font-bold text-white ring-1 ring-white/25"
+                  className="flex h-7 w-7 items-center justify-center rounded-lg bg-white text-xs font-bold text-[#CD1818] ring-1 ring-gray-200"
                   aria-hidden
                 >
                   G
                 </span>
                 Guarniciones
               </div>
-              <div className="max-h-56 overflow-y-auto bg-brand-muted/6 p-3">
+              <div className="max-h-56 overflow-y-auto bg-white p-3">
                 {resumenViandas.guarniciones.length === 0 ? (
-                  <p className="py-6 text-center text-sm text-brand-muted">
+                  <p className="py-6 text-center text-sm text-[#8997A6]">
                     Sin datos
                   </p>
                 ) : (
-                  <ul className="divide-y divide-brand-muted/15">
+                  <ul className="divide-y divide-gray-100">
                     {resumenViandas.guarniciones.map(([nombre, cantidad]) => (
                       <li
                         key={nombre}
                         className="flex items-center justify-between gap-3 py-2.5 text-sm first:pt-0 last:pb-0"
                       >
-                        <span className="min-w-0 truncate font-medium text-brand-accent">
+                        <span className="min-w-0 truncate font-medium text-[#171717]">
                           {nombre}
                         </span>
-                        <span className="shrink-0 rounded-lg bg-brand-accent px-2.5 py-1 text-base font-bold tabular-nums text-white shadow-sm shadow-brand-muted/10">
+                        <span className="shrink-0 rounded-lg bg-gray-50 px-2.5 py-1 text-base font-bold tabular-nums text-[#171717] ring-1 ring-gray-200">
                           ×{cantidad}
                         </span>
                       </li>
@@ -317,16 +317,16 @@ export function AdminPedidosPage() {
             </div>
           </div>
 
-          <div className="mt-6 overflow-hidden rounded-2xl border border-brand-muted/20 bg-brand-surface shadow-[0_4px_20px_rgba(129,129,129,0.12)]">
-            <div className="flex flex-wrap items-center gap-3 bg-brand-accent px-4 py-3 text-sm font-semibold text-white">
-              <span className="rounded-lg bg-brand-accent px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-white ring-1 ring-white/25">
+          <div className="mt-6 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+            <div className="flex flex-wrap items-center gap-3 border-b border-gray-100 bg-gray-50 px-4 py-3 text-sm font-semibold text-[#CD1818]">
+              <span className="rounded-lg bg-white px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-[#CD1818] ring-1 ring-gray-200">
                 Logística
               </span>
               Armado por sector de entrega
             </div>
-            <div className="border-t border-brand-muted/12 bg-brand-muted/5 p-4 sm:p-5">
+            <div className="bg-white p-4 sm:p-5">
               {resumenViandas.logisticaPorSector.length === 0 ? (
-                <p className="py-8 text-center text-sm text-brand-muted">
+                <p className="py-8 text-center text-sm text-[#8997A6]">
                   Sin pedidos activos para armar por sector.
                 </p>
               ) : (
@@ -334,21 +334,21 @@ export function AdminPedidosPage() {
                   {resumenViandas.logisticaPorSector.map(({ lugar, lineas }) => (
                     <div
                       key={lugar}
-                      className="flex flex-col rounded-xl border border-brand-muted/20 bg-brand-surface shadow-sm shadow-brand-muted/8"
+                      className="flex flex-col rounded-xl border border-gray-200 bg-white shadow-sm"
                     >
-                      <div className="border-b border-white/15 bg-brand-accent px-4 py-3 text-base font-bold text-white">
+                      <div className="border-b border-gray-100 bg-gray-50 px-4 py-3 text-base font-bold text-[#CD1818]">
                         {lugar}
                       </div>
                       <ul className="flex flex-col gap-2 p-4">
                         {lineas.map(([nombre, cantidad]) => (
                           <li
                             key={`${lugar}-${nombre}`}
-                            className="flex flex-wrap items-baseline gap-2 rounded-lg border border-brand-muted/12 bg-brand-muted/5 px-3 py-2 text-sm"
+                            className="flex flex-wrap items-baseline gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm"
                           >
-                            <span className="text-lg font-bold tabular-nums leading-none text-brand-accent">
+                            <span className="text-lg font-bold tabular-nums leading-none text-[#171717]">
                               {cantidad}×
                             </span>
-                            <span className="font-medium text-brand-accent">
+                            <span className="font-medium text-[#171717]">
                               {nombre}
                             </span>
                           </li>
@@ -362,9 +362,9 @@ export function AdminPedidosPage() {
           </div>
         </section>
 
-        <div className="overflow-hidden rounded-2xl border border-brand-muted/15 bg-brand-surface shadow-sm">
+        <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
           {pedidos.length === 0 ? (
-            <p className="px-6 py-16 text-center text-sm text-brand-muted">
+            <p className="px-6 py-16 text-center text-sm text-[#8997A6]">
               No hay pedidos activos. Los archivados siguen en Firestore para el
               futuro dashboard.
             </p>
@@ -372,7 +372,7 @@ export function AdminPedidosPage() {
             <div className="overflow-x-auto">
               <table className="w-full min-w-[640px] border-collapse text-left text-sm">
                 <thead>
-                  <tr className="border-b border-white/15 bg-brand-accent text-xs font-semibold uppercase tracking-wide text-white">
+                  <tr className="border-b border-gray-200 bg-gray-50 text-xs font-semibold uppercase tracking-wide text-[#8997A6]">
                     <th className="whitespace-nowrap px-5 py-4">Hora</th>
                     <th className="whitespace-nowrap px-5 py-4">Consumo</th>
                     <th className="px-5 py-4">Cliente</th>
@@ -380,38 +380,38 @@ export function AdminPedidosPage() {
                     <th className="min-w-[220px] px-5 py-4">Pedido</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-brand-muted/12">
+                <tbody className="divide-y divide-gray-100">
                   {pedidosPagina.map((p) => (
                     <tr
                       key={p.id}
-                      className="transition-colors hover:bg-brand-muted/5"
+                      className="transition-colors hover:bg-gray-50"
                     >
-                      <td className="whitespace-nowrap px-5 py-4 font-mono text-sm font-medium text-brand-muted">
+                      <td className="whitespace-nowrap px-5 py-4 font-mono text-sm font-medium text-[#8997A6]">
                         {formatHora(p.fecha)}
                       </td>
-                      <td className="max-w-[10rem] whitespace-normal px-5 py-4 text-sm text-brand-muted">
+                      <td className="max-w-[10rem] whitespace-normal px-5 py-4 text-sm text-[#8997A6]">
                         {p.fechaConsumo ?? '—'}
                       </td>
-                      <td className="px-5 py-4 font-medium text-brand-accent">
+                      <td className="px-5 py-4 font-medium text-[#171717]">
                         {p.nombreCliente}
                       </td>
                       <td className="whitespace-nowrap px-5 py-4">
-                        <span className="inline-flex rounded-full bg-brand-accent px-3 py-1 text-xs font-semibold text-white">
+                        <span className="inline-flex rounded-full bg-gray-50 px-3 py-1 text-xs font-semibold text-[#171717] ring-1 ring-gray-200">
                           {p.lugarEntrega}
                         </span>
                       </td>
-                      <td className="px-5 py-4 text-brand-muted">
-                        <span className="font-medium text-brand-accent">
+                      <td className="px-5 py-4 text-[#171717]">
+                        <span className="font-medium text-[#171717]">
                           {p.platoPrincipal}
                         </span>
-                        <span className="mx-1.5 text-brand-muted">+</span>
-                        <span>{p.guarnicion}</span>
+                        <span className="mx-1.5 text-[#8997A6]">+</span>
+                        <span className="text-[#171717]">{p.guarnicion}</span>
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-              <div className="flex flex-wrap items-center justify-between gap-3 border-t border-brand-muted/15 bg-brand-muted/4 px-4 py-3 text-sm text-brand-accent">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-t border-gray-200 bg-gray-50 px-4 py-3 text-sm text-[#171717]">
                 <span className="font-medium">
                   Página {paginaSegura} de {totalPaginas}
                 </span>
@@ -420,7 +420,7 @@ export function AdminPedidosPage() {
                     type="button"
                     onClick={() => setPaginaActual((p) => Math.max(1, p - 1))}
                     disabled={paginaSegura === 1}
-                    className="rounded-lg border border-brand-muted/30 px-3 py-2 text-xs font-semibold text-brand-accent transition hover:border-brand-accent/60 hover:text-brand-accent focus:outline-none focus:ring-2 focus:ring-brand-accent/30 disabled:cursor-not-allowed disabled:border-brand-muted/25 disabled:text-brand-muted"
+                    className="rounded-lg border border-gray-200 px-3 py-2 text-xs font-semibold text-[#171717] transition hover:border-[#CD1818]/30 hover:text-[#CD1818] focus:outline-none focus:ring-2 focus:ring-[#CD1818]/10 disabled:cursor-not-allowed disabled:border-gray-200 disabled:text-[#8997A6]"
                   >
                     Anterior
                   </button>
@@ -430,7 +430,7 @@ export function AdminPedidosPage() {
                       setPaginaActual((p) => Math.min(totalPaginas, p + 1))
                     }
                     disabled={paginaSegura === totalPaginas}
-                    className="rounded-lg border border-brand-muted/30 px-3 py-2 text-xs font-semibold text-brand-accent transition hover:border-brand-accent/60 hover:text-brand-accent focus:outline-none focus:ring-2 focus:ring-brand-accent/30 disabled:cursor-not-allowed disabled:border-brand-muted/25 disabled:text-brand-muted"
+                    className="rounded-lg border border-gray-200 px-3 py-2 text-xs font-semibold text-[#171717] transition hover:border-[#CD1818]/30 hover:text-[#CD1818] focus:outline-none focus:ring-2 focus:ring-[#CD1818]/10 disabled:cursor-not-allowed disabled:border-gray-200 disabled:text-[#8997A6]"
                   >
                     Siguiente
                   </button>

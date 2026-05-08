@@ -30,7 +30,7 @@ export function exportarSolicitudMercaderiaExcel(s: SolicitudMercaderia): void {
     ['Observaciones recepción (cocina)', s.observacionesRecepcion || '—'],
     [],
     ['Detalle de insumos'],
-    ['Producto', 'Cantidad', 'Unidad', 'Presentación'],
+    ['Producto', 'Cantidad', 'Unidad', 'Presentación', 'Observación'],
   ]
 
   const itemRows = s.items.map((it) => [
@@ -38,6 +38,7 @@ export function exportarSolicitudMercaderiaExcel(s: SolicitudMercaderia): void {
     it.cantidad,
     it.unidadMedida,
     it.presentacion,
+    it.observacion || '—',
   ])
 
   const ws = XLSX.utils.aoa_to_sheet([...metaRows, ...itemRows])

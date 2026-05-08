@@ -8,29 +8,54 @@ import {
 } from '../lib/menu'
 import {
   formatEtiquetaPestaña,
-  getProximaSemanaLaborable,
-  type DiaLaboralSemana,
-} from '../lib/proximaSemanaLaboral'
+  getVentanaRodanteConsumo,
+  type DiaConsumo,
+} from '../lib/fechasDinamicas'
 
-/** Azul corporativo (pestaña activa); naranja indicador de día completado */
-const TAB_ACTIVO = 'bg-[#003366] text-white shadow-sm'
+/** Paleta sobria alineada con dashboard. */
+const TAB_ACTIVO = 'bg-[#CD1818] text-white shadow-sm'
 const TAB_INACTIVO =
-  'bg-neutral-100 text-neutral-800 ring-1 ring-neutral-200/80 hover:bg-neutral-50'
-const INDICADOR_COMPLETADO = 'text-[#F39200]'
+  'bg-white text-[#171717] ring-1 ring-gray-200 hover:bg-gray-50'
+const TAB_COMPLETADO =
+  'bg-gray-50 text-[#171717] ring-1 ring-gray-200 hover:bg-gray-100'
 
-type DiaSeleccion = {
+type SeleccionDia = {
   principalId: string | null
   guarnicionId: string | null
 }
 
-function seleccionInicial(
-  dias: DiaLaboralSemana[],
-): Record<string, DiaSeleccion> {
-  const m: Record<string, DiaSeleccion> = {}
+function crearSeleccionVacia(): SeleccionDia {
+  return { principalId: null, guarnicionId: null }
+}
+
+function seleccionInicial(dias: DiaConsumo[]): Record<string, SeleccionDia> {
+  const m: Record<string, SeleccionDia> = {}
   for (const d of dias) {
-    m[d.fechaConsumo] = { principalId: null, guarnicionId: null }
+    m[d.fechaConsumo] = crearSeleccionVacia()
   }
   return m
+}
+
+function normalizarSelecciones(
+  dias: DiaConsumo[],
+  prev: Record<string, SeleccionDia>,
+): Record<string, SeleccionDia> {
+  const next: Record<string, SeleccionDia> = {}
+  for (const d of dias) {
+    next[d.fechaConsumo] = prev[d.fechaConsumo] ?? crearSeleccionVacia()
+  }
+  return next
+}
+
+function getDiaTabId(fechaConsumo: string): string {
+  const slug = fechaConsumo
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .toLowerCase()
+
+  return `tab-${slug || 'dia'}`
 }
 
 /** Validación previa al envío; devuelve mensaje o null si todo ok. */
@@ -47,19 +72,19 @@ function validarPedidoSemanal(input: {
     return 'Por favor, elegí un lugar de entrega.'
   }
   if (!input.hayAlMenosUnDiaConMenú) {
-    return 'Elegí al menos un día de la próxima semana con plato principal o guarnición.'
+    return 'Elegí al menos un día dentro de los próximos 7 días con plato principal o guarnición.'
   }
   return null
 }
 
 export function ClientView() {
-  const diasLaborables = useMemo(() => getProximaSemanaLaborable(), [])
+  const diasDisponibles = useMemo(() => getVentanaRodanteConsumo(), [])
   const [items, setItems] = useState<MenuItem[]>([])
-  const [selecciones, setSelecciones] = useState<Record<string, DiaSeleccion>>(() =>
-    seleccionInicial(diasLaborables),
+  const [selecciones, setSelecciones] = useState<Record<string, SeleccionDia>>(() =>
+    seleccionInicial(diasDisponibles),
   )
   const [diaActivo, setDiaActivo] = useState(
-    () => diasLaborables[0]?.fechaConsumo ?? '',
+    () => diasDisponibles[0]?.fechaConsumo ?? '',
   )
 
   const [nombreCliente, setNombreCliente] = useState('')
@@ -71,6 +96,15 @@ export function ClientView() {
   useEffect(() => {
     return subscribeMenu(setItems)
   }, [])
+
+  useEffect(() => {
+    setSelecciones((prev) => normalizarSelecciones(diasDisponibles, prev))
+    setDiaActivo((prev) =>
+      diasDisponibles.some((dia) => dia.fechaConsumo === prev)
+        ? prev
+        : diasDisponibles[0]?.fechaConsumo ?? '',
+    )
+  }, [diasDisponibles])
 
   const itemsById = useMemo(
     () => new Map(items.map((i) => [i.id, i])),
@@ -112,13 +146,12 @@ export function ClientView() {
   function setPrincipalDia(fechaConsumo: string, principalId: string | null) {
     setError(null)
     setSelecciones((prev) => {
-      const actual = prev[fechaConsumo] ?? {
-        principalId: null,
-        guarnicionId: null,
-      }
+      const actual = prev[fechaConsumo] ?? crearSeleccionVacia()
       const principal = principalId ? itemsById.get(principalId) : null
       const limpiarGuarni =
-        principal?.aceptaGuarnicion === false ? null : actual.guarnicionId
+        !principalId || principal?.aceptaGuarnicion === false
+          ? null
+          : actual.guarnicionId
       return {
         ...prev,
         [fechaConsumo]: {
@@ -134,30 +167,20 @@ export function ClientView() {
     setSelecciones((prev) => ({
       ...prev,
       [fechaConsumo]: {
-        ...(prev[fechaConsumo] ?? {
-          principalId: null,
-          guarnicionId: null,
-        }),
+        ...(prev[fechaConsumo] ?? crearSeleccionVacia()),
         guarnicionId,
       },
     }))
   }
 
-  function lineasEfectivasParaEnvío(): {
-    fechaConsumo: string
-    principalId: string | null
-    guarnicionId: string | null
-  }[] {
+  const lineasParaEnvio = useMemo(() => {
     const lineas: {
       fechaConsumo: string
       principalId: string | null
       guarnicionId: string | null
     }[] = []
-    for (const d of diasLaborables) {
-      const s = selecciones[d.fechaConsumo] ?? {
-        principalId: null,
-        guarnicionId: null,
-      }
+    for (const d of diasDisponibles) {
+      const s = selecciones[d.fechaConsumo] ?? crearSeleccionVacia()
       const principal = s.principalId ? itemsById.get(s.principalId) : null
       const aceptaGuarnicion = principal?.aceptaGuarnicion !== false
       const principalId = s.principalId
@@ -170,15 +193,15 @@ export function ClientView() {
       })
     }
     return lineas
-  }
+  }, [diasDisponibles, itemsById, selecciones])
 
-  const hayAlMenosUnDiaConMenú = lineasEfectivasParaEnvío().length > 0
+  const hayAlMenosUnDiaConMenú = lineasParaEnvio.length > 0
 
   function resetForm() {
     setNombreCliente('')
     setLugarEntrega('')
-    setSelecciones(seleccionInicial(diasLaborables))
-    setDiaActivo(diasLaborables[0]?.fechaConsumo ?? '')
+    setSelecciones(seleccionInicial(diasDisponibles))
+    setDiaActivo(diasDisponibles[0]?.fechaConsumo ?? '')
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -195,14 +218,12 @@ export function ClientView() {
       return
     }
 
-    const lineas = lineasEfectivasParaEnvío()
-
     setLoading(true)
     try {
       await confirmarPedidoSemanalConTransaccion({
         nombreCliente,
         lugarEntrega,
-        lineas,
+        lineas: lineasParaEnvio,
       })
       resetForm()
       setSuccessModalOpen(true)
@@ -216,18 +237,18 @@ export function ClientView() {
   }
 
   const inputClass =
-    'mt-1.5 w-full min-h-11 rounded-xl border border-neutral-200/90 bg-white px-3 text-base text-neutral-900 outline-none transition focus:border-[#003366] focus:ring-2 focus:ring-[#003366]/15'
+    'mt-1.5 w-full min-h-11 rounded-xl border border-gray-200 bg-white px-3 text-base text-[#171717] outline-none transition focus:border-[#CD1818]/30 focus:ring-2 focus:ring-[#CD1818]/10'
 
   const indiceActivo = Math.max(
     0,
-    diasLaborables.findIndex((x) => x.fechaConsumo === diaActivo),
+    diasDisponibles.findIndex((x) => x.fechaConsumo === diaActivo),
   )
-  const diaVista = diasLaborables[indiceActivo] ?? diasLaborables[0]
+  const diaVista = diasDisponibles[indiceActivo] ?? diasDisponibles[0]
 
   function pasoDía(delta: -1 | 1) {
     const siguiente = indiceActivo + delta
-    if (siguiente < 0 || siguiente >= diasLaborables.length) return
-    setDiaActivo(diasLaborables[siguiente].fechaConsumo)
+    if (siguiente < 0 || siguiente >= diasDisponibles.length) return
+    setDiaActivo(diasDisponibles[siguiente].fechaConsumo)
   }
 
   function díaTieneMenúElegido(fc: string): boolean {
@@ -237,50 +258,49 @@ export function ClientView() {
 
   const fcTarjeta = diaVista?.fechaConsumo
   const selTarjeta = fcTarjeta
-    ? (selecciones[fcTarjeta] ?? {
-        principalId: null,
-        guarnicionId: null,
-      })
-    : { principalId: null, guarnicionId: null }
+    ? (selecciones[fcTarjeta] ?? crearSeleccionVacia())
+    : crearSeleccionVacia()
   const principalTarjeta = selTarjeta.principalId
     ? itemsById.get(selTarjeta.principalId)
     : null
+  const hayPrincipalTarjeta = Boolean(selTarjeta.principalId)
   const aceptaGuarnicionTarjeta = principalTarjeta?.aceptaGuarnicion !== false
 
   return (
-    <div className="min-h-dvh bg-brand-surface pb-12">
-      <header className="border-b border-brand-muted/15 bg-brand-surface px-4 pb-8 pt-10">
+    <div className="min-h-dvh bg-gray-50 pb-12">
+      <header className="border-b border-gray-200 bg-white px-4 pb-8 pt-10 shadow-sm">
         <div className="mx-auto max-w-lg text-center">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.25em] text-brand-muted">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.25em] text-[#8997A6]">
             Pedidos anticipados
           </p>
-          <h1 className="mt-2 text-2xl font-bold tracking-tight text-brand-accent">
+          <h1 className="mt-2 text-2xl font-bold tracking-tight text-[#CD1818]">
             Comedor industrial
           </h1>
-          <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-brand-muted">
-            Reservá tu menú para cada día de la{' '}
-            <strong className="font-semibold text-brand-accent">
-              próxima semana laborable
+          <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-[#8997A6]">
+            Reservá tu menú para los{' '}
+            <strong className="font-semibold text-[#CD1818]">
+              próximos 7 días
             </strong>
-            . El stock es único: lo que elegís en un día deja menos disponible en
-            los demás. Al menos un día con plato principal o guarnición.
+            , incluyendo fin de semana. El stock es único: lo que elegís en un
+            día deja menos disponible en los demás. Al menos un día con plato
+            principal o guarnición.
           </p>
         </div>
       </header>
 
       <div className="mx-auto mt-6 max-w-lg px-4">
         <form
-          className="flex flex-col gap-5 rounded-2xl border border-brand-muted/15 bg-brand-surface p-5 shadow-sm"
+          className="flex flex-col gap-5 rounded-xl border border-gray-200 bg-white p-5 shadow-sm"
           onSubmit={handleSubmit}
           noValidate
         >
           <section>
-            <h2 className="border-b border-brand-muted/12 pb-2 text-sm font-semibold uppercase tracking-wide text-brand-accent">
+            <h2 className="border-b border-gray-100 pb-2 text-sm font-semibold uppercase tracking-wide text-[#CD1818]">
               Tus datos
             </h2>
             <div className="mt-4 flex flex-col gap-4">
               <label className="block text-left">
-                <span className="text-xs font-medium text-brand-muted">
+                <span className="text-xs font-medium text-[#8997A6]">
                   Nombre y apellido
                 </span>
                 <input
@@ -298,7 +318,7 @@ export function ClientView() {
                 />
               </label>
               <label className="block text-left">
-                <span className="text-xs font-medium text-brand-muted">
+                <span className="text-xs font-medium text-[#8997A6]">
                   Lugar de entrega
                 </span>
                 <select
@@ -324,10 +344,10 @@ export function ClientView() {
 
           <section className="space-y-4">
             <div>
-              <h2 className="text-sm font-semibold uppercase tracking-wide text-neutral-800">
+              <h2 className="text-sm font-semibold uppercase tracking-wide text-[#CD1818]">
                 Menú por día
               </h2>
-              <p className="mt-1 text-xs leading-relaxed text-brand-muted">
+              <p className="mt-1 text-xs leading-relaxed text-[#8997A6]">
                 Elegí el día en las pestañas. El stock es compartido entre todos
                 los días.
               </p>
@@ -335,37 +355,31 @@ export function ClientView() {
 
             <div
               role="tablist"
-              aria-label="Días de la próxima semana laborable"
-              className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+              aria-label="Próximos 7 días disponibles"
+              className="-mx-1 flex flex-nowrap gap-2 overflow-x-auto px-1 pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden lg:mx-0 lg:gap-1 lg:overflow-visible lg:px-0"
             >
-              {diasLaborables.map((d) => {
+              {diasDisponibles.map((d) => {
                 const activa = d.fechaConsumo === diaActivo
                 const completado = díaTieneMenúElegido(d.fechaConsumo)
+                const tabId = getDiaTabId(d.fechaConsumo)
+                const tabClass = activa
+                  ? TAB_ACTIVO
+                  : completado
+                    ? TAB_COMPLETADO
+                    : TAB_INACTIVO
                 return (
                   <button
                     key={d.fechaConsumo}
                     type="button"
                     role="tab"
                     aria-selected={activa}
-                    id={`tab-${d.fechaConsumo}`}
+                    id={tabId}
                     onClick={() => setDiaActivo(d.fechaConsumo)}
-                    className={`flex min-h-[2.75rem] shrink-0 items-center gap-1.5 rounded-xl px-3.5 py-2 text-sm font-semibold transition ${
-                      activa ? TAB_ACTIVO : TAB_INACTIVO
+                    className={`flex min-h-[2.75rem] shrink-0 items-center gap-1.5 rounded-xl px-3.5 py-2 text-sm font-semibold transition lg:min-h-10 lg:min-w-0 lg:flex-1 lg:justify-center lg:gap-1 lg:px-2 lg:py-1.5 lg:text-xs ${
+                      tabClass
                     }`}
                   >
                     <span>{formatEtiquetaPestaña(d.fecha)}</span>
-                    {completado ? (
-                      <span
-                        className={`inline-flex h-5 w-5 items-center justify-center rounded-full text-[11px] font-bold leading-none ${
-                          activa
-                            ? 'bg-white/20 text-white'
-                            : `bg-[#F39200]/15 ${INDICADOR_COMPLETADO}`
-                        }`}
-                        aria-hidden
-                      >
-                        ✓
-                      </span>
-                    ) : null}
                   </button>
                 )
               })}
@@ -374,24 +388,21 @@ export function ClientView() {
             {diaVista ? (
               <div
                 role="tabpanel"
-                aria-labelledby={`tab-${diaVista.fechaConsumo}`}
+                aria-labelledby={getDiaTabId(diaVista.fechaConsumo)}
                 className="rounded-2xl border border-neutral-200/80 bg-white p-6 shadow-sm"
               >
-                <h3 className="text-lg font-semibold tracking-tight text-neutral-900">
+                <h3 className="text-lg font-semibold tracking-tight text-[#171717]">
                   {diaVista.fechaConsumo}
                 </h3>
-                <p className="mt-0.5 text-xs text-brand-muted">
-                  Plato principal y/o guarnición para este día.
+                <p className="mt-0.5 text-xs text-[#8997A6]">
+                  Elegí tu plato principal para este día y, si corresponde, su
+                  guarnición.
                 </p>
 
                 <div className="mt-6 space-y-5">
                   <label className="block text-left">
-                    <span className="text-xs font-medium text-neutral-600">
+                    <span className="text-xs font-medium text-[#8997A6]">
                       Plato principal
-                      <span className="font-normal text-brand-muted">
-                        {' '}
-                        (opcional si elegís solo guarnición)
-                      </span>
                     </span>
                     <select
                       value={selTarjeta.principalId ?? ''}
@@ -404,7 +415,7 @@ export function ClientView() {
                       }}
                       className={inputClass}
                     >
-                      <option value="">Sin plato principal</option>
+                      <option value="">-- No pedir nada este día --</option>
                       {principales
                         .filter((p) => {
                           const disp = disponibleParaDia(
@@ -434,15 +445,19 @@ export function ClientView() {
                     </select>
                   </label>
 
-                  {!aceptaGuarnicionTarjeta ? (
-                    <p className="rounded-xl border border-neutral-200/90 bg-neutral-50 px-3 py-2.5 text-sm text-neutral-700">
+                  {!hayPrincipalTarjeta ? (
+                    <p className="rounded-xl border border-dashed border-gray-200 bg-gray-50 px-3 py-2.5 text-sm text-[#8997A6]">
+                      La guarnición se habilita cuando elegís un plato principal.
+                    </p>
+                  ) : !aceptaGuarnicionTarjeta ? (
+                    <p className="rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm text-[#171717]">
                       Este plato no requiere guarnición.
                     </p>
                   ) : (
                     <label className="block text-left">
-                      <span className="text-xs font-medium text-neutral-600">
+                      <span className="text-xs font-medium text-[#8997A6]">
                         Guarnición
-                        <span className="font-normal text-brand-muted">
+                        <span className="font-normal text-[#8997A6]">
                           {' '}
                           (opcional si elegís principal)
                         </span>
@@ -458,7 +473,7 @@ export function ClientView() {
                         }}
                         className={inputClass}
                       >
-                        <option value="">Sin guarnición</option>
+                        <option value="">-- Sin guarnición --</option>
                         {guarniciones
                           .filter((g) => {
                             const disp = disponibleParaDia(
@@ -490,20 +505,20 @@ export function ClientView() {
                   )}
                 </div>
 
-                <div className="mt-8 flex items-center justify-between gap-3 border-t border-neutral-100 pt-5">
+                <div className="mt-8 flex items-center justify-between gap-3 border-t border-gray-100 pt-5">
                   <button
                     type="button"
                     onClick={() => pasoDía(-1)}
                     disabled={indiceActivo <= 0}
-                    className="min-h-11 min-w-0 flex-1 rounded-xl px-3 text-sm font-medium text-neutral-600 transition hover:bg-neutral-50 hover:text-neutral-900 disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent"
+                    className="min-h-11 min-w-0 flex-1 rounded-xl px-3 text-sm font-medium text-[#8997A6] transition hover:bg-gray-50 hover:text-[#171717] disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent"
                   >
                     ← Anterior
                   </button>
                   <button
                     type="button"
                     onClick={() => pasoDía(1)}
-                    disabled={indiceActivo >= diasLaborables.length - 1}
-                    className="min-h-11 min-w-0 flex-1 rounded-xl px-3 text-sm font-medium text-neutral-600 transition hover:bg-neutral-50 hover:text-neutral-900 disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent"
+                    disabled={indiceActivo >= diasDisponibles.length - 1}
+                    className="min-h-11 min-w-0 flex-1 rounded-xl px-3 text-sm font-medium text-[#8997A6] transition hover:bg-gray-50 hover:text-[#171717] disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent"
                   >
                     Siguiente →
                   </button>
@@ -512,25 +527,25 @@ export function ClientView() {
             ) : null}
           </section>
 
-          <div className="border-t border-brand-muted/12 pt-2">
+          <div className="border-t border-gray-100 pt-2">
             <button
               type="submit"
               disabled={loading}
-              className="min-h-[3.25rem] w-full rounded-xl bg-brand-accent text-base font-semibold text-white shadow-md shadow-brand-accent/25 transition hover:brightness-105 active:brightness-95 disabled:cursor-not-allowed disabled:bg-brand-muted/35 disabled:text-brand-surface disabled:shadow-none"
+              className="min-h-[3.25rem] w-full rounded-xl bg-[#CD1818] text-base font-semibold text-white shadow-sm transition hover:brightness-105 active:brightness-95 disabled:cursor-not-allowed disabled:bg-gray-200 disabled:text-white disabled:shadow-none"
             >
-              {loading ? 'Procesando…' : 'Confirmar pedido semanal'}
+              {loading ? 'Procesando…' : 'Confirmar pedido'}
             </button>
 
             {error ? (
               <div
                 role="alert"
-                className="mt-3 rounded-xl border border-brand-accent/35 bg-brand-accent/5 px-4 py-3 text-center text-sm font-medium text-brand-accent"
+                className="mt-3 rounded-xl border border-[#CD1818]/20 bg-white px-4 py-3 text-center text-sm font-medium text-[#CD1818]"
               >
                 {error}
               </div>
             ) : null}
 
-            <p className="mt-3 text-center text-[11px] leading-snug text-brand-muted">
+            <p className="mt-3 text-center text-[11px] leading-snug text-[#8997A6]">
               El stock se descuenta en una sola operación segura al confirmar.
             </p>
           </div>
@@ -539,7 +554,7 @@ export function ClientView() {
 
       {successModalOpen ? (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-brand-muted/45 p-4 backdrop-blur-[2px]"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-[2px]"
           role="presentation"
           onClick={() => setSuccessModalOpen(false)}
         >
@@ -547,32 +562,32 @@ export function ClientView() {
             role="dialog"
             aria-modal="true"
             aria-labelledby="pedido-exito-titulo"
-            className="w-full max-w-sm overflow-hidden rounded-2xl border border-brand-muted/15 bg-brand-surface shadow-xl shadow-[0_20px_50px_rgba(129,129,129,0.22)]"
+            className="w-full max-w-sm overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl"
             onClick={(ev) => ev.stopPropagation()}
           >
-            <div className="border-b border-brand-muted/15 bg-brand-surface px-6 py-4">
-              <p className="text-center text-xs font-semibold uppercase tracking-widest text-brand-muted">
+            <div className="border-b border-gray-100 bg-white px-6 py-4">
+              <p className="text-center text-xs font-semibold uppercase tracking-widest text-[#8997A6]">
                 Confirmación
               </p>
             </div>
             <div className="px-6 pb-6 pt-5">
-              <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-brand-accent text-3xl font-bold text-white shadow-md shadow-brand-accent/35">
+              <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-gray-50 text-3xl font-bold text-[#CD1818] ring-1 ring-gray-200">
                 ✓
               </div>
               <h2
                 id="pedido-exito-titulo"
-                className="text-center text-lg font-bold text-brand-accent"
+                className="text-center text-lg font-bold text-[#CD1818]"
               >
-                ¡Pedido semanal registrado!
+                ¡Pedido registrado!
               </h2>
-              <p className="mt-2 text-center text-sm leading-relaxed text-brand-muted">
+              <p className="mt-2 text-center text-sm leading-relaxed text-[#8997A6]">
                 Cada día con menú quedó cargado con su fecha de consumo. La cocina
                 lo verá en{' '}
-                <strong className="text-brand-accent">Pedidos del día</strong>.
+                <strong className="text-[#CD1818]">Pedidos del día</strong>.
               </p>
               <button
                 type="button"
-                className="mt-6 min-h-12 w-full rounded-xl bg-brand-accent text-base font-semibold text-white shadow-md shadow-brand-accent/25 transition hover:brightness-105"
+                className="mt-6 min-h-12 w-full rounded-xl bg-[#CD1818] text-base font-semibold text-white shadow-sm transition hover:brightness-105"
                 onClick={() => setSuccessModalOpen(false)}
               >
                 Cerrar

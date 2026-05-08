@@ -1,17 +1,13 @@
 import { Outlet } from 'react-router-dom'
 import { AdminSidebar } from '../components/admin/AdminSidebar'
-import { PanelTopBar } from '../components/PanelTopBar'
 
 export function LayoutAdmin() {
   return (
     <div className="flex min-h-dvh flex-col bg-brand-surface md:flex-row">
       <AdminSidebar />
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <PanelTopBar titulo="Panel de Cocina" />
-        <div className="min-h-0 flex-1 overflow-auto">
-          <Outlet />
-        </div>
-      </div>
+      <main className="min-h-0 min-w-0 flex-1 overflow-auto">
+        <Outlet />
+      </main>
     </div>
   )
 }

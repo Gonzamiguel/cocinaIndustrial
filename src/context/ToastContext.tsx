@@ -45,8 +45,8 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     toast?.variant === 'error'
       ? 'bg-red-900 text-white'
       : toast?.variant === 'info'
-        ? 'bg-[#003366] text-white'
-        : 'bg-[#F39200] text-white'
+        ? 'bg-neutral-800 text-white'
+        : 'bg-brand-accent text-white'
 
   return (
     <ToastContext.Provider value={value}>

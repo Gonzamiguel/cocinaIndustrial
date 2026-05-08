@@ -16,6 +16,7 @@ type FilaDraft = {
   cantidad: string
   unidadMedida: string
   presentacion: string
+  observacion: string
 }
 
 function nuevaFila(): FilaDraft {
@@ -28,6 +29,7 @@ function nuevaFila(): FilaDraft {
     cantidad: '',
     unidadMedida: '',
     presentacion: '',
+    observacion: '',
   }
 }
 
@@ -58,12 +60,10 @@ const PRESENTACIONES_OPCIONES = [
 ] as const
 
 const selectInsumoClass =
-  'mt-2 w-full min-h-11 rounded-xl border border-neutral-200 bg-white px-3 text-sm text-neutral-900 outline-none transition focus:border-[#003366] focus:ring-2 focus:ring-[#003366]/15'
+  'mt-2.5 w-full min-h-12 rounded-xl border border-gray-200 bg-white px-4 text-sm text-[#171717] shadow-sm outline-none transition focus:border-[#CD1818]/30 focus:ring-2 focus:ring-[#CD1818]/10'
 
-const corporate = {
-  blue: '#003366',
-  orange: '#F39200',
-} as const
+const inputInsumoClass =
+  'mt-2.5 w-full min-h-12 rounded-xl border border-gray-200 bg-white px-4 text-sm text-[#171717] shadow-sm outline-none transition focus:border-[#CD1818]/30 focus:ring-2 focus:ring-[#CD1818]/10'
 
 export function AdminSolicitudMercaderiaPage() {
   const { showToast } = useToast()
@@ -165,6 +165,7 @@ export function AdminSolicitudMercaderiaPage() {
         cantidad: cant,
         unidadMedida: um,
         presentacion: pres,
+        observacion: f.observacion.trim(),
       })
     }
 
@@ -203,24 +204,20 @@ export function AdminSolicitudMercaderiaPage() {
   if (!isCreating) {
     return (
       <div className="flex min-h-full flex-1 flex-col bg-neutral-50">
-        <header className="shrink-0 border-b border-neutral-200 bg-white px-4 py-4 shadow-sm sm:px-6">
+        <header className="shrink-0 border-b border-neutral-200 bg-white px-5 py-5 shadow-sm sm:px-8 xl:px-10">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0">
-              <h1
-                className="text-xl font-semibold tracking-tight"
-                style={{ color: corporate.blue }}
-              >
+              <h1 className="text-xl font-semibold tracking-tight text-[#CD1818]">
                 Solicitar mercadería
               </h1>
-              <p className="mt-1 text-sm text-neutral-600">
+              <p className="mt-1 text-sm text-[#8997A6]">
                 Seguimiento en tiempo real de tus solicitudes al depósito.
               </p>
             </div>
             <button
               type="button"
               onClick={() => setIsCreating(true)}
-              className="inline-flex min-h-12 shrink-0 items-center justify-center gap-2 rounded-xl px-6 text-base font-semibold text-white shadow-md transition hover:brightness-105 active:brightness-95"
-              style={{ backgroundColor: corporate.orange }}
+              className="inline-flex min-h-12 shrink-0 items-center justify-center gap-2 rounded-xl bg-[#CD1818] px-6 text-base font-semibold text-white shadow-sm transition hover:brightness-105 active:brightness-95"
             >
               <span className="text-xl leading-none">+</span>
               Nueva solicitud
@@ -228,26 +225,20 @@ export function AdminSolicitudMercaderiaPage() {
           </div>
         </header>
 
-        <div className="flex min-h-0 flex-1 flex-col px-4 py-4 sm:px-6 lg:px-8">
-          <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm">
-            <div className="shrink-0 border-b border-neutral-100 px-4 py-3 sm:px-5">
-              <h2
-                className="text-sm font-semibold uppercase tracking-wide"
-                style={{ color: corporate.blue }}
-              >
+        <div className="flex min-h-0 flex-1 flex-col px-5 py-5 sm:px-8 lg:px-12 xl:px-16 2xl:px-20">
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+            <div className="shrink-0 border-b border-neutral-100 px-5 py-4 sm:px-6">
+              <h2 className="text-sm font-semibold uppercase tracking-wide text-[#CD1818]">
                 Historial de solicitudes
               </h2>
-              <p className="mt-0.5 text-xs text-neutral-500">
+              <p className="mt-0.5 text-xs text-[#8997A6]">
                 Actualización en vivo cuando el depósito cambia el estado u observaciones.
               </p>
             </div>
             <div className="min-h-0 flex-1 overflow-auto">
               <table className="w-full min-w-[720px] border-collapse text-left text-sm">
                 <thead className="sticky top-0 z-10 shadow-sm">
-                  <tr
-                    className="text-xs uppercase tracking-wide text-white"
-                    style={{ backgroundColor: corporate.blue }}
-                  >
+                  <tr className="border-b border-gray-200 bg-gray-50 text-xs uppercase tracking-wide text-[#8997A6]">
                     <th className="px-4 py-3">Creación</th>
                     <th className="px-4 py-3">Entrega esperada</th>
                     <th className="px-4 py-3">Prioridad</th>
@@ -261,7 +252,7 @@ export function AdminSolicitudMercaderiaPage() {
                     <tr>
                       <td
                         colSpan={6}
-                        className="px-4 py-16 text-center text-neutral-500"
+                        className="px-4 py-16 text-center text-[#8997A6]"
                       >
                         Todavía no hay solicitudes. Creá una con «Nueva solicitud».
                       </td>
@@ -269,10 +260,10 @@ export function AdminSolicitudMercaderiaPage() {
                   ) : (
                     solicitudesOrdenadas.map((s) => (
                       <tr key={s.id} className="hover:bg-neutral-50/80">
-                        <td className="whitespace-nowrap px-4 py-3 text-neutral-800">
+                        <td className="whitespace-nowrap px-4 py-3 text-[#171717]">
                           {formatFechaCreacion(s.fechaCreacion)}
                         </td>
-                        <td className="px-4 py-3 text-neutral-800">
+                        <td className="px-4 py-3 text-[#171717]">
                           {s.fechaEntregaEsperada || '—'}
                         </td>
                         <td className="px-4 py-3">
@@ -281,14 +272,14 @@ export function AdminSolicitudMercaderiaPage() {
                             style={{
                               backgroundColor:
                                 s.prioridad === 'Urgente'
-                                  ? `${corporate.orange}33`
+                                  ? '#FEE2E2'
                                   : s.prioridad === 'Alta'
-                                    ? '#fef3c7'
-                                    : '#f3f4f6',
+                                    ? '#F3F4F6'
+                                    : '#F9FAFB',
                               color:
                                 s.prioridad === 'Urgente'
-                                  ? corporate.orange
-                                  : '#374151',
+                                  ? '#CD1818'
+                                  : '#8997A6',
                             }}
                           >
                             {s.prioridad}
@@ -304,14 +295,14 @@ export function AdminSolicitudMercaderiaPage() {
                         </td>
                         <td className="px-4 py-3 align-middle">
                           <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                            <span className="text-sm tabular-nums text-neutral-700">
+                            <span className="text-sm tabular-nums text-[#171717]">
                               {s.items.length}{' '}
                               {s.items.length === 1 ? 'insumo' : 'insumos'}
                             </span>
                             <button
                               type="button"
                               onClick={() => setDetalleModalId(s.id)}
-                              className="inline-flex items-center gap-1.5 text-sm font-medium text-[#003366] underline-offset-4 transition hover:underline"
+                            className="inline-flex items-center gap-1.5 text-sm font-medium text-[#CD1818] underline-offset-4 transition hover:underline"
                             >
                               <svg
                                 xmlns="http://www.w3.org/2000/svg"
@@ -331,7 +322,7 @@ export function AdminSolicitudMercaderiaPage() {
                             </button>
                           </div>
                         </td>
-                        <td className="px-4 py-3 text-xs text-neutral-600">
+                        <td className="px-4 py-3 text-xs text-[#8997A6]">
                           {s.observacionesDeposito?.trim()
                             ? s.observacionesDeposito
                             : '—'}
@@ -361,7 +352,7 @@ export function AdminSolicitudMercaderiaPage() {
               <div className="flex shrink-0 items-start justify-between gap-3 border-b border-neutral-100 px-5 py-4">
                 <h2
                   id="modal-detalle-solicitud-titulo"
-                  className="text-lg font-semibold text-neutral-900"
+                  className="text-lg font-semibold text-[#171717]"
                 >
                   Detalle de la Solicitud
                 </h2>
@@ -385,23 +376,23 @@ export function AdminSolicitudMercaderiaPage() {
               <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
                 <dl className="grid gap-3 text-sm sm:grid-cols-2">
                   <div>
-                    <dt className="text-xs font-medium text-neutral-500">
+                    <dt className="text-xs font-medium text-[#8997A6]">
                       Fecha de creación
                     </dt>
-                    <dd className="mt-0.5 font-medium text-neutral-900">
+                    <dd className="mt-0.5 font-medium text-[#171717]">
                       {formatFechaCreacion(solicitudEnDetalle.fechaCreacion)}
                     </dd>
                   </div>
                   <div>
-                    <dt className="text-xs font-medium text-neutral-500">
+                    <dt className="text-xs font-medium text-[#8997A6]">
                       Entrega esperada
                     </dt>
-                    <dd className="mt-0.5 font-medium text-neutral-900">
+                    <dd className="mt-0.5 font-medium text-[#171717]">
                       {solicitudEnDetalle.fechaEntregaEsperada || '—'}
                     </dd>
                   </div>
                   <div>
-                    <dt className="text-xs font-medium text-neutral-500">
+                    <dt className="text-xs font-medium text-[#8997A6]">
                       Prioridad
                     </dt>
                     <dd className="mt-1">
@@ -410,14 +401,14 @@ export function AdminSolicitudMercaderiaPage() {
                         style={{
                           backgroundColor:
                             solicitudEnDetalle.prioridad === 'Urgente'
-                              ? `${corporate.orange}33`
+                              ? '#FEE2E2'
                               : solicitudEnDetalle.prioridad === 'Alta'
-                                ? '#fef3c7'
-                                : '#f3f4f6',
+                                ? '#F3F4F6'
+                                : '#F9FAFB',
                           color:
                             solicitudEnDetalle.prioridad === 'Urgente'
-                              ? corporate.orange
-                              : '#374151',
+                              ? '#CD1818'
+                              : '#8997A6',
                         }}
                       >
                         {solicitudEnDetalle.prioridad}
@@ -425,7 +416,7 @@ export function AdminSolicitudMercaderiaPage() {
                     </dd>
                   </div>
                   <div>
-                    <dt className="text-xs font-medium text-neutral-500">
+                    <dt className="text-xs font-medium text-[#8997A6]">
                       Estado
                     </dt>
                     <dd className="mt-1">
@@ -442,8 +433,8 @@ export function AdminSolicitudMercaderiaPage() {
                 </dl>
 
                 {solicitudEnDetalle.observacionesDeposito?.trim() ? (
-                  <div className="mt-5 rounded-xl border border-amber-200/80 bg-amber-50/90 px-4 py-3 text-sm text-amber-950">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-amber-800/90">
+                  <div className="mt-5 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-[#171717]">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-[#CD1818]">
                       Observaciones del depósito
                     </p>
                     <p className="mt-1.5 leading-relaxed">
@@ -453,8 +444,8 @@ export function AdminSolicitudMercaderiaPage() {
                 ) : null}
 
                 {solicitudEnDetalle.observacionesRecepcion?.trim() ? (
-                  <div className="mt-5 rounded-xl border border-emerald-200/80 bg-emerald-50/90 px-4 py-3 text-sm text-emerald-950">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-emerald-800/90">
+                  <div className="mt-5 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-[#171717]">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-[#8997A6]">
                       Observaciones de recepción (cocina)
                     </p>
                     <p className="mt-1.5 leading-relaxed">
@@ -464,14 +455,11 @@ export function AdminSolicitudMercaderiaPage() {
                 ) : null}
 
                 <div className="mt-6">
-                  <p
-                    className="mb-2 text-xs font-semibold uppercase tracking-wide"
-                    style={{ color: corporate.blue }}
-                  >
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[#CD1818]">
                     Insumos
                   </p>
                   <div className="overflow-x-auto rounded-lg border border-neutral-200">
-                    <table className="w-full min-w-[480px] border-collapse text-left text-sm">
+                    <table className="w-full min-w-[620px] border-collapse text-left text-sm">
                       <thead>
                         <tr className="border-b border-neutral-200 bg-neutral-50 text-xs uppercase tracking-wide text-neutral-600">
                           <th className="px-3 py-2 font-semibold">Producto</th>
@@ -480,22 +468,26 @@ export function AdminSolicitudMercaderiaPage() {
                           <th className="px-3 py-2 font-semibold">
                             Presentación
                           </th>
+                          <th className="px-3 py-2 font-semibold">Observación</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-neutral-100">
                         {solicitudEnDetalle.items.map((it, idx) => (
                           <tr key={idx} className="bg-white">
-                            <td className="px-3 py-2 font-medium text-neutral-900">
+                            <td className="px-3 py-2 font-medium text-[#171717]">
                               {it.producto}
                             </td>
-                            <td className="px-3 py-2 tabular-nums text-neutral-800">
+                            <td className="px-3 py-2 tabular-nums text-[#171717]">
                               {it.cantidad}
                             </td>
-                            <td className="px-3 py-2 text-neutral-700">
+                            <td className="px-3 py-2 text-[#171717]">
                               {it.unidadMedida}
                             </td>
-                            <td className="px-3 py-2 text-neutral-700">
+                            <td className="px-3 py-2 text-[#171717]">
                               {it.presentacion}
+                            </td>
+                            <td className="px-3 py-2 text-[#171717]">
+                              {it.observacion || '—'}
                             </td>
                           </tr>
                         ))}
@@ -508,24 +500,23 @@ export function AdminSolicitudMercaderiaPage() {
               {solicitudEnDetalle.estado === 'Enviado' ? (
                 <div className="shrink-0 border-t border-neutral-200 bg-neutral-50 px-5 py-4">
                   <label className="block text-left">
-                    <span className="text-xs font-medium text-neutral-600">
+                    <span className="text-xs font-medium text-[#8997A6]">
                       Observaciones de recepción{' '}
-                      <span className="font-normal text-neutral-500">(opcional)</span>
+                      <span className="font-normal text-[#8997A6]">(opcional)</span>
                     </span>
                     <textarea
                       value={obsRecepcionDraft}
                       onChange={(e) => setObsRecepcionDraft(e.target.value)}
                       rows={2}
                       placeholder='Ej. "Faltó 1 kg de tomate, el resto OK"'
-                      className="mt-1.5 w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm outline-none focus:border-[#003366] focus:ring-2 focus:ring-[#003366]/15"
+                      className="mt-1.5 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-[#171717] outline-none focus:border-[#CD1818]/30 focus:ring-2 focus:ring-[#CD1818]/10"
                     />
                   </label>
                   <button
                     type="button"
                     onClick={() => void handleConfirmarRecepcion()}
                     disabled={confirmandoRecepcion}
-                    className="mt-4 flex min-h-12 w-full items-center justify-center rounded-xl px-5 text-base font-semibold text-white shadow-md transition hover:brightness-105 disabled:opacity-45"
-                    style={{ backgroundColor: corporate.orange }}
+                    className="mt-4 flex min-h-12 w-full items-center justify-center rounded-xl bg-[#CD1818] px-5 text-base font-semibold text-white shadow-sm transition hover:brightness-105 disabled:opacity-45"
                   >
                     {confirmandoRecepcion
                       ? 'Confirmando…'
@@ -538,7 +529,7 @@ export function AdminSolicitudMercaderiaPage() {
                 <button
                   type="button"
                   onClick={() => setDetalleModalId(null)}
-                  className="min-h-10 rounded-xl border border-neutral-300 bg-white px-5 text-sm font-semibold text-neutral-800 shadow-sm transition hover:bg-neutral-50"
+                  className="min-h-10 rounded-xl border border-gray-200 bg-white px-5 text-sm font-semibold text-[#171717] shadow-sm transition hover:bg-neutral-50"
                 >
                   Cerrar
                 </button>
@@ -553,23 +544,21 @@ export function AdminSolicitudMercaderiaPage() {
   /** Vista formulario: lista larga con scroll + pie fijo con envío */
   return (
     <div className="flex min-h-full flex-1 flex-col bg-neutral-50">
-      <div className="shrink-0 border-b border-neutral-200 bg-white px-4 py-3 shadow-sm sm:px-6">
+      <div className="shrink-0 border-b border-neutral-200 bg-white px-5 py-4 shadow-sm sm:px-8 xl:px-10">
         <button
           type="button"
           onClick={() => setIsCreating(false)}
-          className="inline-flex min-h-11 items-center gap-2 rounded-xl px-3 text-sm font-semibold text-[#003366] transition hover:bg-[#003366]/8"
+          className="inline-flex min-h-11 items-center gap-2 rounded-xl px-3 text-sm font-semibold text-[#CD1818] transition hover:bg-gray-100"
         >
           <span aria-hidden>←</span>
           Volver al historial
         </button>
-        <h1
-          className="mt-2 text-xl font-semibold tracking-tight"
-          style={{ color: corporate.blue }}
-        >
+        <h1 className="mt-2 text-xl font-semibold tracking-tight text-[#CD1818]">
           Nueva solicitud
         </h1>
-        <p className="mt-1 text-sm text-neutral-600">
-          Completá fecha, prioridad e insumos. El envío queda fijo abajo a la derecha.
+        <p className="mt-1.5 text-sm leading-relaxed text-[#8997A6]">
+          Completá fecha, prioridad e insumos. El envío queda fijo abajo a la
+          derecha.
         </p>
       </div>
 
@@ -577,11 +566,11 @@ export function AdminSolicitudMercaderiaPage() {
         onSubmit={handleEnviar}
         className="flex min-h-0 flex-1 flex-col"
       >
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-28 pt-4 sm:px-6 sm:pb-32 lg:px-10">
-          <div className="mx-auto max-w-5xl space-y-6">
-            <div className="grid gap-4 rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm sm:grid-cols-2 sm:p-6">
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-32 pt-6 sm:px-8 sm:pb-36 lg:px-14 xl:px-20 2xl:px-24">
+          <div className="mx-auto max-w-6xl space-y-8">
+            <div className="grid gap-5 rounded-xl border border-gray-200 bg-white p-6 shadow-sm sm:grid-cols-2 sm:p-7">
               <label className="block text-left">
-                <span className="text-xs font-medium text-neutral-600">
+                <span className="text-xs font-medium text-[#8997A6]">
                   Fecha de entrega esperada
                 </span>
                 <input
@@ -589,11 +578,11 @@ export function AdminSolicitudMercaderiaPage() {
                   required
                   value={fechaEntrega}
                   onChange={(e) => setFechaEntrega(e.target.value)}
-                  className="mt-1.5 w-full min-h-11 rounded-xl border border-neutral-200 px-3 text-base outline-none focus:border-[#003366] focus:ring-2 focus:ring-[#003366]/15"
+                  className="mt-2.5 w-full min-h-12 rounded-xl border border-gray-200 bg-white px-4 text-base text-[#171717] shadow-sm outline-none transition focus:border-[#CD1818]/30 focus:ring-2 focus:ring-[#CD1818]/10"
                 />
               </label>
               <label className="block text-left">
-                <span className="text-xs font-medium text-neutral-600">
+                <span className="text-xs font-medium text-[#8997A6]">
                   Prioridad
                 </span>
                 <select
@@ -601,7 +590,7 @@ export function AdminSolicitudMercaderiaPage() {
                   onChange={(e) =>
                     setPrioridad(e.target.value as PrioridadSolicitud)
                   }
-                  className="mt-1.5 w-full min-h-11 rounded-xl border border-neutral-200 px-3 text-base outline-none focus:border-[#003366] focus:ring-2 focus:ring-[#003366]/15"
+                  className="mt-2.5 w-full min-h-12 rounded-xl border border-gray-200 bg-white px-4 text-base text-[#171717] shadow-sm outline-none transition focus:border-[#CD1818]/30 focus:ring-2 focus:ring-[#CD1818]/10"
                 >
                   {PRIORIDADES.map((p) => (
                     <option key={p} value={p}>
@@ -612,21 +601,28 @@ export function AdminSolicitudMercaderiaPage() {
               </label>
             </div>
 
-            <div className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm sm:p-6">
-              <p
-                className="mb-4 text-sm font-semibold"
-                style={{ color: corporate.blue }}
-              >
+            <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm sm:p-7">
+              <p className="mb-5 text-sm font-semibold text-[#CD1818]">
                 Insumos
               </p>
-              <div className="space-y-4">
+              <div className="mb-4 hidden rounded-xl border border-gray-200 bg-gray-50 px-5 py-3 lg:block">
+                <div className="grid gap-4 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#8997A6] lg:grid-cols-[minmax(0,2fr)_minmax(0,0.8fr)_minmax(0,1fr)_minmax(0,1.1fr)_minmax(0,1.6fr)_auto]">
+                  <span>Producto</span>
+                  <span>Cantidad</span>
+                  <span>Unidad de medida</span>
+                  <span>Presentación</span>
+                  <span>Observación</span>
+                  <span className="text-right">Acción</span>
+                </div>
+              </div>
+              <div className="space-y-5">
                 {filas.map((fila, i) => (
                   <div
                     key={fila.key}
-                    className="grid gap-4 rounded-2xl border border-neutral-100 bg-neutral-50/50 p-4 sm:grid-cols-12 sm:items-end sm:gap-x-3 sm:p-5"
+                    className="grid gap-5 rounded-xl border border-gray-200 bg-gray-50 p-5 shadow-sm lg:grid-cols-[minmax(0,2fr)_minmax(0,0.8fr)_minmax(0,1fr)_minmax(0,1.1fr)_minmax(0,1.6fr)_auto] lg:items-end lg:gap-x-4 lg:gap-y-4 lg:p-6"
                   >
-                    <label className="sm:col-span-5">
-                      <span className="text-xs font-medium text-neutral-600">
+                    <label className="block text-left">
+                      <span className="text-xs font-medium text-[#8997A6]">
                         Producto
                       </span>
                       <input
@@ -635,12 +631,12 @@ export function AdminSolicitudMercaderiaPage() {
                         onChange={(e) =>
                           actualizarFila(i, { producto: e.target.value })
                         }
-                        className="mt-2 w-full min-h-11 rounded-xl border border-neutral-200 bg-white px-3 text-sm text-neutral-900 outline-none transition focus:border-[#003366] focus:ring-2 focus:ring-[#003366]/15"
+                        className={inputInsumoClass}
                         placeholder="Ej. Aceite girasol"
                       />
                     </label>
-                    <label className="sm:col-span-2">
-                      <span className="text-xs font-medium text-neutral-600">
+                    <label className="block text-left">
+                      <span className="text-xs font-medium text-[#8997A6]">
                         Cantidad
                       </span>
                       <input
@@ -652,12 +648,12 @@ export function AdminSolicitudMercaderiaPage() {
                         onChange={(e) =>
                           actualizarFila(i, { cantidad: e.target.value })
                         }
-                        className="mt-2 w-full min-h-11 rounded-xl border border-neutral-200 bg-white px-3 text-sm text-neutral-900 outline-none transition focus:border-[#003366] focus:ring-2 focus:ring-[#003366]/15"
+                        className={inputInsumoClass}
                         placeholder="0"
                       />
                     </label>
-                    <label className="sm:col-span-2">
-                      <span className="text-xs font-medium text-neutral-600">
+                    <label className="block text-left">
+                      <span className="text-xs font-medium text-[#8997A6]">
                         Unidad de medida
                       </span>
                       <select
@@ -675,8 +671,8 @@ export function AdminSolicitudMercaderiaPage() {
                         ))}
                       </select>
                     </label>
-                    <label className="sm:col-span-2">
-                      <span className="text-xs font-medium text-neutral-600">
+                    <label className="block text-left">
+                      <span className="text-xs font-medium text-[#8997A6]">
                         Presentación
                       </span>
                       <select
@@ -694,12 +690,26 @@ export function AdminSolicitudMercaderiaPage() {
                         ))}
                       </select>
                     </label>
-                    <div className="flex items-end sm:col-span-1 sm:justify-end">
+                    <label className="block text-left">
+                      <span className="text-xs font-medium text-[#8997A6]">
+                        Observación
+                      </span>
+                      <input
+                        type="text"
+                        value={fila.observacion}
+                        onChange={(e) =>
+                          actualizarFila(i, { observacion: e.target.value })
+                        }
+                        className={inputInsumoClass}
+                        placeholder="Ej. Sin TACC, marca puntual, madurez, corte..."
+                      />
+                    </label>
+                    <div className="flex items-end lg:justify-end">
                       <button
                         type="button"
                         onClick={() => quitarFila(i)}
                         disabled={filas.length <= 1}
-                        className="min-h-11 text-sm font-medium text-red-700 underline-offset-2 hover:underline disabled:opacity-30"
+                        className="min-h-12 rounded-xl px-3 text-sm font-medium text-[#8997A6] underline-offset-2 transition hover:bg-white hover:text-[#CD1818] hover:underline disabled:opacity-30 disabled:hover:bg-transparent"
                       >
                         Quitar
                       </button>
@@ -708,11 +718,11 @@ export function AdminSolicitudMercaderiaPage() {
                 ))}
               </div>
 
-              <div className="mt-6 border-t border-neutral-100 pt-5">
+              <div className="mt-8 border-t border-neutral-100 pt-6">
                 <button
                   type="button"
                   onClick={agregarFila}
-                  className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-[#003366]/30 bg-transparent px-4 py-2.5 text-sm font-semibold text-[#003366] shadow-none transition hover:border-[#003366]/50 hover:bg-[#003366]/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#003366]/25"
+                  className="inline-flex min-h-12 items-center gap-2 rounded-xl border border-gray-200 bg-white px-5 py-3 text-sm font-semibold text-[#CD1818] shadow-sm transition hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#CD1818]/10"
                 >
                   <svg
                     xmlns="http://www.w3.org/2000/svg"
@@ -734,13 +744,12 @@ export function AdminSolicitudMercaderiaPage() {
           </div>
         </div>
 
-        <div className="sticky bottom-0 z-30 border-t border-gray-200 bg-white px-6 py-4">
-          <div className="mx-auto flex max-w-5xl justify-end">
+        <div className="sticky bottom-0 z-30 border-t border-gray-200 bg-white/95 px-5 py-4 backdrop-blur sm:px-8 lg:px-14 xl:px-20 2xl:px-24">
+          <div className="mx-auto flex max-w-6xl justify-end">
             <button
               type="submit"
               disabled={enviando}
-              className="inline-flex min-h-11 shrink-0 items-center rounded-xl px-6 py-2.5 text-sm font-semibold text-white shadow-md transition hover:brightness-105 disabled:opacity-45"
-              style={{ backgroundColor: corporate.orange }}
+            className="inline-flex min-h-12 shrink-0 items-center rounded-xl bg-[#CD1818] px-7 py-3 text-sm font-semibold text-white shadow-sm transition hover:brightness-105 disabled:opacity-45"
             >
               {enviando ? 'Enviando…' : 'Enviar solicitud al depósito'}
             </button>
