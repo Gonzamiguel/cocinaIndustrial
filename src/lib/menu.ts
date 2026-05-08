@@ -48,6 +48,8 @@ export interface PedidoDelDia {
   guarnicion: string
   fecha: Date | null
   estado: EstadoPedido
+  /** Día de consumo del menú (ej. pedido anticipado semanal). */
+  fechaConsumo?: string
 }
 
 function esLugarEntregaValido(v: string): v is LugarEntrega {
@@ -73,6 +75,9 @@ function mapPedidoDoc(id: string, data: Record<string, unknown>): PedidoDelDia {
   const estado: EstadoPedido =
     estadoRaw === 'archivado' ? 'archivado' : 'activo'
 
+  const fechaConsumo =
+    typeof data.fechaConsumo === 'string' ? data.fechaConsumo : undefined
+
   return {
     id,
     nombreCliente,
@@ -81,6 +86,7 @@ function mapPedidoDoc(id: string, data: Record<string, unknown>): PedidoDelDia {
     guarnicion,
     fecha,
     estado,
+    fechaConsumo,
   }
 }
 
@@ -404,6 +410,138 @@ export async function confirmarPedidoConTransaccion(
       fecha: serverTimestamp(),
       estado: 'activo',
     })
+  })
+}
+
+export interface LineaPedidoSemanal {
+  fechaConsumo: string
+  principalId: string | null
+  guarnicionId: string | null
+}
+
+export interface ConfirmarPedidoSemanalInput {
+  nombreCliente: string
+  lugarEntrega: string
+  lineas: LineaPedidoSemanal[]
+}
+
+/**
+ * Descuenta stock agregado en una sola transacción y crea un documento en `pedidos`
+ * por cada día con menú (con `fechaConsumo` para filtros en admin).
+ */
+export async function confirmarPedidoSemanalConTransaccion(
+  input: ConfirmarPedidoSemanalInput,
+): Promise<void> {
+  const nombre = input.nombreCliente.trim()
+  if (!nombre) {
+    throw new Error('El nombre y apellido son obligatorios')
+  }
+  if (!input.lugarEntrega || !esLugarEntregaValido(input.lugarEntrega)) {
+    throw new Error('Elegí un lugar de entrega válido')
+  }
+
+  const lineasValidadas: LineaPedidoSemanal[] = []
+
+  for (const raw of input.lineas) {
+    const tienePrincipal = Boolean(raw.principalId)
+    const tieneGuarnicion = Boolean(raw.guarnicionId)
+    if (!tienePrincipal && !tieneGuarnicion) continue
+
+    if (
+      tienePrincipal &&
+      tieneGuarnicion &&
+      raw.principalId === raw.guarnicionId
+    ) {
+      throw new Error('El principal y la guarnición deben ser ítems distintos')
+    }
+
+    const fechaConsumo = raw.fechaConsumo.trim()
+    if (!fechaConsumo) {
+      throw new Error('Falta la fecha de consumo en una línea del pedido')
+    }
+
+    lineasValidadas.push({
+      fechaConsumo,
+      principalId: tienePrincipal ? raw.principalId : null,
+      guarnicionId: tieneGuarnicion ? raw.guarnicionId : null,
+    })
+  }
+
+  if (lineasValidadas.length === 0) {
+    throw new Error(
+      'Elegí al menos un día de la semana con plato principal o guarnición.',
+    )
+  }
+
+  const cantidadPorMenuId = new Map<string, number>()
+  for (const line of lineasValidadas) {
+    if (line.principalId) {
+      cantidadPorMenuId.set(
+        line.principalId,
+        (cantidadPorMenuId.get(line.principalId) ?? 0) + 1,
+      )
+    }
+    if (line.guarnicionId) {
+      cantidadPorMenuId.set(
+        line.guarnicionId,
+        (cantidadPorMenuId.get(line.guarnicionId) ?? 0) + 1,
+      )
+    }
+  }
+
+  const db = getDb()
+
+  await runTransaction(db, async (transaction) => {
+    const cache = new Map<string, MenuItem>()
+
+    for (const [menuId, cantidad] of cantidadPorMenuId) {
+      const ref = doc(db, MENU_COLLECTION, menuId)
+      const snap = await transaction.get(ref)
+      if (!snap.exists()) {
+        throw new Error('Un ítem del menú seleccionado ya no existe')
+      }
+      const item = mapDoc(snap.id, snap.data() as Record<string, unknown>)
+      if (item.stock < cantidad) {
+        throw new Error(
+          `Stock insuficiente para «${item.nombre}» (pediste ${cantidad}, hay ${item.stock}).`,
+        )
+      }
+      cache.set(menuId, item)
+    }
+
+    for (const line of lineasValidadas) {
+      const p = line.principalId ? cache.get(line.principalId) ?? null : null
+      const g = line.guarnicionId ? cache.get(line.guarnicionId) ?? null : null
+
+      if (line.principalId && (!p || p.categoria !== 'principal')) {
+        throw new Error('La selección de plato principal no es válida')
+      }
+      if (line.guarnicionId && (!g || g.categoria !== 'guarnicion')) {
+        throw new Error('La selección de guarnición no es válida')
+      }
+    }
+
+    for (const [menuId, cantidad] of cantidadPorMenuId) {
+      const item = cache.get(menuId)!
+      const ref = doc(db, MENU_COLLECTION, menuId)
+      transaction.update(ref, { stock: item.stock - cantidad })
+    }
+
+    for (const line of lineasValidadas) {
+      const p = line.principalId ? cache.get(line.principalId) ?? null : null
+      const g = line.guarnicionId ? cache.get(line.guarnicionId) ?? null : null
+
+      const pedidoRef = doc(collection(db, PEDIDOS_COLLECTION))
+      transaction.set(pedidoRef, {
+        nombreCliente: nombre,
+        lugarEntrega: input.lugarEntrega,
+        platoPrincipal: p?.nombre ?? '—',
+        guarnicion: g?.nombre ?? '—',
+        fecha: serverTimestamp(),
+        estado: 'activo',
+        fechaConsumo: line.fechaConsumo,
+      })
+    }
   })
 }
 

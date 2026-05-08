@@ -1,16 +1,29 @@
 import { NavLink } from 'react-router-dom'
 
+/** Paleta corporativa panel cocina */
+const NAV = {
+  blue: '#003366',
+  orange: '#F39200',
+  muted: '#64748b',
+} as const
+
 const linkBase =
-  'flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-brand-accent focus-visible:ring-offset-2 focus-visible:ring-offset-white'
+  'flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-[#003366]/35 focus-visible:ring-offset-2 focus-visible:ring-offset-white'
 
 export function AdminSidebar() {
   return (
-    <aside className="flex shrink-0 flex-col border-b border-brand-muted/20 bg-brand-surface shadow-[0_1px_0_rgba(129,129,129,0.12)] md:w-60 md:border-b-0 md:border-r md:border-brand-muted/20 lg:w-64">
-      <div className="border-b border-brand-muted/15 px-4 py-5 md:px-5">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-brand-muted">
+    <aside className="flex shrink-0 flex-col border-b border-[#003366]/15 bg-white shadow-[0_1px_0_rgba(0,51,102,0.08)] md:w-60 md:border-b-0 md:border-r md:border-[#003366]/12 lg:w-64">
+      <div className="border-b border-[#003366]/10 px-4 py-5 md:px-5">
+        <p
+          className="text-[10px] font-semibold uppercase tracking-[0.2em]"
+          style={{ color: NAV.muted }}
+        >
           Panel corporativo
         </p>
-        <p className="mt-1 text-lg font-semibold tracking-tight text-brand-accent">
+        <p
+          className="mt-1 text-lg font-semibold tracking-tight"
+          style={{ color: NAV.blue }}
+        >
           Comedor industrial
         </p>
       </div>
@@ -24,13 +37,14 @@ export function AdminSidebar() {
           className={({ isActive }) =>
             `${linkBase} whitespace-nowrap md:whitespace-normal ${
               isActive
-                ? 'bg-brand-accent/8 text-brand-accent ring-1 ring-brand-accent/25'
-                : 'text-brand-muted hover:bg-brand-muted/8 hover:text-brand-accent'
+                ? 'bg-[#003366]/10 font-semibold text-[#003366] ring-1 ring-[#003366]/25'
+                : 'text-neutral-600 hover:bg-neutral-50 hover:text-[#003366]'
             }`
           }
         >
           <span
-            className="h-2 w-2 shrink-0 rounded-full bg-brand-accent"
+            className="h-2 w-2 shrink-0 rounded-full"
+            style={{ backgroundColor: NAV.orange }}
             aria-hidden
           />
           Pedidos del día
@@ -40,13 +54,13 @@ export function AdminSidebar() {
           className={({ isActive }) =>
             `${linkBase} whitespace-nowrap md:whitespace-normal ${
               isActive
-                ? 'bg-brand-accent/8 text-brand-accent ring-1 ring-brand-accent/25'
-                : 'text-brand-muted hover:bg-brand-muted/8 hover:text-brand-accent'
+                ? 'bg-[#003366]/10 font-semibold text-[#003366] ring-1 ring-[#003366]/25'
+                : 'text-neutral-600 hover:bg-neutral-50 hover:text-[#003366]'
             }`
           }
         >
           <span
-            className="h-2 w-2 shrink-0 rounded-full bg-brand-muted/60"
+            className="h-2 w-2 shrink-0 rounded-full bg-neutral-300"
             aria-hidden
           />
           Dashboard
@@ -56,23 +70,40 @@ export function AdminSidebar() {
           className={({ isActive }) =>
             `${linkBase} whitespace-nowrap md:whitespace-normal ${
               isActive
-                ? 'bg-brand-accent/8 text-brand-accent ring-1 ring-brand-accent/25'
-                : 'text-brand-muted hover:bg-brand-muted/8 hover:text-brand-accent'
+                ? 'bg-[#003366]/10 font-semibold text-[#003366] ring-1 ring-[#003366]/25'
+                : 'text-neutral-600 hover:bg-neutral-50 hover:text-[#003366]'
             }`
           }
         >
           <span
-            className="h-2 w-2 shrink-0 rounded-full bg-brand-muted/60"
+            className="h-2 w-2 shrink-0 rounded-full bg-neutral-300"
             aria-hidden
           />
           Gestión de menú
         </NavLink>
+        <NavLink
+          to="/admin/mercaderia"
+          className={({ isActive }) =>
+            `${linkBase} whitespace-nowrap md:whitespace-normal ${
+              isActive
+                ? 'bg-[#003366]/10 font-semibold text-[#003366] ring-1 ring-[#003366]/25'
+                : 'text-neutral-600 hover:bg-neutral-50 hover:text-[#003366]'
+            }`
+          }
+        >
+          <span
+            className="h-2 w-2 shrink-0 rounded-full"
+            style={{ backgroundColor: NAV.orange }}
+            aria-hidden
+          />
+          Solicitar mercadería
+        </NavLink>
       </nav>
 
-      <div className="mt-auto hidden border-t border-brand-muted/15 p-4 md:block">
+      <div className="mt-auto border-t border-[#003366]/10 p-4">
         <NavLink
           to="/"
-          className="block rounded-xl border border-brand-muted/25 bg-brand-surface px-4 py-2.5 text-center text-xs font-medium text-brand-accent transition hover:bg-brand-muted/5"
+          className="block rounded-xl border border-[#003366]/20 bg-white px-4 py-2.5 text-center text-xs font-semibold text-[#003366] transition hover:bg-[#003366]/5"
         >
           Ver vista cliente
         </NavLink>

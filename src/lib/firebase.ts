@@ -3,12 +3,15 @@
  *
  * Colecciones esperadas:
  * - menu: { nombre, categoria: 'principal' | 'guarnicion', stock: number }
- * - pedidos: { nombreCliente, lugarEntrega, platoPrincipal, guarnicion, fecha, timestamp?, estado }
+ * - pedidos: { ... }
+ * - solicitudes_mercaderia: cocina → depósito (fechaCreacion, items, estado, etc.)
+ * - usuarios: { rol: 'admin_cocina' | 'admin_deposito' } (doc id = UID de Auth)
  *
  * Nota: la apiKey en cliente es pública por diseño; restringe dominios en la consola Firebase.
  */
 import { initializeApp, type FirebaseApp } from 'firebase/app'
 import { getAnalytics, type Analytics } from 'firebase/analytics'
+import { getAuth, type Auth } from 'firebase/auth'
 import { getFirestore, type Firestore } from 'firebase/firestore'
 
 const firebaseConfig = {
@@ -28,9 +31,17 @@ export const analytics: Analytics | undefined =
   typeof window !== 'undefined' ? getAnalytics(app) : undefined
 
 let db: Firestore | undefined
+let auth: Auth | undefined
 
 export function getFirebaseApp(): FirebaseApp {
   return app
+}
+
+export function getAuthApp(): Auth {
+  if (!auth) {
+    auth = getAuth(app)
+  }
+  return auth
 }
 
 export function getDb(): Firestore {

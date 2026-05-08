@@ -374,6 +374,7 @@ export function AdminPedidosPage() {
                 <thead>
                   <tr className="border-b border-white/15 bg-brand-accent text-xs font-semibold uppercase tracking-wide text-white">
                     <th className="whitespace-nowrap px-5 py-4">Hora</th>
+                    <th className="whitespace-nowrap px-5 py-4">Consumo</th>
                     <th className="px-5 py-4">Cliente</th>
                     <th className="whitespace-nowrap px-5 py-4">Ubicación</th>
                     <th className="min-w-[220px] px-5 py-4">Pedido</th>
@@ -387,6 +388,9 @@ export function AdminPedidosPage() {
                     >
                       <td className="whitespace-nowrap px-5 py-4 font-mono text-sm font-medium text-brand-muted">
                         {formatHora(p.fecha)}
+                      </td>
+                      <td className="max-w-[10rem] whitespace-normal px-5 py-4 text-sm text-brand-muted">
+                        {p.fechaConsumo ?? '—'}
                       </td>
                       <td className="px-5 py-4 font-medium text-brand-accent">
                         {p.nombreCliente}
