@@ -6,6 +6,8 @@
  * - pedidos: { ... }
  * - recetario: biblioteca documental de fichas técnicas para admin cocina
  * - solicitudes_mercaderia: cocina → depósito (fechaCreacion, items, estado, etc.)
+ * - insumos: catálogo depósito (nombre genérico, marca, presentación, costo por unidad base)
+ * - movimientos_inventario: ingresos, egresos, ajustes y decomisos (trazabilidad HACCP; opcional precio en ingresos)
  * - usuarios: { rol: 'admin_cocina' | 'admin_deposito' } (doc id = UID de Auth)
  *
  * Nota: la apiKey en cliente es pública por diseño; restringe dominios en la consola Firebase.

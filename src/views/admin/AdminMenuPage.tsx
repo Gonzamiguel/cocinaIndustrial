@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
-  addMenuItem,
   deleteMenuItem,
   subscribeMenu,
   updateMenuNombre,
@@ -59,14 +58,9 @@ function PencilIcon({ className }: { className?: string }) {
 }
 
 export function AdminMenuPage() {
-  const itemsPorPagina = 5
+  const itemsPorPagina = 8
   const [items, setItems] = useState<MenuItem[]>([])
-  const [nombre, setNombre] = useState('')
-  const [categoria, setCategoria] = useState<CategoriaMenu>('principal')
-  const [stock, setStock] = useState(0)
-  const [aceptaGuarnicionNuevo, setAceptaGuarnicionNuevo] = useState(true)
   const [filtroActivo, setFiltroActivo] = useState<CategoriaMenu>('principal')
-  const [loading, setLoading] = useState(false)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [busyStockId, setBusyStockId] = useState<string | null>(null)
   const [busyNombreId, setBusyNombreId] = useState<string | null>(null)
@@ -121,27 +115,6 @@ export function AdminMenuPage() {
       [filtroActivo]: Math.min(Math.max(1, prev[filtroActivo] ?? 1), totalPaginas),
     }))
   }, [filtroActivo, totalPaginas])
-
-  async function handleAdd(e: React.FormEvent) {
-    e.preventDefault()
-    setError(null)
-    setLoading(true)
-    try {
-      await addMenuItem({
-        nombre,
-        categoria,
-        stock: Number(stock),
-        aceptaGuarnicion: categoria === 'principal' ? aceptaGuarnicionNuevo : undefined,
-      })
-      setNombre('')
-      setStock(0)
-      setAceptaGuarnicionNuevo(true)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'No se pudo agregar el plato')
-    } finally {
-      setLoading(false)
-    }
-  }
 
   function setDraftStockValue(id: string, value: number) {
     const v = Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0
@@ -223,7 +196,15 @@ export function AdminMenuPage() {
           Gestión de menú
         </h1>
         <p className="mt-1 text-sm text-[#8997A6]">
-          Alta de platos y control de stock para la vista cliente.
+          Stock y edición del menú para la vista cliente. Los platos nuevos se
+          cargan desde{' '}
+          <Link
+            to="/admin/recetario"
+            className="font-medium text-[#CD1818] underline-offset-2 hover:text-[#171717] hover:underline"
+          >
+            Recetario
+          </Link>
+          .
         </p>
         <div className="mt-3 md:hidden">
           <Link
@@ -244,74 +225,6 @@ export function AdminMenuPage() {
             {error}
           </div>
         ) : null}
-
-        <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm sm:p-6">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-[#CD1818]">
-            Nuevo plato
-          </h2>
-          <form className="mt-5 space-y-4" onSubmit={handleAdd}>
-            <div className="grid gap-4 lg:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(7rem,0.6fr)] lg:items-end">
-              <label className="block">
-                <span className="text-xs font-medium text-[#8997A6]">Nombre</span>
-                <input
-                  required
-                  value={nombre}
-                  onChange={(e) => setNombre(e.target.value)}
-                  className={`mt-1.5 w-full min-h-11 rounded-xl border border-gray-200 bg-white px-3 text-sm text-[#171717] ${inputFocusClass}`}
-                  placeholder="Ej. Milanesa napolitana"
-                />
-              </label>
-              <label className="block">
-                <span className="text-xs font-medium text-[#8997A6]">Categoría</span>
-                <select
-                  required
-                  value={categoria}
-                  onChange={(e) => setCategoria(e.target.value as CategoriaMenu)}
-                  className={`mt-1.5 w-full min-h-11 rounded-xl border border-gray-200 bg-white px-3 text-sm text-[#171717] ${inputFocusClass}`}
-                >
-                  <option value="principal">Plato principal</option>
-                  <option value="guarnicion">Guarnición</option>
-                </select>
-              </label>
-              {categoria === 'principal' ? (
-                <label className="flex min-h-11 items-center gap-3 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm font-medium text-[#171717]">
-                  <input
-                    type="checkbox"
-                    className="h-4 w-4 accent-[#CD1818]"
-                    checked={aceptaGuarnicionNuevo}
-                    onChange={(e) => setAceptaGuarnicionNuevo(e.target.checked)}
-                  />
-                  ¿Acepta guarnición?
-                </label>
-              ) : (
-                <div className="hidden lg:block" aria-hidden />
-              )}
-              <label className="block">
-                <span className="text-xs font-medium text-[#8997A6]">
-                  Stock inicial
-                </span>
-                <input
-                  required
-                  type="number"
-                  min={0}
-                  step={1}
-                  value={stock}
-                  onChange={(e) => setStock(Number(e.target.value))}
-                  className={`mt-1.5 w-full min-h-11 rounded-xl border border-gray-200 bg-white px-3 text-sm text-[#171717] ${inputFocusClass}`}
-                />
-              </label>
-            </div>
-            <div className="flex justify-end">
-              <button
-                type="submit"
-                disabled={loading}
-                className="min-h-11 w-full rounded-xl bg-[#CD1818] px-5 text-sm font-semibold text-white shadow-sm transition hover:brightness-105 active:brightness-95 disabled:opacity-50 sm:w-auto"
-              >
-                {loading ? 'Guardando…' : 'Agregar plato'}
-              </button>
-            </div>
-          </form>
-        </section>
 
         <section>
           <div className="mb-4 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
@@ -354,12 +267,26 @@ export function AdminMenuPage() {
 
           {items.length === 0 ? (
             <p className="rounded-xl border border-dashed border-gray-300 bg-white px-6 py-14 text-center text-sm text-[#8997A6] shadow-sm">
-              No hay platos. Creá el primero con el formulario superior.
+              No hay platos en el menú. Creá fichas en{' '}
+              <Link
+                to="/admin/recetario"
+                className="font-medium text-[#CD1818] underline-offset-2 hover:text-[#171717] hover:underline"
+              >
+                Recetario
+              </Link>{' '}
+              para publicarlos aquí.
             </p>
           ) : itemsFiltrados.length === 0 ? (
             <p className="rounded-xl border border-dashed border-gray-300 bg-white px-6 py-10 text-center text-sm text-[#8997A6] shadow-sm">
               No hay ítems en «{labelCategoria(filtroActivo)}». Cambiá de pestaña o
-              agregá platos en esa categoría.
+              cargá recetas en esa categoría desde{' '}
+              <Link
+                to="/admin/recetario"
+                className="font-medium text-[#CD1818] underline-offset-2 hover:text-[#171717] hover:underline"
+              >
+                Recetario
+              </Link>
+              .
             </p>
           ) : (
             <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">

@@ -14,6 +14,25 @@ function IconBox(props: IconProps) {
   )
 }
 
+function IconMovimientos(props: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" {...props}>
+      <path d="M9 12h11M9 8h11M9 16h7" />
+      <path d="M5 6.5h3.5a1.5 1.5 0 0 1 1.5 1.5v11a1.5 1.5 0 0 1-1.5 1.5H5a1.5 1.5 0 0 1-1.5-1.5V8a1.5 1.5 0 0 1 1.5-1.5Z" />
+    </svg>
+  )
+}
+
+function IconInventario(props: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" {...props}>
+      <path d="M4 7.5h16v11a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-11Z" />
+      <path d="M8 7.5V5.25a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1V7.5" />
+      <path d="M8 12h8M8 15.5h5" />
+    </svg>
+  )
+}
+
 function IconLogout(props: IconProps) {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" {...props}>
@@ -23,6 +42,13 @@ function IconLogout(props: IconProps) {
     </svg>
   )
 }
+
+const linkClass = ({ isActive }: { isActive: boolean }) =>
+  `group flex w-full items-center justify-between rounded-xl px-4 py-3 text-sm font-medium transition-all duration-300 outline-none focus-visible:ring-2 focus-visible:ring-brand-accent/25 focus-visible:ring-offset-2 focus-visible:ring-offset-white ${
+    isActive
+      ? 'bg-brand-accent/10 text-brand-accent ring-1 ring-brand-accent/20'
+      : 'text-neutral-600 hover:bg-neutral-50 hover:text-brand-accent'
+  }`
 
 export function DepositoSidebar() {
   const { logout } = useAuth()
@@ -48,16 +74,7 @@ export function DepositoSidebar() {
         className="flex min-h-0 flex-1 gap-1 overflow-x-auto px-2 py-3 [-ms-overflow-style:none] [scrollbar-width:none] md:flex-col md:overflow-visible md:px-3 md:py-6 [&::-webkit-scrollbar]:hidden"
         aria-label="Depósito"
       >
-        <NavLink
-          to="/deposito/solicitudes"
-          className={({ isActive }) =>
-            `group flex w-full items-center justify-between rounded-xl px-4 py-3 text-sm font-medium transition-all duration-300 outline-none focus-visible:ring-2 focus-visible:ring-brand-accent/25 focus-visible:ring-offset-2 focus-visible:ring-offset-white ${
-              isActive
-                ? 'bg-brand-accent/10 text-brand-accent ring-1 ring-brand-accent/20'
-                : 'text-neutral-600 hover:bg-neutral-50 hover:text-brand-accent'
-            }`
-          }
-        >
+        <NavLink to="/deposito/solicitudes" className={linkClass}>
           <span className="flex min-w-0 items-center gap-3">
             <span
               className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand-accent/12 text-brand-accent"
@@ -67,6 +84,48 @@ export function DepositoSidebar() {
             </span>
             <span className="min-w-0 flex-1 whitespace-nowrap overflow-hidden truncate">
               Solicitudes de mercadería
+            </span>
+          </span>
+        </NavLink>
+
+        <NavLink to="/deposito/insumos" className={linkClass}>
+          <span className="flex min-w-0 items-center gap-3">
+            <span
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand-accent/12 text-brand-accent"
+              aria-hidden
+            >
+              <IconBox className="h-[18px] w-[18px]" />
+            </span>
+            <span className="min-w-0 flex-1 whitespace-nowrap overflow-hidden truncate">
+              Catálogo de insumos
+            </span>
+          </span>
+        </NavLink>
+
+        <NavLink to="/deposito/movimientos" className={linkClass}>
+          <span className="flex min-w-0 items-center gap-3">
+            <span
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand-accent/12 text-brand-accent"
+              aria-hidden
+            >
+              <IconMovimientos className="h-[18px] w-[18px]" />
+            </span>
+            <span className="min-w-0 flex-1 whitespace-nowrap overflow-hidden truncate">
+              Movimientos
+            </span>
+          </span>
+        </NavLink>
+
+        <NavLink to="/deposito/inventario" className={linkClass}>
+          <span className="flex min-w-0 items-center gap-3">
+            <span
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand-accent/12 text-brand-accent"
+              aria-hidden
+            >
+              <IconInventario className="h-[18px] w-[18px]" />
+            </span>
+            <span className="min-w-0 flex-1 whitespace-nowrap overflow-hidden truncate">
+              Inventario actual
             </span>
           </span>
         </NavLink>

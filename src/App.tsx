@@ -9,6 +9,9 @@ import { AdminSolicitudMercaderiaPage } from './views/admin/AdminSolicitudMercad
 import { DashboardPage } from './views/admin/DashboardPage'
 import { ClientView } from './views/ClientView'
 import { LoginPage } from './views/LoginPage'
+import { DepositoInsumosPage } from './views/deposito/DepositoInsumosPage'
+import { DepositoInventarioPage } from './views/deposito/DepositoInventarioPage'
+import { DepositoMovimientosPage } from './views/deposito/DepositoMovimientosPage'
 import { DepositoSolicitudesPage } from './views/deposito/DepositoSolicitudesPage'
 
 export default function App() {
@@ -46,6 +49,13 @@ export default function App() {
           element={<Navigate to="/deposito/solicitudes" replace />}
         />
         <Route path="solicitudes" element={<DepositoSolicitudesPage />} />
+        <Route path="insumos" element={<DepositoInsumosPage />} />
+        <Route path="movimientos" element={<DepositoMovimientosPage />} />
+        <Route path="inventario" element={<DepositoInventarioPage />} />
+        <Route
+          path="recepcion"
+          element={<Navigate to="/deposito/movimientos" replace />}
+        />
       </Route>
 
       <Route

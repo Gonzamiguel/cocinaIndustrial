@@ -1,11 +1,13 @@
 import {
   addDoc,
   collection,
+  doc,
   onSnapshot,
   orderBy,
   query,
   serverTimestamp,
   Timestamp,
+  updateDoc,
   type Unsubscribe,
 } from 'firebase/firestore'
 import { getDb } from './firebase'
@@ -35,6 +37,8 @@ export const UNIDADES_RECETA = ['Kg', 'Lt', 'Un', 'Gr'] as const
 export type UnidadReceta = (typeof UNIDADES_RECETA)[number]
 
 export interface IngredienteReceta {
+  /** Si viene del catálogo de depósito; las filas viejas solo tienen texto en `ingrediente`. */
+  insumoId?: string | null
   ingrediente: string
   cantidadBruta: number
   unidad: UnidadReceta
@@ -75,6 +79,12 @@ function mapIngrediente(raw: unknown): IngredienteReceta | null {
 
   const ingrediente =
     typeof obj.ingrediente === 'string' ? obj.ingrediente.trim() : ''
+  const insumoIdRaw = obj.insumoId
+  const insumoId =
+    typeof insumoIdRaw === 'string' && insumoIdRaw.trim().length > 0
+      ? insumoIdRaw.trim()
+      : null
+
   const cantidadBruta = clampNonNegative(Number(obj.cantidadBruta))
   const porcentajeMerma = clampNonNegative(Number(obj.porcentajeMerma))
   const costoEstimado = clampNonNegative(Number(obj.costoEstimado))
@@ -86,6 +96,7 @@ function mapIngrediente(raw: unknown): IngredienteReceta | null {
   if (!ingrediente || cantidadBruta <= 0) return null
 
   return {
+    ...(insumoId ? { insumoId } : {}),
     ingrediente,
     cantidadBruta,
     unidad,
@@ -161,7 +172,16 @@ export function subscribeRecetario(
   )
 }
 
-export async function crearReceta(input: CrearRecetaInput): Promise<void> {
+/** Normaliza y valida el alta/edición de una receta; lanza si falta algo obligatorio. */
+function buildRecetaFirestorePayload(input: CrearRecetaInput): {
+  nombre: string
+  categoria: CategoriaReceta
+  aceptaGuarnicion: boolean
+  dietas: DietaReceta[]
+  rendimientoPorciones: number
+  procedimiento: string
+  ingredientes: IngredienteReceta[]
+} {
   const nombre = input.nombre.trim()
   const procedimiento = input.procedimiento.trim()
   const rendimientoPorciones = Math.max(
@@ -170,13 +190,17 @@ export async function crearReceta(input: CrearRecetaInput): Promise<void> {
   )
 
   const ingredientes = input.ingredientes
-    .map((item) => ({
-      ingrediente: item.ingrediente.trim(),
-      cantidadBruta: clampNonNegative(Number(item.cantidadBruta)),
-      unidad: item.unidad,
-      porcentajeMerma: clampNonNegative(Number(item.porcentajeMerma)),
-      costoEstimado: clampNonNegative(Number(item.costoEstimado)),
-    }))
+    .map((item) => {
+      const base = {
+        ingrediente: item.ingrediente.trim(),
+        cantidadBruta: clampNonNegative(Number(item.cantidadBruta)),
+        unidad: item.unidad,
+        porcentajeMerma: clampNonNegative(Number(item.porcentajeMerma)),
+        costoEstimado: clampNonNegative(Number(item.costoEstimado)),
+      }
+      const id = item.insumoId?.trim()
+      return id ? { ...base, insumoId: id } : base
+    })
     .filter((item) => item.ingrediente.length > 0 && item.cantidadBruta > 0)
 
   if (!nombre) {
@@ -196,8 +220,7 @@ export async function crearReceta(input: CrearRecetaInput): Promise<void> {
     DIETAS_RECETA.includes(dieta),
   )
 
-  const db = getDb()
-  await addDoc(collection(db, COLLECTION_RECETARIO), {
+  return {
     nombre,
     categoria: input.categoria,
     aceptaGuarnicion:
@@ -206,7 +229,27 @@ export async function crearReceta(input: CrearRecetaInput): Promise<void> {
     rendimientoPorciones,
     procedimiento,
     ingredientes,
+  }
+}
+
+export async function crearReceta(input: CrearRecetaInput): Promise<void> {
+  const payload = buildRecetaFirestorePayload(input)
+  const db = getDb()
+  await addDoc(collection(db, COLLECTION_RECETARIO), {
+    ...payload,
     fechaCreacion: serverTimestamp(),
+    ultimaActualizacion: serverTimestamp(),
+  })
+}
+
+export async function actualizarReceta(
+  id: string,
+  input: CrearRecetaInput,
+): Promise<void> {
+  const payload = buildRecetaFirestorePayload(input)
+  const db = getDb()
+  await updateDoc(doc(db, COLLECTION_RECETARIO, id), {
+    ...payload,
     ultimaActualizacion: serverTimestamp(),
   })
 }

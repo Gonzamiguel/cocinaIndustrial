@@ -1,0 +1,598 @@
+import { useEffect, useMemo, useState } from 'react'
+import { useToast } from '../../context/ToastContext'
+import {
+  COLLECTION_INSUMOS,
+  UNIDADES_BASE_INSUMO,
+  actualizarInsumo,
+  computeCostoPorUnidadBase,
+  crearInsumo,
+  eliminarInsumo,
+  formatLabelInsumo,
+  subscribeInsumos,
+  type CrearInsumoInput,
+  type Insumo,
+  type UnidadBaseInsumo,
+} from '../../lib/insumos'
+
+const inputClass =
+  'mt-2 w-full min-h-11 rounded-xl border border-gray-200 bg-white px-4 text-sm text-[#171717] shadow-sm outline-none transition focus:border-[#CD1818]/30 focus:ring-2 focus:ring-[#CD1818]/10'
+
+export function DepositoInsumosPage() {
+  const { showToast } = useToast()
+  const [items, setItems] = useState<Insumo[]>([])
+  const [cargando, setCargando] = useState(true)
+  const [guardando, setGuardando] = useState(false)
+  /** Vista formulario completa (alta o edición), igual que «Nueva receta» en recetario */
+  const [isCreating, setIsCreating] = useState(false)
+  const [editandoId, setEditandoId] = useState<string | null>(null)
+  const [detalleModalId, setDetalleModalId] = useState<string | null>(null)
+
+  const [nombreGenerico, setNombreGenerico] = useState('')
+  const [marca, setMarca] = useState('')
+  const [presentacion, setPresentacion] = useState('')
+  const [unidadBase, setUnidadBase] = useState<UnidadBaseInsumo>('Kg')
+  const [contenidoNeto, setContenidoNeto] = useState('')
+  const [costoEnvase, setCostoEnvase] = useState('')
+
+  useEffect(() => {
+    return subscribeInsumos((rows) => {
+      setItems(rows)
+      setCargando(false)
+    })
+  }, [])
+
+  useEffect(() => {
+    if (!detalleModalId) return
+    function onKey(event: KeyboardEvent) {
+      if (event.key === 'Escape') setDetalleModalId(null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [detalleModalId])
+
+  const insumoEnDetalle = useMemo(() => {
+    if (!detalleModalId) return null
+    return items.find((i) => i.id === detalleModalId) ?? null
+  }, [detalleModalId, items])
+
+  const previewCostoBase = useMemo(() => {
+    const net = Number(contenidoNeto)
+    const costo = Number(costoEnvase)
+    return computeCostoPorUnidadBase(costo, net)
+  }, [contenidoNeto, costoEnvase])
+
+  function resetFormulario() {
+    setEditandoId(null)
+    setNombreGenerico('')
+    setMarca('')
+    setPresentacion('')
+    setUnidadBase('Kg')
+    setContenidoNeto('')
+    setCostoEnvase('')
+  }
+
+  function cargarParaEditar(row: Insumo) {
+    setEditandoId(row.id)
+    setNombreGenerico(row.nombreGenerico)
+    setMarca(row.marca)
+    setPresentacion(row.presentacion)
+    setUnidadBase(row.unidadBase)
+    setContenidoNeto(String(row.contenidoNeto))
+    setCostoEnvase(String(row.costoEnvase))
+  }
+
+  function abrirNuevo() {
+    resetFormulario()
+    setIsCreating(true)
+  }
+
+  function abrirEditar(row: Insumo) {
+    cargarParaEditar(row)
+    setDetalleModalId(null)
+    setIsCreating(true)
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    const payload: CrearInsumoInput = {
+      nombreGenerico,
+      marca,
+      presentacion,
+      unidadBase,
+      contenidoNeto: Number(contenidoNeto),
+      costoEnvase: Number(costoEnvase),
+    }
+    setGuardando(true)
+    try {
+      if (editandoId) {
+        await actualizarInsumo(editandoId, payload)
+        showToast('Insumo actualizado.')
+      } else {
+        await crearInsumo(payload)
+        showToast('Insumo creado.')
+      }
+      resetFormulario()
+      setIsCreating(false)
+    } catch (err) {
+      showToast(
+        err instanceof Error ? err.message : 'No se pudo guardar el insumo.',
+        'error',
+      )
+    } finally {
+      setGuardando(false)
+    }
+  }
+
+  async function handleEliminar(id: string) {
+    if (!confirm('¿Eliminar este insumo del catálogo?')) return
+    try {
+      await eliminarInsumo(id)
+      showToast('Insumo eliminado.')
+      if (detalleModalId === id) setDetalleModalId(null)
+      if (editandoId === id) {
+        resetFormulario()
+        setIsCreating(false)
+      }
+    } catch (err) {
+      showToast(
+        err instanceof Error ? err.message : 'No se pudo eliminar.',
+        'error',
+      )
+    }
+  }
+
+  const labelUnidadBase = (u: UnidadBaseInsumo) =>
+    u === 'Kg' ? 'kilogramo' : u === 'Lt' ? 'litro' : 'unidad'
+
+  /** Vista lista + modal detalle (como recetario) */
+  if (!isCreating) {
+    return (
+      <div className="flex min-h-full flex-1 flex-col bg-gray-50">
+        <header className="shrink-0 border-b border-gray-200 bg-white px-5 py-5 shadow-sm sm:px-8">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#8997A6]">
+                Depósito
+              </p>
+              <h1 className="mt-1.5 text-2xl font-semibold tracking-tight text-[#CD1818]">
+                Catálogo de insumos
+              </h1>
+              <p className="mt-2 text-sm text-[#8997A6]">
+                Marcas, presentaciones y costo por unidad base para cocina y
+                pedidos.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={abrirNuevo}
+              className="inline-flex min-h-12 shrink-0 items-center justify-center gap-2 rounded-xl bg-[#CD1818] px-6 text-base font-semibold text-white shadow-sm transition hover:brightness-105 active:brightness-95"
+            >
+              <span className="text-xl leading-none">+</span>
+              Nuevo insumo
+            </button>
+          </div>
+        </header>
+
+        <div className="flex min-h-0 flex-1 flex-col px-5 py-5 sm:px-8">
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+            <div className="shrink-0 border-b border-gray-100 bg-gray-50 px-5 py-4 sm:px-6">
+              <h2 className="text-sm font-semibold uppercase tracking-wide text-[#CD1818]">
+                Insumos registrados
+              </h2>
+              <p className="mt-0.5 text-xs text-[#8997A6]">
+                Consultá el detalle, editá o eliminá ítems del catálogo.
+              </p>
+            </div>
+            <div className="min-h-0 flex-1 overflow-auto">
+              <table className="w-full min-w-[920px] border-collapse text-left text-sm">
+                <thead className="sticky top-0 z-10 shadow-sm">
+                  <tr className="border-b border-gray-200 bg-gray-50 text-xs uppercase tracking-wide text-[#8997A6]">
+                    <th className="px-4 py-3 font-semibold">Producto</th>
+                    <th className="px-4 py-3 font-semibold">Unidad base</th>
+                    <th className="px-4 py-3 font-semibold">Contenido</th>
+                    <th className="px-4 py-3 font-semibold">Costo envase</th>
+                    <th className="px-4 py-3 font-semibold">Costo / base</th>
+                    <th className="px-4 py-3 text-right font-semibold">
+                      Acciones
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {cargando ? (
+                    <tr>
+                      <td
+                        colSpan={6}
+                        className="px-4 py-16 text-center text-[#8997A6]"
+                      >
+                        Cargando catálogo…
+                      </td>
+                    </tr>
+                  ) : items.length === 0 ? (
+                    <tr>
+                      <td
+                        colSpan={6}
+                        className="px-4 py-16 text-center text-[#8997A6]"
+                      >
+                        No hay insumos aún. Creá uno con «Nuevo insumo».
+                      </td>
+                    </tr>
+                  ) : (
+                    items.map((row) => (
+                      <tr key={row.id} className="hover:bg-gray-50/80">
+                        <td className="px-4 py-3 font-medium text-[#171717]">
+                          {formatLabelInsumo(row)}
+                        </td>
+                        <td className="px-4 py-3 text-[#171717]">
+                          {row.unidadBase}
+                        </td>
+                        <td className="px-4 py-3 tabular-nums text-[#171717]">
+                          {row.contenidoNeto}
+                        </td>
+                        <td className="px-4 py-3 tabular-nums text-[#171717]">
+                          ${' '}
+                          {row.costoEnvase.toLocaleString('es-AR', {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2,
+                          })}
+                        </td>
+                        <td className="px-4 py-3 tabular-nums font-semibold text-[#171717]">
+                          ${' '}
+                          {row.costoPorUnidadBase.toLocaleString('es-AR', {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 4,
+                          })}
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <div className="flex flex-wrap justify-end gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setDetalleModalId(row.id)}
+                              className="inline-flex min-h-10 items-center justify-center rounded-xl border border-gray-200 bg-white px-4 text-sm font-semibold text-[#CD1818] transition hover:bg-gray-50"
+                            >
+                              Ver detalle
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => abrirEditar(row)}
+                              className="inline-flex min-h-10 items-center justify-center rounded-xl bg-[#CD1818] px-4 text-sm font-semibold text-white shadow-sm transition hover:brightness-105"
+                            >
+                              Editar
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void handleEliminar(row.id)}
+                              className="inline-flex min-h-10 items-center justify-center rounded-xl px-3 text-sm font-semibold text-[#8997A6] transition hover:bg-red-50 hover:text-[#CD1818]"
+                            >
+                              Eliminar
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        {insumoEnDetalle ? (
+          <div
+            className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4 backdrop-blur-[2px]"
+            role="presentation"
+            onClick={() => setDetalleModalId(null)}
+          >
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="modal-insumo-titulo"
+              className="flex max-h-[min(90vh,680px)] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex shrink-0 items-start justify-between gap-3 border-b border-neutral-100 px-5 py-4">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#8997A6]">
+                    Insumo
+                  </p>
+                  <h2
+                    id="modal-insumo-titulo"
+                    className="mt-1 text-lg font-semibold text-[#CD1818]"
+                  >
+                    {formatLabelInsumo(insumoEnDetalle)}
+                  </h2>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setDetalleModalId(null)}
+                  className="rounded-lg p-1.5 text-neutral-500 transition hover:bg-neutral-100 hover:text-neutral-800"
+                  aria-label="Cerrar"
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 20 20"
+                    fill="currentColor"
+                    className="h-5 w-5"
+                  >
+                    <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
+                  </svg>
+                </button>
+              </div>
+
+              <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
+                    <p className="text-xs font-medium uppercase tracking-wide text-[#8997A6]">
+                      Nombre genérico
+                    </p>
+                    <p className="mt-1 font-semibold text-[#171717]">
+                      {insumoEnDetalle.nombreGenerico || '—'}
+                    </p>
+                  </div>
+                  <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
+                    <p className="text-xs font-medium uppercase tracking-wide text-[#8997A6]">
+                      Marca
+                    </p>
+                    <p className="mt-1 font-semibold text-[#171717]">
+                      {insumoEnDetalle.marca || '—'}
+                    </p>
+                  </div>
+                  <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 sm:col-span-2">
+                    <p className="text-xs font-medium uppercase tracking-wide text-[#8997A6]">
+                      Presentación
+                    </p>
+                    <p className="mt-1 font-semibold text-[#171717]">
+                      {insumoEnDetalle.presentacion || '—'}
+                    </p>
+                  </div>
+                  <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
+                    <p className="text-xs font-medium uppercase tracking-wide text-[#8997A6]">
+                      Unidad base
+                    </p>
+                    <p className="mt-1 font-semibold text-[#171717]">
+                      {insumoEnDetalle.unidadBase}
+                    </p>
+                  </div>
+                  <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
+                    <p className="text-xs font-medium uppercase tracking-wide text-[#8997A6]">
+                      Contenido neto
+                    </p>
+                    <p className="mt-1 font-semibold tabular-nums text-[#171717]">
+                      {insumoEnDetalle.contenidoNeto}
+                    </p>
+                  </div>
+                  <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
+                    <p className="text-xs font-medium uppercase tracking-wide text-[#8997A6]">
+                      Costo envase
+                    </p>
+                    <p className="mt-1 font-semibold tabular-nums text-[#171717]">
+                      ${' '}
+                      {insumoEnDetalle.costoEnvase.toLocaleString('es-AR', {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}
+                    </p>
+                  </div>
+                  <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
+                    <p className="text-xs font-medium uppercase tracking-wide text-[#8997A6]">
+                      Costo por {labelUnidadBase(insumoEnDetalle.unidadBase)}
+                    </p>
+                    <p className="mt-1 font-semibold tabular-nums text-[#171717]">
+                      ${' '}
+                      {insumoEnDetalle.costoPorUnidadBase.toLocaleString(
+                        'es-AR',
+                        {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 4,
+                        },
+                      )}
+                    </p>
+                  </div>
+                </div>
+                <p className="mt-4 text-xs text-[#8997A6]">
+                  Colección Firestore:{' '}
+                  <code className="rounded bg-gray-100 px-1">{COLLECTION_INSUMOS}</code>{' '}
+                  · ID:{' '}
+                  <span className="font-mono text-[#171717]">{insumoEnDetalle.id}</span>
+                </p>
+              </div>
+
+              <div className="flex shrink-0 flex-wrap justify-end gap-2 border-t border-neutral-100 bg-white px-5 py-4">
+                <button
+                  type="button"
+                  onClick={() => {
+                    abrirEditar(insumoEnDetalle)
+                  }}
+                  className="min-h-10 rounded-xl bg-[#CD1818] px-5 text-sm font-semibold text-white shadow-sm transition hover:brightness-105"
+                >
+                  Editar insumo
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDetalleModalId(null)}
+                  className="min-h-10 rounded-xl border border-neutral-300 bg-white px-5 text-sm font-semibold text-neutral-800 shadow-sm transition hover:bg-neutral-50"
+                >
+                  Cerrar
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+      </div>
+    )
+  }
+
+  /** Vista formulario dedicada (alta / edición) */
+  return (
+    <div className="flex min-h-full flex-1 flex-col bg-gray-50">
+      <div className="shrink-0 border-b border-gray-200 bg-white px-5 py-4 shadow-sm sm:px-8">
+        <button
+          type="button"
+          onClick={() => {
+            setIsCreating(false)
+            resetFormulario()
+          }}
+          className="inline-flex min-h-11 items-center gap-2 rounded-xl px-3 text-sm font-semibold text-[#CD1818] transition hover:bg-gray-100"
+        >
+          <span aria-hidden>←</span>
+          Volver al catálogo
+        </button>
+        <h1 className="mt-2 text-xl font-semibold tracking-tight text-[#CD1818]">
+          {editandoId ? 'Editar insumo' : 'Nuevo insumo'}
+        </h1>
+        <p className="mt-1.5 text-sm leading-relaxed text-[#8997A6]">
+          Completá nombre genérico, marca, presentación y costos. El costo por
+          unidad base se calcula al guardar.
+        </p>
+      </div>
+
+      <form
+        onSubmit={handleSubmit}
+        className="flex min-h-0 flex-1 flex-col"
+      >
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-28 pt-6 sm:px-8 sm:pb-32 lg:px-14">
+          <div className="mx-auto max-w-4xl space-y-8">
+            <section className="rounded-xl border border-gray-200 bg-gray-50 p-6 shadow-sm sm:p-7">
+              <h2 className="text-sm font-semibold uppercase tracking-wide text-[#CD1818]">
+                Datos del producto
+              </h2>
+              <div className="mt-6 grid gap-5 md:grid-cols-2 lg:grid-cols-3">
+                <label className="block">
+                  <span className="text-xs font-medium text-[#8997A6]">
+                    Nombre genérico
+                  </span>
+                  <input
+                    required
+                    value={nombreGenerico}
+                    onChange={(e) => setNombreGenerico(e.target.value)}
+                    className={inputClass}
+                    placeholder="Ej. Tomate perita"
+                  />
+                </label>
+                <label className="block">
+                  <span className="text-xs font-medium text-[#8997A6]">
+                    Marca
+                  </span>
+                  <input
+                    value={marca}
+                    onChange={(e) => setMarca(e.target.value)}
+                    className={inputClass}
+                    placeholder="Ej. Arcor"
+                  />
+                </label>
+                <label className="block md:col-span-2 lg:col-span-1">
+                  <span className="text-xs font-medium text-[#8997A6]">
+                    Presentación
+                  </span>
+                  <input
+                    required
+                    value={presentacion}
+                    onChange={(e) => setPresentacion(e.target.value)}
+                    className={inputClass}
+                    placeholder="Ej. Lata 500g"
+                  />
+                </label>
+              </div>
+
+              <div className="mt-6 grid gap-5 md:grid-cols-3">
+                <label className="block">
+                  <span className="text-xs font-medium text-[#8997A6]">
+                    Unidad base (receta)
+                  </span>
+                  <select
+                    value={unidadBase}
+                    onChange={(e) =>
+                      setUnidadBase(e.target.value as UnidadBaseInsumo)
+                    }
+                    className={inputClass}
+                  >
+                    {UNIDADES_BASE_INSUMO.map((u) => (
+                      <option key={u} value={u}>
+                        {u}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="block">
+                  <span className="text-xs font-medium text-[#8997A6]">
+                    Contenido neto ({unidadBase})
+                  </span>
+                  <input
+                    required
+                    type="number"
+                    min={0.0001}
+                    step="any"
+                    value={contenidoNeto}
+                    onChange={(e) => setContenidoNeto(e.target.value)}
+                    className={inputClass}
+                    placeholder="Ej. 0.5"
+                  />
+                </label>
+                <label className="block">
+                  <span className="text-xs font-medium text-[#8997A6]">
+                    Costo del envase ($)
+                  </span>
+                  <input
+                    required
+                    type="number"
+                    min={0}
+                    step="any"
+                    value={costoEnvase}
+                    onChange={(e) => setCostoEnvase(e.target.value)}
+                    className={inputClass}
+                    placeholder="0"
+                  />
+                </label>
+              </div>
+
+              <div className="mt-6 rounded-xl border border-gray-200 bg-white px-4 py-3">
+                <p className="text-xs font-medium uppercase tracking-wide text-[#8997A6]">
+                  Costo por {labelUnidadBase(unidadBase)} (vista previa)
+                </p>
+                <p className="mt-1 text-lg font-semibold tabular-nums text-[#171717]">
+                  {Number(contenidoNeto) > 0 && Number.isFinite(previewCostoBase)
+                    ? `$ ${previewCostoBase.toLocaleString('es-AR', {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 4,
+                      })}`
+                    : '—'}
+                </p>
+                <p className="mt-1 text-xs text-[#8997A6]">
+                  Costo envase ÷ contenido neto · colección{' '}
+                  <code className="rounded bg-gray-100 px-1 text-[11px]">
+                    {COLLECTION_INSUMOS}
+                  </code>
+                </p>
+              </div>
+            </section>
+          </div>
+        </div>
+
+        <div className="sticky bottom-0 z-30 border-t border-gray-200 bg-white/95 px-5 py-4 backdrop-blur sm:px-8 lg:px-14">
+          <div className="mx-auto flex max-w-4xl justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setIsCreating(false)
+                resetFormulario()
+              }}
+              className="min-h-12 rounded-xl border border-gray-300 bg-white px-6 text-sm font-semibold text-[#171717] shadow-sm transition hover:bg-gray-50"
+            >
+              Cancelar
+            </button>
+            <button
+              type="submit"
+              disabled={guardando}
+              className="inline-flex min-h-12 shrink-0 items-center rounded-xl bg-[#CD1818] px-7 py-3 text-sm font-semibold text-white shadow-sm transition hover:brightness-105 disabled:opacity-45"
+            >
+              {guardando
+                ? 'Guardando…'
+                : editandoId
+                  ? 'Guardar cambios'
+                  : 'Guardar insumo'}
+            </button>
+          </div>
+        </div>
+      </form>
+    </div>
+  )
+}

@@ -56,6 +56,8 @@ export function estiloBadgeEstadoSolicitud(estado: EstadoSolicitud): {
 }
 
 export interface ItemSolicitudMercaderia {
+  /** Referencia al catálogo; ausente en solicitudes antiguas. */
+  insumoId?: string | null
   producto: string
   cantidad: number
   unidadMedida: string
@@ -96,8 +98,14 @@ function mapItem(raw: unknown): ItemSolicitudMercaderia | null {
     typeof o.presentacion === 'string' ? o.presentacion.trim() : ''
   const observacion =
     typeof o.observacion === 'string' ? o.observacion.trim() : ''
+  const insumoIdRaw = o.insumoId
+  const insumoId =
+    typeof insumoIdRaw === 'string' && insumoIdRaw.trim().length > 0
+      ? insumoIdRaw.trim()
+      : null
   if (!producto || !Number.isFinite(cantidad) || cantidad <= 0) return null
   return {
+    ...(insumoId ? { insumoId } : {}),
     producto,
     cantidad,
     unidadMedida: unidadMedida || '—',
@@ -193,13 +201,17 @@ export async function crearSolicitudMercaderia(
   input: CrearSolicitudMercaderiaInput,
 ): Promise<void> {
   const items = input.items
-    .map((it) => ({
-      producto: it.producto.trim(),
-      cantidad: it.cantidad,
-      unidadMedida: it.unidadMedida.trim() || '—',
-      presentacion: it.presentacion.trim() || '—',
-      observacion: it.observacion.trim(),
-    }))
+    .map((it) => {
+      const base = {
+        producto: it.producto.trim(),
+        cantidad: it.cantidad,
+        unidadMedida: it.unidadMedida.trim() || '—',
+        presentacion: it.presentacion.trim() || '—',
+        observacion: it.observacion.trim(),
+      }
+      const id = it.insumoId?.trim()
+      return id ? { ...base, insumoId: id } : base
+    })
     .filter((it) => it.producto.length > 0 && it.cantidad > 0)
 
   if (items.length === 0) {

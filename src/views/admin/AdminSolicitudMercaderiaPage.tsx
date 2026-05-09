@@ -1,4 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
+import { InsumoSearchSelect } from '../../components/insumos/InsumoSearchSelect'
+import {
+  formatLabelInsumo,
+  subscribeInsumos,
+  type Insumo,
+} from '../../lib/insumos'
 import {
   confirmarRecepcionMercaderia,
   crearSolicitudMercaderia,
@@ -12,6 +18,7 @@ import { useToast } from '../../context/ToastContext'
 
 type FilaDraft = {
   key: string
+  insumoId?: string | null
   producto: string
   cantidad: string
   unidadMedida: string
@@ -25,6 +32,7 @@ function nuevaFila(): FilaDraft {
       typeof crypto !== 'undefined' && crypto.randomUUID
         ? crypto.randomUUID()
         : String(Date.now() + Math.random()),
+    insumoId: undefined,
     producto: '',
     cantidad: '',
     unidadMedida: '',
@@ -67,6 +75,7 @@ const inputInsumoClass =
 
 export function AdminSolicitudMercaderiaPage() {
   const { showToast } = useToast()
+  const [insumos, setInsumos] = useState<Insumo[]>([])
   const [lista, setLista] = useState<SolicitudMercaderia[]>([])
   const [enviando, setEnviando] = useState(false)
   const [isCreating, setIsCreating] = useState(false)
@@ -81,6 +90,16 @@ export function AdminSolicitudMercaderiaPage() {
   useEffect(() => {
     return subscribeSolicitudesMercaderia(setLista)
   }, [])
+
+  useEffect(() => {
+    return subscribeInsumos(setInsumos)
+  }, [])
+
+  const insumosById = useMemo(() => {
+    const m = new Map<string, Insumo>()
+    for (const i of insumos) m.set(i.id, i)
+    return m
+  }, [insumos])
 
   useEffect(() => {
     setObsRecepcionDraft('')
@@ -147,6 +166,29 @@ export function AdminSolicitudMercaderiaPage() {
     const items: ItemSolicitudMercaderia[] = []
     for (const f of filas) {
       const cant = Number(f.cantidad)
+      const idInsumo = f.insumoId?.trim()
+
+      if (idInsumo) {
+        if (!Number.isFinite(cant) || cant <= 0) continue
+        const ins = insumosById.get(idInsumo)
+        if (!ins) {
+          showToast(
+            'Un insumo del catálogo ya no está disponible. Revisá la fila.',
+            'error',
+          )
+          return
+        }
+        items.push({
+          insumoId: idInsumo,
+          producto: formatLabelInsumo(ins),
+          cantidad: cant,
+          unidadMedida: ins.unidadBase,
+          presentacion: ins.presentacion,
+          observacion: f.observacion.trim(),
+        })
+        continue
+      }
+
       const prod = f.producto.trim()
       if (!prod || !Number.isFinite(cant) || cant <= 0) continue
 
@@ -544,7 +586,7 @@ export function AdminSolicitudMercaderiaPage() {
   /** Vista formulario: lista larga con scroll + pie fijo con envío */
   return (
     <div className="flex min-h-full flex-1 flex-col bg-neutral-50">
-      <div className="shrink-0 border-b border-neutral-200 bg-white px-5 py-4 shadow-sm sm:px-8 xl:px-10">
+      <div className="shrink-0 border-b border-neutral-200 bg-white px-4 py-4 shadow-sm sm:px-6 lg:px-8 xl:px-10">
         <button
           type="button"
           onClick={() => setIsCreating(false)}
@@ -566,8 +608,8 @@ export function AdminSolicitudMercaderiaPage() {
         onSubmit={handleEnviar}
         className="flex min-h-0 flex-1 flex-col"
       >
-        <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-32 pt-6 sm:px-8 sm:pb-36 lg:px-14 xl:px-20 2xl:px-24">
-          <div className="mx-auto max-w-6xl space-y-8">
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-32 pt-6 sm:px-6 sm:pb-36 lg:px-8 xl:px-10">
+          <div className="w-full space-y-8">
             <div className="grid gap-5 rounded-xl border border-gray-200 bg-white p-6 shadow-sm sm:grid-cols-2 sm:p-7">
               <label className="block text-left">
                 <span className="text-xs font-medium text-[#8997A6]">
@@ -605,9 +647,13 @@ export function AdminSolicitudMercaderiaPage() {
               <p className="mb-5 text-sm font-semibold text-[#CD1818]">
                 Insumos
               </p>
+              <p className="mb-5 text-sm text-[#8997A6]">
+                Filas nuevas: elegí insumo del catálogo depósito. Podés seguir
+                usando texto libre si la fila ya tiene producto cargado a mano.
+              </p>
               <div className="mb-4 hidden rounded-xl border border-gray-200 bg-gray-50 px-5 py-3 lg:block">
                 <div className="grid gap-4 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#8997A6] lg:grid-cols-[minmax(0,2fr)_minmax(0,0.8fr)_minmax(0,1fr)_minmax(0,1.1fr)_minmax(0,1.6fr)_auto]">
-                  <span>Producto</span>
+                  <span>Producto / Catálogo</span>
                   <span>Cantidad</span>
                   <span>Unidad de medida</span>
                   <span>Presentación</span>
@@ -616,106 +662,203 @@ export function AdminSolicitudMercaderiaPage() {
                 </div>
               </div>
               <div className="space-y-5">
-                {filas.map((fila, i) => (
-                  <div
-                    key={fila.key}
-                    className="grid gap-5 rounded-xl border border-gray-200 bg-gray-50 p-5 shadow-sm lg:grid-cols-[minmax(0,2fr)_minmax(0,0.8fr)_minmax(0,1fr)_minmax(0,1.1fr)_minmax(0,1.6fr)_auto] lg:items-end lg:gap-x-4 lg:gap-y-4 lg:p-6"
-                  >
-                    <label className="block text-left">
-                      <span className="text-xs font-medium text-[#8997A6]">
-                        Producto
-                      </span>
-                      <input
-                        type="text"
-                        value={fila.producto}
-                        onChange={(e) =>
-                          actualizarFila(i, { producto: e.target.value })
-                        }
-                        className={inputInsumoClass}
-                        placeholder="Ej. Aceite girasol"
-                      />
-                    </label>
-                    <label className="block text-left">
-                      <span className="text-xs font-medium text-[#8997A6]">
-                        Cantidad
-                      </span>
-                      <input
-                        type="number"
-                        inputMode="decimal"
-                        min={0}
-                        step="any"
-                        value={fila.cantidad}
-                        onChange={(e) =>
-                          actualizarFila(i, { cantidad: e.target.value })
-                        }
-                        className={inputInsumoClass}
-                        placeholder="0"
-                      />
-                    </label>
-                    <label className="block text-left">
-                      <span className="text-xs font-medium text-[#8997A6]">
-                        Unidad de medida
-                      </span>
-                      <select
-                        value={fila.unidadMedida}
-                        onChange={(e) =>
-                          actualizarFila(i, { unidadMedida: e.target.value })
-                        }
-                        className={selectInsumoClass}
-                      >
-                        <option value="">Seleccionar...</option>
-                        {UNIDADES_MEDIDA.map((u) => (
-                          <option key={u} value={u}>
-                            {u}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label className="block text-left">
-                      <span className="text-xs font-medium text-[#8997A6]">
-                        Presentación
-                      </span>
-                      <select
-                        value={fila.presentacion}
-                        onChange={(e) =>
-                          actualizarFila(i, { presentacion: e.target.value })
-                        }
-                        className={selectInsumoClass}
-                      >
-                        <option value="">Seleccionar...</option>
-                        {PRESENTACIONES_OPCIONES.map((p) => (
-                          <option key={p} value={p}>
-                            {p}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label className="block text-left">
-                      <span className="text-xs font-medium text-[#8997A6]">
-                        Observación
-                      </span>
-                      <input
-                        type="text"
-                        value={fila.observacion}
-                        onChange={(e) =>
-                          actualizarFila(i, { observacion: e.target.value })
-                        }
-                        className={inputInsumoClass}
-                        placeholder="Ej. Sin TACC, marca puntual, madurez, corte..."
-                      />
-                    </label>
-                    <div className="flex items-end lg:justify-end">
-                      <button
-                        type="button"
-                        onClick={() => quitarFila(i)}
-                        disabled={filas.length <= 1}
-                        className="min-h-12 rounded-xl px-3 text-sm font-medium text-[#8997A6] underline-offset-2 transition hover:bg-white hover:text-[#CD1818] hover:underline disabled:opacity-30 disabled:hover:bg-transparent"
-                      >
-                        Quitar
-                      </button>
+                {filas.map((fila, i) => {
+                  const idInsumo = fila.insumoId?.trim()
+                  const ins = idInsumo ? insumosById.get(idInsumo) : undefined
+                  const legacySinCatalogo =
+                    !idInsumo && fila.producto.trim().length > 0
+                  const pendienteCatalogo =
+                    !idInsumo && !fila.producto.trim()
+                  const mostrarCampos =
+                    Boolean(idInsumo) || legacySinCatalogo
+
+                  return (
+                    <div
+                      key={fila.key}
+                      className={`grid gap-5 rounded-xl border border-gray-200 bg-gray-50 p-5 shadow-sm lg:items-end lg:gap-x-4 lg:gap-y-4 lg:p-6 ${
+                        pendienteCatalogo
+                          ? ''
+                          : 'lg:grid-cols-[minmax(0,2fr)_minmax(0,0.8fr)_minmax(0,1fr)_minmax(0,1.1fr)_minmax(0,1.6fr)_auto]'
+                      }`}
+                    >
+                      {legacySinCatalogo ? (
+                        <label className="block text-left">
+                          <span className="text-xs font-medium text-[#8997A6]">
+                            Producto (sin catálogo)
+                          </span>
+                          <input
+                            type="text"
+                            value={fila.producto}
+                            onChange={(e) =>
+                              actualizarFila(i, { producto: e.target.value })
+                            }
+                            className={inputInsumoClass}
+                            placeholder="Ej. Aceite girasol"
+                          />
+                        </label>
+                      ) : (
+                        <div
+                          className={
+                            pendienteCatalogo ? 'lg:col-span-6' : 'min-w-0'
+                          }
+                        >
+                          <InsumoSearchSelect
+                            insumos={insumos}
+                            selectedId={idInsumo ?? null}
+                            selectedLabel={fila.producto}
+                            onSelect={(sel) =>
+                              actualizarFila(i, {
+                                insumoId: sel.id,
+                                producto: formatLabelInsumo(sel),
+                                unidadMedida: sel.unidadBase,
+                                presentacion: sel.presentacion,
+                              })
+                            }
+                            onClear={() =>
+                              actualizarFila(i, {
+                                insumoId: undefined,
+                                producto: '',
+                                unidadMedida: '',
+                                presentacion: '',
+                                cantidad: '',
+                              })
+                            }
+                          />
+                          {idInsumo && !ins ? (
+                            <p className="mt-2 text-xs text-[#CD1818]">
+                              Insumo no encontrado en el catálogo.
+                            </p>
+                          ) : null}
+                        </div>
+                      )}
+
+                      {mostrarCampos ? (
+                        <>
+                          <label className="block text-left">
+                            <span className="text-xs font-medium text-[#8997A6]">
+                              Cantidad
+                            </span>
+                            <input
+                              type="number"
+                              inputMode="decimal"
+                              min={0}
+                              step="any"
+                              value={fila.cantidad}
+                              onChange={(e) =>
+                                actualizarFila(i, { cantidad: e.target.value })
+                              }
+                              className={inputInsumoClass}
+                              placeholder="0"
+                              required
+                            />
+                          </label>
+                          <label className="block text-left">
+                            <span className="text-xs font-medium text-[#8997A6]">
+                              Unidad de medida
+                            </span>
+                            {idInsumo && ins ? (
+                              <select
+                                value={ins.unidadBase}
+                                disabled
+                                className={`${selectInsumoClass} cursor-not-allowed opacity-90`}
+                              >
+                                <option value={ins.unidadBase}>
+                                  {ins.unidadBase}
+                                </option>
+                              </select>
+                            ) : (
+                              <select
+                                value={fila.unidadMedida}
+                                onChange={(e) =>
+                                  actualizarFila(i, {
+                                    unidadMedida: e.target.value,
+                                  })
+                                }
+                                className={selectInsumoClass}
+                                required
+                              >
+                                <option value="">Seleccionar...</option>
+                                {UNIDADES_MEDIDA.map((u) => (
+                                  <option key={u} value={u}>
+                                    {u}
+                                  </option>
+                                ))}
+                              </select>
+                            )}
+                          </label>
+                          <label className="block text-left">
+                            <span className="text-xs font-medium text-[#8997A6]">
+                              Presentación
+                            </span>
+                            {idInsumo && ins ? (
+                              <input
+                                type="text"
+                                readOnly
+                                value={ins.presentacion}
+                                className={`${inputInsumoClass} cursor-not-allowed bg-white`}
+                              />
+                            ) : (
+                              <select
+                                value={fila.presentacion}
+                                onChange={(e) =>
+                                  actualizarFila(i, {
+                                    presentacion: e.target.value,
+                                  })
+                                }
+                                className={selectInsumoClass}
+                                required
+                              >
+                                <option value="">Seleccionar...</option>
+                                {PRESENTACIONES_OPCIONES.map((p) => (
+                                  <option key={p} value={p}>
+                                    {p}
+                                  </option>
+                                ))}
+                              </select>
+                            )}
+                          </label>
+                          <label className="block text-left">
+                            <span className="text-xs font-medium text-[#8997A6]">
+                              Observación
+                            </span>
+                            <input
+                              type="text"
+                              value={fila.observacion}
+                              onChange={(e) =>
+                                actualizarFila(i, {
+                                  observacion: e.target.value,
+                                })
+                              }
+                              className={inputInsumoClass}
+                              placeholder="Ej. Sin TACC, marca puntual..."
+                            />
+                          </label>
+                          <div className="flex items-end lg:justify-end">
+                            <button
+                              type="button"
+                              onClick={() => quitarFila(i)}
+                              disabled={filas.length <= 1}
+                              className="min-h-12 rounded-xl px-3 text-sm font-medium text-[#8997A6] underline-offset-2 transition hover:bg-white hover:text-[#CD1818] hover:underline disabled:opacity-30 disabled:hover:bg-transparent"
+                            >
+                              Quitar
+                            </button>
+                          </div>
+                        </>
+                      ) : (
+                        <div className="flex justify-end lg:col-span-6">
+                          <button
+                            type="button"
+                            onClick={() => quitarFila(i)}
+                            disabled={filas.length <= 1}
+                            className="min-h-12 rounded-xl px-3 text-sm font-medium text-[#8997A6] underline-offset-2 transition hover:bg-white hover:text-[#CD1818] hover:underline disabled:opacity-30 disabled:hover:bg-transparent"
+                          >
+                            Quitar
+                          </button>
+                        </div>
+                      )}
                     </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
 
               <div className="mt-8 border-t border-neutral-100 pt-6">
@@ -744,12 +887,12 @@ export function AdminSolicitudMercaderiaPage() {
           </div>
         </div>
 
-        <div className="sticky bottom-0 z-30 border-t border-gray-200 bg-white/95 px-5 py-4 backdrop-blur sm:px-8 lg:px-14 xl:px-20 2xl:px-24">
-          <div className="mx-auto flex max-w-6xl justify-end">
+        <div className="sticky bottom-0 z-30 border-t border-gray-200 bg-white/95 px-4 py-4 backdrop-blur sm:px-6 lg:px-8 xl:px-10">
+          <div className="flex w-full justify-end">
             <button
               type="submit"
               disabled={enviando}
-            className="inline-flex min-h-12 shrink-0 items-center rounded-xl bg-[#CD1818] px-7 py-3 text-sm font-semibold text-white shadow-sm transition hover:brightness-105 disabled:opacity-45"
+              className="inline-flex min-h-12 shrink-0 items-center rounded-xl bg-[#CD1818] px-7 py-3 text-sm font-semibold text-white shadow-sm transition hover:brightness-105 disabled:opacity-45"
             >
               {enviando ? 'Enviando…' : 'Enviar solicitud al depósito'}
             </button>
