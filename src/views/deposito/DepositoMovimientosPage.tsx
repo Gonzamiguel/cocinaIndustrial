@@ -2,11 +2,20 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { InsumoSearchSelect } from '../../components/insumos/InsumoSearchSelect'
 import { useToast } from '../../context/ToastContext'
 import {
+  exportarMovimientoInventarioPdf,
+  exportarMovimientosInventarioExcel,
+  exportarRemitoTransportePdf,
+  type TipoVersionPdfMovimiento,
+} from '../../lib/movimientosInventarioExport'
+import {
   crearMovimiento,
   DESTINOS_EGRESO,
   lotesDisponiblesParaEgreso,
+  movimientosEnUbicacion,
   normalizarLoteKey,
+  requiereDatosTransporte,
   subscribeMovimientosInventario,
+  UBICACION_DEPOSITO_CENTRAL,
   type ItemMovimientoInventario,
   type LoteDisponibleEgreso,
   type MovimientoInventario,
@@ -152,6 +161,35 @@ function docResumen(m: MovimientoInventario): string {
   }
 }
 
+function normalizarTextoFiltro(value: string): string {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim()
+}
+
+function fechaIsoLocal(date: Date | null): string | null {
+  if (!date) return null
+  const y = date.getFullYear()
+  const m = String(date.getMonth() + 1).padStart(2, '0')
+  const d = String(date.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
+}
+
+function filaTieneContenido(fila: FilaDraft): boolean {
+  return Boolean(
+    fila.insumoId ||
+      fila.nombreSnapshot.trim() ||
+      fila.cantidad.trim() ||
+      fila.lote.trim() ||
+      fila.fechaVencimiento.trim() ||
+      fila.temperatura.trim() ||
+      fila.precioUnitarioFacturado.trim() ||
+      fila.controlCalidadOk,
+  )
+}
+
 const EGRESO_SELECT_PENDING = '__pending__'
 const EGRESO_SELECT_SIN_LOTE = '__sin_lote__'
 
@@ -179,11 +217,126 @@ function tabClass(active: boolean): string {
   }`
 }
 
+type MovimientoEgresoInventario = Extract<MovimientoInventario, { tipo: 'EGRESO' }>
+
+function exportarPdfMovimiento(
+  movimiento: MovimientoInventario,
+  unidadesPorInsumoId: Map<string, string>,
+  tipo: TipoVersionPdfMovimiento,
+) {
+  if (movimiento.tipo === 'EGRESO') {
+    exportarRemitoTransportePdf(movimiento, unidadesPorInsumoId, tipo)
+    return
+  }
+  exportarMovimientoInventarioPdf(movimiento, unidadesPorInsumoId, tipo)
+}
+
+function PdfActionsDropdown({
+  movimiento,
+  unidadesPorInsumoId,
+  compact = false,
+}: {
+  movimiento: MovimientoInventario
+  unidadesPorInsumoId: Map<string, string>
+  compact?: boolean
+}) {
+  const [open, setOpen] = useState(false)
+  const wrapRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    function handlePointer(event: MouseEvent) {
+      const el = wrapRef.current
+      if (el && !el.contains(event.target as Node)) {
+        setOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handlePointer)
+    return () => document.removeEventListener('mousedown', handlePointer)
+  }, [open])
+
+  const buttonClass = compact
+    ? 'inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 text-xs font-medium text-[#171717] shadow-sm transition hover:border-[#CD1818]/30 hover:text-[#CD1818]'
+    : 'inline-flex min-h-10 items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 text-sm font-medium text-[#171717] shadow-sm transition hover:border-[#CD1818]/30 hover:text-[#CD1818]'
+
+  const labelOperativa =
+    movimiento.tipo === 'INGRESO'
+      ? 'Versión Operativa / Recibo de carga'
+      : movimiento.tipo === 'EGRESO'
+        ? 'Versión Operativa / Chofer'
+        : 'Versión Operativa'
+
+  return (
+    <div ref={wrapRef} className="relative inline-flex justify-end">
+      <button
+        type="button"
+        onClick={() => setOpen((prev) => !prev)}
+        className={buttonClass}
+        aria-haspopup="menu"
+        aria-expanded={open}
+      >
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          viewBox="0 0 20 20"
+          fill="currentColor"
+          className="h-4 w-4"
+          aria-hidden
+        >
+          <path
+            fillRule="evenodd"
+            d="M5.25 2.5A2.75 2.75 0 002.5 5.25v6.5a2.75 2.75 0 002.75 2.75h.69l1.28 2.133a.75.75 0 001.286 0l1.28-2.133h4.964A2.75 2.75 0 0017.5 11.75v-6.5A2.75 2.75 0 0014.75 2.5h-9.5zm.5 3a.75.75 0 000 1.5h8.5a.75.75 0 000-1.5h-8.5zm0 3a.75.75 0 000 1.5h5.5a.75.75 0 000-1.5h-5.5z"
+            clipRule="evenodd"
+          />
+        </svg>
+        <span>{compact ? 'PDF' : 'PDF'}</span>
+        <span aria-hidden>▾</span>
+      </button>
+
+      {open ? (
+        <div
+          className="absolute right-0 top-full z-50 mt-2 min-w-[230px] rounded-md border border-gray-200 bg-white py-1 shadow-md"
+          role="menu"
+        >
+          <button
+            type="button"
+            className="w-full px-4 py-2 text-left text-sm text-[#171717] hover:bg-gray-50"
+            role="menuitem"
+            onClick={() => {
+              exportarPdfMovimiento(movimiento, unidadesPorInsumoId, 'CHOFER')
+              setOpen(false)
+            }}
+          >
+            {labelOperativa}
+          </button>
+          <button
+            type="button"
+            className="w-full px-4 py-2 text-left text-sm text-[#171717] hover:bg-gray-50"
+            role="menuitem"
+            onClick={() => {
+              exportarPdfMovimiento(
+                movimiento,
+                unidadesPorInsumoId,
+                'ADMINISTRATIVO',
+              )
+              setOpen(false)
+            }}
+          >
+            Versión Administrativa
+          </button>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 export function DepositoMovimientosPage() {
   const { showToast } = useToast()
   const [insumos, setInsumos] = useState<Insumo[]>([])
   const [movimientos, setMovimientos] = useState<MovimientoInventario[]>([])
   const [tabFiltro, setTabFiltro] = useState<TabFiltro>('todos')
+  const [queryDocumento, setQueryDocumento] = useState('')
+  const [fechaDesde, setFechaDesde] = useState('')
+  const [fechaHasta, setFechaHasta] = useState('')
   const [isCreating, setIsCreating] = useState(false)
   const [enviando, setEnviando] = useState(false)
 
@@ -196,7 +349,12 @@ export function DepositoMovimientosPage() {
   const [motivo, setMotivo] = useState('')
   const [fechaOperacion, setFechaOperacion] = useState(() => hoyISO())
   const [numeroDocumento, setNumeroDocumento] = useState('')
+  const [chofer, setChofer] = useState('')
+  const [patente, setPatente] = useState('')
+  const [precinto, setPrecinto] = useState('')
   const [filas, setFilas] = useState<FilaDraft[]>(() => [nuevaFila()])
+  const [remitoReciente, setRemitoReciente] =
+    useState<MovimientoEgresoInventario | null>(null)
 
   const [detalleModalId, setDetalleModalId] = useState<string | null>(null)
 
@@ -223,19 +381,45 @@ export function DepositoMovimientosPage() {
     return m
   }, [insumos])
 
+  const unidadesPorInsumoId = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const insumo of insumos) m.set(insumo.id, insumo.unidadBase)
+    return m
+  }, [insumos])
+
+  const movimientosCentrales = useMemo(
+    () => movimientosEnUbicacion(movimientos, UBICACION_DEPOSITO_CENTRAL),
+    [movimientos],
+  )
+
   const movimientosFiltrados = useMemo(() => {
-    return movimientos.filter((m) => {
-      if (tabFiltro === 'todos') return true
-      if (tabFiltro === 'ingresos') return m.tipo === 'INGRESO'
-      if (tabFiltro === 'egresos') return m.tipo === 'EGRESO'
-      return m.tipo === 'AJUSTE' || m.tipo === 'DECOMISO'
+    const query = normalizarTextoFiltro(queryDocumento)
+    return movimientosCentrales.filter((m) => {
+      const cumpleTipo =
+        tabFiltro === 'todos'
+          ? true
+          : tabFiltro === 'ingresos'
+            ? m.tipo === 'INGRESO'
+            : tabFiltro === 'egresos'
+              ? m.tipo === 'EGRESO'
+              : m.tipo === 'AJUSTE' || m.tipo === 'DECOMISO'
+      if (!cumpleTipo) return false
+
+      const documento = normalizarTextoFiltro(docResumen(m))
+      if (query && !documento.includes(query)) return false
+
+      const fechaMov = fechaIsoLocal(m.fecha)
+      if (fechaDesde && (!fechaMov || fechaMov < fechaDesde)) return false
+      if (fechaHasta && (!fechaMov || fechaMov > fechaHasta)) return false
+
+      return true
     })
-  }, [movimientos, tabFiltro])
+  }, [movimientosCentrales, tabFiltro, queryDocumento, fechaDesde, fechaHasta])
 
   const movimientoDetalle = useMemo(() => {
     if (!detalleModalId) return null
-    return movimientos.find((x) => x.id === detalleModalId) ?? null
-  }, [detalleModalId, movimientos])
+    return movimientosCentrales.find((x) => x.id === detalleModalId) ?? null
+  }, [detalleModalId, movimientosCentrales])
 
   const prevTipoRef = useRef(tipoMovimiento)
   useEffect(() => {
@@ -261,12 +445,67 @@ export function DepositoMovimientosPage() {
       if (f.insumoId) ids.add(f.insumoId)
     }
     for (const id of ids) {
-      map.set(id, lotesDisponiblesParaEgreso(movimientos, id))
+      map.set(id, lotesDisponiblesParaEgreso(movimientosCentrales, id))
     }
     return map
-  }, [movimientos, filas, tipoMovimiento])
+  }, [movimientosCentrales, filas, tipoMovimiento])
 
   const mostrarPrecio = tipoMovimiento === 'INGRESO'
+  const requiereTransporte = useMemo(
+    () =>
+      tipoMovimiento === 'EGRESO' && requiereDatosTransporte(destino),
+    [tipoMovimiento, destino],
+  )
+
+  const formularioListoParaEnviar = useMemo(() => {
+    if (!fechaOperacion.trim()) return false
+
+    const encabezadoCompleto =
+      tipoMovimiento === 'INGRESO'
+        ? Boolean(proveedor.trim() && numeroDocumento.trim())
+        : tipoMovimiento === 'EGRESO'
+          ? Boolean(
+              destino.trim() &&
+                numeroDocumento.trim() &&
+                (!requiereTransporte ||
+                  (chofer.trim() && patente.trim() && precinto.trim())),
+            )
+          : Boolean(motivo.trim())
+
+    if (!encabezadoCompleto) return false
+
+    let hayItemValido = false
+
+    for (const fila of filas) {
+      const tieneContenido = filaTieneContenido(fila)
+      const cantidad = Number(fila.cantidad.trim().replace(',', '.'))
+      const insumoSeleccionado = Boolean(fila.insumoId?.trim())
+      const cantidadValida =
+        tipoMovimiento === 'AJUSTE'
+          ? Number.isFinite(cantidad) && cantidad !== 0
+          : Number.isFinite(cantidad) && cantidad > 0
+
+      if (!tieneContenido) continue
+      if (!insumoSeleccionado || !cantidadValida) return false
+      if (tipoMovimiento === 'EGRESO' && !fila.egresoLoteDefinido) return false
+
+      hayItemValido = true
+    }
+
+    return hayItemValido
+  }, [
+    chofer,
+    destino,
+    fechaOperacion,
+    filas,
+    motivo,
+    numeroDocumento,
+    patente,
+    precinto,
+    proveedor,
+    requiereTransporte,
+    tipoMovimiento,
+  ])
 
   function actualizarFila(i: number, parcial: Partial<FilaDraft>) {
     setFilas((prev) =>
@@ -290,6 +529,9 @@ export function DepositoMovimientosPage() {
     setMotivo('')
     setFechaOperacion(hoyISO())
     setNumeroDocumento('')
+    setChofer('')
+    setPatente('')
+    setPrecinto('')
     setFilas([nuevaFila()])
   }
 
@@ -328,7 +570,7 @@ export function DepositoMovimientosPage() {
           )
           return
         }
-        const lotes = lotesDisponiblesParaEgreso(movimientos, idInsumo)
+        const lotes = lotesDisponiblesParaEgreso(movimientosCentrales, idInsumo)
         const keySel = normalizarLoteKey(f.lote)
         const bucket = lotes.find((x) => x.loteKey === keySel)
         if (!bucket) {
@@ -356,6 +598,7 @@ export function DepositoMovimientosPage() {
         nombreSnapshot,
         cantidad: cant,
         controlCalidadOk: f.controlCalidadOk === true,
+        costoPorUnidadBaseSnapshot: ins.costoPorUnidadBase,
       }
 
       const lote = f.lote.trim()
@@ -401,12 +644,31 @@ export function DepositoMovimientosPage() {
           numeroDocumento: numeroDocumento.trim(),
           items: payloadItems,
         })
+        setRemitoReciente(null)
       } else if (tipoMovimiento === 'EGRESO') {
-        await crearMovimiento({
+        const transporte = requiereTransporte
+          ? {
+              chofer: chofer.trim(),
+              patente: patente.trim().toUpperCase(),
+              precinto: precinto.trim(),
+            }
+          : undefined
+
+        const id = await crearMovimiento({
           tipo: 'EGRESO',
           fecha,
           destino: destino.trim(),
           numeroDocumento: numeroDocumento.trim(),
+          ...(transporte ? { transporte } : {}),
+          items: payloadItems,
+        })
+        setRemitoReciente({
+          id,
+          tipo: 'EGRESO',
+          fecha,
+          destino: destino.trim(),
+          numeroDocumento: numeroDocumento.trim(),
+          ...(transporte ? { transporte } : {}),
           items: payloadItems,
         })
       } else if (tipoMovimiento === 'AJUSTE') {
@@ -416,6 +678,7 @@ export function DepositoMovimientosPage() {
           motivo: motivo.trim(),
           items: payloadItems,
         })
+        setRemitoReciente(null)
       } else {
         await crearMovimiento({
           tipo: 'DECOMISO',
@@ -423,6 +686,7 @@ export function DepositoMovimientosPage() {
           motivo: motivo.trim(),
           items: payloadItems,
         })
+        setRemitoReciente(null)
       }
 
       showToast('Movimiento registrado correctamente.')
@@ -464,6 +728,31 @@ export function DepositoMovimientosPage() {
         </header>
 
         <div className="flex min-h-0 flex-1 flex-col px-5 py-5 sm:px-8 lg:px-12 xl:px-16 2xl:px-20">
+          {remitoReciente ? (
+            <div className="mb-5 rounded-xl border border-[#CD1818]/15 bg-white p-5 shadow-sm">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#CD1818]">
+                    Remito listo
+                  </p>
+                  <h2 className="mt-1 text-lg font-semibold text-[#171717]">
+                    Egreso registrado correctamente
+                  </h2>
+                  <p className="mt-1 text-sm text-[#8997A6]">
+                    Remito {remitoReciente.numeroDocumento || '—'} para{' '}
+                    {remitoReciente.destino || '—'}.
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-3">
+                  <PdfActionsDropdown
+                    movimiento={remitoReciente}
+                    unidadesPorInsumoId={unidadesPorInsumoId}
+                  />
+                </div>
+              </div>
+            </div>
+          ) : null}
+
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
             <div className="shrink-0 border-b border-neutral-100 px-5 pt-4 sm:px-6">
               <div
@@ -508,7 +797,50 @@ export function DepositoMovimientosPage() {
                   Otros
                 </button>
               </div>
-              <p className="py-3 text-xs text-[#8997A6]">
+              <div className="grid gap-4 py-4 lg:grid-cols-[minmax(0,1.2fr)_repeat(2,minmax(0,0.8fr))_auto] lg:items-end">
+                <label className="block">
+                  <span className="text-xs font-medium uppercase tracking-wide text-[#8997A6]">
+                    Buscar por documento / remito
+                  </span>
+                  <input
+                    type="text"
+                    value={queryDocumento}
+                    onChange={(e) => setQueryDocumento(e.target.value)}
+                    placeholder="Ej. 0001-00004567"
+                    className="mt-2 w-full min-h-11 rounded-xl border border-gray-200 bg-white px-4 text-sm text-[#171717] outline-none transition focus:border-[#CD1818]/30 focus:ring-2 focus:ring-[#CD1818]/10"
+                  />
+                </label>
+                <label className="block">
+                  <span className="text-xs font-medium uppercase tracking-wide text-[#8997A6]">
+                    Desde
+                  </span>
+                  <input
+                    type="date"
+                    value={fechaDesde}
+                    onChange={(e) => setFechaDesde(e.target.value)}
+                    className="mt-2 w-full min-h-11 rounded-xl border border-gray-200 bg-white px-4 text-sm text-[#171717] outline-none transition focus:border-[#CD1818]/30 focus:ring-2 focus:ring-[#CD1818]/10"
+                  />
+                </label>
+                <label className="block">
+                  <span className="text-xs font-medium uppercase tracking-wide text-[#8997A6]">
+                    Hasta
+                  </span>
+                  <input
+                    type="date"
+                    value={fechaHasta}
+                    onChange={(e) => setFechaHasta(e.target.value)}
+                    className="mt-2 w-full min-h-11 rounded-xl border border-gray-200 bg-white px-4 text-sm text-[#171717] outline-none transition focus:border-[#CD1818]/30 focus:ring-2 focus:ring-[#CD1818]/10"
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={() => exportarMovimientosInventarioExcel(movimientosFiltrados)}
+                  className="inline-flex min-h-11 items-center justify-center rounded-xl border border-gray-200 bg-white px-5 text-sm font-semibold text-[#171717] shadow-sm transition hover:border-[#CD1818]/30 hover:text-[#CD1818]"
+                >
+                  Exportar Excel
+                </button>
+              </div>
+              <p className="pb-3 text-xs text-[#8997A6]">
                 {movimientosFiltrados.length}{' '}
                 {movimientosFiltrados.length === 1
                   ? 'movimiento'
@@ -559,13 +891,20 @@ export function DepositoMovimientosPage() {
                           {m.items.length}
                         </td>
                         <td className="px-4 py-3 text-right">
-                          <button
-                            type="button"
-                            onClick={() => setDetalleModalId(m.id)}
-                            className="text-sm font-medium text-[#CD1818] underline-offset-4 transition hover:underline"
-                          >
-                            Ver ítems
-                          </button>
+                          <div className="flex items-center justify-end gap-3">
+                            <PdfActionsDropdown
+                              movimiento={m}
+                              unidadesPorInsumoId={unidadesPorInsumoId}
+                              compact
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setDetalleModalId(m.id)}
+                              className="text-sm font-medium text-[#CD1818] underline-offset-4 transition hover:underline"
+                            >
+                              Ver ítems
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))
@@ -608,6 +947,35 @@ export function DepositoMovimientosPage() {
                 </p>
               </div>
               <div className="min-h-0 flex-1 overflow-auto px-5 py-4 sm:px-6">
+                {movimientoDetalle.tipo === 'EGRESO' ? (
+                  <div className="mb-5 grid gap-3 rounded-xl border border-gray-200 bg-gray-50 p-4 text-sm sm:grid-cols-3">
+                    <div>
+                      <p className="text-xs font-medium uppercase tracking-wide text-[#8997A6]">
+                        Chofer
+                      </p>
+                      <p className="mt-1 font-semibold text-[#171717]">
+                        {movimientoDetalle.transporte?.chofer || '—'}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs font-medium uppercase tracking-wide text-[#8997A6]">
+                        Patente
+                      </p>
+                      <p className="mt-1 font-semibold text-[#171717]">
+                        {movimientoDetalle.transporte?.patente || '—'}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs font-medium uppercase tracking-wide text-[#8997A6]">
+                        Precinto
+                      </p>
+                      <p className="mt-1 font-semibold text-[#171717]">
+                        {movimientoDetalle.transporte?.precinto || '—'}
+                      </p>
+                    </div>
+                  </div>
+                ) : null}
+
                 <table className="w-full min-w-[640px] border-collapse text-left text-sm">
                   <thead>
                     <tr className="border-b border-gray-200 text-xs uppercase tracking-wide text-[#8997A6]">
@@ -667,13 +1035,34 @@ export function DepositoMovimientosPage() {
                 </table>
               </div>
               <div className="shrink-0 border-t border-neutral-100 bg-white px-5 py-4">
-                <button
-                  type="button"
-                  onClick={() => setDetalleModalId(null)}
-                  className="min-h-10 rounded-xl border border-gray-200 bg-white px-5 text-sm font-semibold text-[#171717] shadow-sm transition hover:bg-neutral-50"
-                >
-                  Cerrar
-                </button>
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        exportarMovimientoInventarioPdf(
+                          movimientoDetalle,
+                          unidadesPorInsumoId,
+                          'ADMINISTRATIVO',
+                        )
+                      }
+                      className="min-h-10 rounded-xl bg-[#CD1818] px-5 text-sm font-semibold text-white shadow-sm transition hover:brightness-105"
+                    >
+                      Descargar PDF
+                    </button>
+                    <PdfActionsDropdown
+                      movimiento={movimientoDetalle}
+                      unidadesPorInsumoId={unidadesPorInsumoId}
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setDetalleModalId(null)}
+                    className="min-h-10 rounded-xl border border-gray-200 bg-white px-5 text-sm font-semibold text-[#171717] shadow-sm transition hover:bg-neutral-50"
+                  >
+                    Cerrar
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -826,6 +1215,62 @@ export function DepositoMovimientosPage() {
                         className="mt-2 w-full min-h-12 rounded-xl border border-gray-200 bg-white px-4 text-sm text-[#171717] shadow-sm outline-none transition focus:border-[#CD1818]/30 focus:ring-2 focus:ring-[#CD1818]/10"
                       />
                     </label>
+                    {requiereTransporte ? (
+                      <div className="sm:col-span-2 lg:col-span-4">
+                        <div className="rounded-xl border border-[#CD1818]/15 bg-gray-50 p-5">
+                          <div className="flex flex-col gap-1">
+                            <p className="text-sm font-semibold text-[#CD1818]">
+                              Datos de transporte obligatorios
+                            </p>
+                            <p className="text-sm text-[#8997A6]">
+                              Este destino requiere remito de transporte con
+                              chofer, patente y precinto.
+                            </p>
+                          </div>
+                          <div className="mt-4 grid gap-4 lg:grid-cols-3">
+                            <label className="block text-left">
+                              <span className="text-xs font-medium text-[#8997A6]">
+                                Nombre del chofer
+                              </span>
+                              <input
+                                type="text"
+                                value={chofer}
+                                onChange={(e) => setChofer(e.target.value)}
+                                required={requiereTransporte}
+                                className="mt-2 w-full min-h-12 rounded-xl border border-gray-200 bg-white px-4 text-sm text-[#171717] shadow-sm outline-none transition focus:border-[#CD1818]/30 focus:ring-2 focus:ring-[#CD1818]/10"
+                                placeholder="Ej. Juan Perez"
+                              />
+                            </label>
+                            <label className="block text-left">
+                              <span className="text-xs font-medium text-[#8997A6]">
+                                Patente del vehículo
+                              </span>
+                              <input
+                                type="text"
+                                value={patente}
+                                onChange={(e) => setPatente(e.target.value.toUpperCase())}
+                                required={requiereTransporte}
+                                className="mt-2 w-full min-h-12 rounded-xl border border-gray-200 bg-white px-4 text-sm text-[#171717] shadow-sm outline-none transition focus:border-[#CD1818]/30 focus:ring-2 focus:ring-[#CD1818]/10"
+                                placeholder="AA123BB"
+                              />
+                            </label>
+                            <label className="block text-left">
+                              <span className="text-xs font-medium text-[#8997A6]">
+                                Número de precinto
+                              </span>
+                              <input
+                                type="text"
+                                value={precinto}
+                                onChange={(e) => setPrecinto(e.target.value)}
+                                required={requiereTransporte}
+                                className="mt-2 w-full min-h-12 rounded-xl border border-gray-200 bg-white px-4 text-sm text-[#171717] shadow-sm outline-none transition focus:border-[#CD1818]/30 focus:ring-2 focus:ring-[#CD1818]/10"
+                                placeholder="Ej. P-001245"
+                              />
+                            </label>
+                          </div>
+                        </div>
+                      </div>
+                    ) : null}
                   </>
                 ) : null}
 
@@ -873,7 +1318,9 @@ export function DepositoMovimientosPage() {
               </p>
 
               <div
-                className={`mb-3 hidden rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 md:grid md:text-[11px] md:font-semibold md:uppercase md:tracking-[0.16em] md:text-[#8997A6] ${itemGridClass}`}
+                className={`mb-3 hidden rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 md:text-[11px] md:font-semibold md:uppercase md:tracking-[0.16em] md:text-[#8997A6] ${
+                  mostrarPrecio ? 'hidden' : 'md:grid'
+                } ${itemGridClass}`}
               >
                 {tipoMovimiento === 'EGRESO' ? (
                   <>
@@ -967,7 +1414,170 @@ export function DepositoMovimientosPage() {
                         )
                       : null
 
-                  return (
+                  return mostrarPrecio ? (
+                    <div
+                      key={fila.key}
+                      className="rounded-xl border border-gray-200 bg-gray-50 p-5 shadow-sm"
+                    >
+                      <div className="flex flex-col gap-4 border-b border-gray-200 pb-4 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="min-w-0 flex-1">
+                          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[#8997A6]">
+                            Ítem {i + 1}
+                          </p>
+                          <InsumoSearchSelect
+                            compact
+                            insumos={insumos}
+                            selectedId={idInsumo}
+                            selectedLabel={
+                              fila.nombreSnapshot ||
+                              (ins ? formatLabelInsumo(ins) : '')
+                            }
+                            onSelect={(sel) =>
+                              actualizarFila(i, {
+                                insumoId: sel.id,
+                                nombreSnapshot: formatLabelInsumo(sel),
+                              })
+                            }
+                            onClear={() =>
+                              actualizarFila(i, {
+                                insumoId: null,
+                                nombreSnapshot: '',
+                              })
+                            }
+                          />
+                          {idInsumo && !ins ? (
+                            <p className="mt-2 text-xs text-[#CD1818]">
+                              Insumo no encontrado en el catálogo.
+                            </p>
+                          ) : null}
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => quitarFila(i)}
+                          disabled={filas.length <= 1}
+                          className="min-h-10 rounded-xl px-3 text-sm font-medium text-[#8997A6] underline-offset-2 transition hover:bg-white hover:text-[#CD1818] hover:underline disabled:opacity-30 disabled:hover:bg-transparent"
+                        >
+                          Quitar
+                        </button>
+                      </div>
+
+                      <div className="mt-5 grid gap-4 lg:grid-cols-2">
+                        <div className="space-y-4">
+                          <label className="block text-left">
+                            <span className="text-xs font-medium uppercase tracking-wide text-[#8997A6]">
+                              Cantidad
+                            </span>
+                            <input
+                              type="number"
+                              inputMode="decimal"
+                              min={0}
+                              step="any"
+                              value={fila.cantidad}
+                              onChange={(e) =>
+                                actualizarFila(i, { cantidad: e.target.value })
+                              }
+                              className={`${inputCompact} w-full`}
+                              placeholder="0"
+                              required={Boolean(idInsumo)}
+                            />
+                          </label>
+
+                          <label className="block text-left">
+                            <span className="text-xs font-medium uppercase tracking-wide text-[#8997A6]">
+                              Lote
+                            </span>
+                            <input
+                              type="text"
+                              value={fila.lote}
+                              onChange={(e) =>
+                                actualizarFila(i, { lote: e.target.value })
+                              }
+                              className={`${inputCompact} w-full`}
+                              placeholder="Ej. LT-2026-001"
+                            />
+                          </label>
+
+                          <label className="block text-left">
+                            <span className="text-xs font-medium uppercase tracking-wide text-[#8997A6]">
+                              Fecha de vencimiento
+                            </span>
+                            <input
+                              type="date"
+                              value={fila.fechaVencimiento}
+                              onChange={(e) =>
+                                actualizarFila(i, {
+                                  fechaVencimiento: e.target.value,
+                                })
+                              }
+                              className={`${inputCompact} w-full`}
+                            />
+                          </label>
+                        </div>
+
+                        <div className="space-y-4">
+                          <label className="block text-left">
+                            <span className="text-xs font-medium uppercase tracking-wide text-[#8997A6]">
+                              Temperatura
+                            </span>
+                            <input
+                              type="text"
+                              value={fila.temperatura}
+                              onChange={(e) =>
+                                actualizarFila(i, { temperatura: e.target.value })
+                              }
+                              className={`${inputCompact} w-full`}
+                              placeholder="Ej. 4°C"
+                            />
+                          </label>
+
+                          <div className="rounded-xl border border-gray-200 bg-white px-4 py-3">
+                            <p className="text-xs font-medium uppercase tracking-wide text-[#8997A6]">
+                              Control de calidad
+                            </p>
+                            <label className="mt-2 flex cursor-pointer items-center gap-2 text-sm text-[#171717]">
+                              <input
+                                type="checkbox"
+                                checked={fila.controlCalidadOk}
+                                onChange={(e) =>
+                                  actualizarFila(i, {
+                                    controlCalidadOk: e.target.checked,
+                                  })
+                                }
+                                className="h-4 w-4 rounded border-gray-300 text-[#CD1818] focus:ring-[#CD1818]/30"
+                                title="Control de calidad OK"
+                              />
+                              Calidad OK
+                            </label>
+                          </div>
+
+                          <label className="block text-left">
+                            <span className="text-xs font-medium uppercase tracking-wide text-[#8997A6]">
+                              Precio unitario facturado
+                            </span>
+                            <input
+                              type="number"
+                              inputMode="decimal"
+                              min={0}
+                              step="any"
+                              value={fila.precioUnitarioFacturado}
+                              onChange={(e) =>
+                                actualizarFila(i, {
+                                  precioUnitarioFacturado: e.target.value,
+                                })
+                              }
+                              className={`${inputCompact} w-full`}
+                              placeholder={
+                                tipoDocumento === 'Factura'
+                                  ? 'Precio según factura'
+                                  : 'Opcional'
+                              }
+                            />
+                          </label>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
                     <div
                       key={fila.key}
                       className={`rounded-xl border border-gray-200 bg-gray-50 p-5 shadow-sm md:p-4 ${itemGridClass}`}
@@ -1025,8 +1635,10 @@ export function DepositoMovimientosPage() {
                         ins &&
                         lotesRow.length === 0 ? (
                           <p className="mt-2 text-xs text-[#CD1818]">
-                            No hay stock por lote para este insumo. Registrá
-                            ingresos con lote o revisá movimientos previos.
+                            No hay stock por lote para este insumo en el depósito central
+                            (solo cuentan movimientos con ubicación CENTRAL). Incluyen ingresos,
+                            ajustes y egresos previos por el mismo lote. Si el stock está en otra
+                            sucursal o el ingreso no tiene lote, revisá inventario o los movimientos.
                           </p>
                         ) : null}
                       </div>
@@ -1186,32 +1798,6 @@ export function DepositoMovimientosPage() {
                         </label>
                       </div>
 
-                      {mostrarPrecio ? (
-                        <label className="col-span-12 block w-full min-w-0 text-left md:col-span-1">
-                          <span className="text-xs font-medium text-[#8997A6] md:sr-only">
-                            Precio u.
-                          </span>
-                          <input
-                            type="number"
-                            inputMode="decimal"
-                            min={0}
-                            step="any"
-                            value={fila.precioUnitarioFacturado}
-                            onChange={(e) =>
-                              actualizarFila(i, {
-                                precioUnitarioFacturado: e.target.value,
-                              })
-                            }
-                            className={`${inputCompact} w-full`}
-                            placeholder={
-                              tipoDocumento === 'Factura'
-                                ? 'Factura'
-                                : 'Opcional'
-                            }
-                          />
-                        </label>
-                      ) : null}
-
                       <div className="col-span-12 flex justify-end border-t border-gray-100 pt-3 md:col-span-12 md:border-t-0 md:pt-0">
                         <button
                           type="button"
@@ -1254,10 +1840,15 @@ export function DepositoMovimientosPage() {
         </div>
 
         <div className="sticky bottom-0 z-30 border-t border-gray-200 bg-white/95 px-4 py-4 backdrop-blur sm:px-6 lg:px-8 xl:px-10">
-          <div className="flex w-full justify-end">
+          <div className="flex w-full flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm text-[#8997A6]">
+              {requiereTransporte
+                ? 'Completá los datos del transporte y al menos un ítem válido para habilitar el remito.'
+                : 'Completá el encabezado y al menos un ítem válido para confirmar el movimiento.'}
+            </p>
             <button
               type="submit"
-              disabled={enviando}
+              disabled={enviando || !formularioListoParaEnviar}
               className="inline-flex min-h-12 shrink-0 items-center rounded-xl bg-[#CD1818] px-7 py-3 text-sm font-semibold text-white shadow-sm transition hover:brightness-105 disabled:opacity-45"
             >
               {enviando ? 'Guardando…' : 'Confirmar movimiento'}

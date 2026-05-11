@@ -1,10 +1,11 @@
 import { Fragment, useEffect, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import * as XLSX from 'xlsx'
+import { Database } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import { useAuth } from '../../context/AuthContext'
 import { subscribeCategorias, type Categoria } from '../../lib/categorias'
 import {
-  subscribeMovimientosInventario,
-  movimientosEnUbicacion,
-  UBICACION_DEPOSITO_CENTRAL,
+  subscribeMovimientosInventarioPorUbicacion,
   type MovimientoInventario,
 } from '../../lib/movimientosInventario'
 import { subscribeInsumos, type Insumo } from '../../lib/insumos'
@@ -38,15 +39,6 @@ function formatCantidad(value: number): string {
   return value.toLocaleString('es-AR', {
     minimumFractionDigits: 0,
     maximumFractionDigits: 4,
-  })
-}
-
-function formatMoneda(value: number): string {
-  return value.toLocaleString('es-AR', {
-    style: 'currency',
-    currency: 'ARS',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
   })
 }
 
@@ -114,8 +106,8 @@ function sortLotesFefo(a: LoteResumen, b: LoteResumen): number {
   return a.lote.localeCompare(b.lote, 'es', { sensitivity: 'base' })
 }
 
-export function DepositoInventarioPage() {
-  const navigate = useNavigate()
+export function CampamentoInventarioPage() {
+  const { ubicacionId } = useAuth()
   const [insumos, setInsumos] = useState<Insumo[]>([])
   const [movimientos, setMovimientos] = useState<MovimientoInventario[]>([])
   const [categorias, setCategorias] = useState<Categoria[]>([])
@@ -131,22 +123,22 @@ export function DepositoInventarioPage() {
   }, [])
 
   useEffect(() => {
-    return subscribeMovimientosInventario(setMovimientos)
-  }, [])
+    if (!ubicacionId) {
+      setMovimientos([])
+      return
+    }
+    return subscribeMovimientosInventarioPorUbicacion(ubicacionId, setMovimientos)
+  }, [ubicacionId])
 
   useEffect(() => {
     return subscribeCategorias(setCategorias)
   }, [])
 
   const filas = useMemo(() => {
-    const movimientosCentral = movimientosEnUbicacion(
-      movimientos,
-      UBICACION_DEPOSITO_CENTRAL,
-    )
     const lotesPorInsumo = new Map<string, Map<string, LoteResumen>>()
     const stockPorInsumo = new Map<string, number>()
 
-    for (const mov of movimientosCentral) {
+    for (const mov of movimientos) {
       for (const item of mov.items) {
         const delta = getDeltaMovimiento(mov.tipo, Number(item.cantidad))
         if (!Number.isFinite(delta) || delta === 0) continue
@@ -204,7 +196,6 @@ export function DepositoInventarioPage() {
         return {
           insumo,
           stockTotal,
-          valorizacion: stockTotal * insumo.costoPorUnidadBase,
           lotes: lotesRaw,
         }
       })
@@ -281,21 +272,85 @@ export function DepositoInventarioPage() {
     setExpandidos((prev) => ({ ...prev, [id]: !prev[id] }))
   }
 
-  function handleRastrearLote(lote: string) {
-    if (!lote.trim() || lote === 'Sin lote') return
-    navigate(`/deposito/trazabilidad?lote=${encodeURIComponent(lote)}`)
+  function exportarInventarioLocalExcel() {
+    const rowsResumen = filasFiltradas.map((f) => ({
+      Insumo: f.insumo.nombreGenerico,
+      Marca: f.insumo.marca,
+      Rubro: f.insumo.rubro,
+      Subrubro: f.insumo.subrubro,
+      'Unidad base': f.insumo.unidadBase,
+      'Stock total': f.stockTotal,
+    }))
+    const rowsLotes = filasFiltradas.flatMap((f) =>
+      f.lotes.map((l) => ({
+        Insumo: f.insumo.nombreGenerico,
+        Marca: f.insumo.marca,
+        Lote: l.lote,
+        Vencimiento: l.fechaVencimiento ?? '',
+        Stock: l.stock,
+      })),
+    )
+    const wb = XLSX.utils.book_new()
+    const wsResumen = XLSX.utils.json_to_sheet(
+      rowsResumen.length ? rowsResumen : [{ Mensaje: 'Sin datos' }],
+    )
+    XLSX.utils.book_append_sheet(wb, wsResumen, 'Resumen')
+    const wsLotes = XLSX.utils.json_to_sheet(
+      rowsLotes.length ? rowsLotes : [{ Mensaje: 'Sin lotes' }],
+    )
+    XLSX.utils.book_append_sheet(wb, wsLotes, 'Lotes')
+    const pad = (n: number) => String(n).padStart(2, '0')
+    const now = new Date()
+    const suf = ubicacionId ? `_${ubicacionId}` : ''
+    XLSX.writeFile(
+      wb,
+      `Campamento_inventario${suf}_${pad(now.getDate())}-${pad(now.getMonth() + 1)}-${now.getFullYear()}.xlsx`,
+    )
+  }
+
+  if (!ubicacionId) {
+    return (
+      <div className="flex min-h-full flex-1 flex-col items-center justify-center bg-gray-50 px-6">
+        <p className="text-center text-sm text-neutral-600">
+          No hay sucursal asignada. Configurá <code className="rounded bg-neutral-200 px-1 text-xs">ubicacionId</code> en tu usuario.
+        </p>
+      </div>
+    )
   }
 
   return (
     <div className="flex min-h-full flex-1 flex-col bg-gray-50">
       <header className="shrink-0 border-b border-gray-200 bg-white px-5 py-5 shadow-sm sm:px-8 xl:px-10">
-        <h1 className="text-xl font-semibold tracking-tight text-[#CD1818]">
-          Inventario actual / Kardex
-        </h1>
-        <p className="mt-1 text-sm text-[#8997A6]">
-          Vista maestra del stock actual, lotes FEFO y valorización del
-          inventario para catálogos grandes.
-        </p>
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <div className="flex items-center gap-2">
+              <Database className="h-6 w-6 shrink-0 text-[#CD1818]" aria-hidden />
+              <h1 className="text-xl font-semibold tracking-tight text-[#CD1818]">
+                Inventario local / Kardex
+              </h1>
+            </div>
+            <p className="mt-1 text-sm text-[#8997A6]">
+              Stock y lotes solo de movimientos con{' '}
+              <span className="font-mono text-xs text-[#171717]">ubicacionId = {ubicacionId}</span>{' '}
+              (consulta acotada en Firestore).
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Link
+              to="/campamento/recepcion"
+              className="inline-flex items-center justify-center rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-semibold text-[#CD1818] shadow-sm transition hover:bg-gray-50"
+            >
+              Ir a recepción
+            </Link>
+            <button
+              type="button"
+              onClick={exportarInventarioLocalExcel}
+              className="inline-flex items-center justify-center rounded-xl bg-[#CD1818] px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:brightness-110"
+            >
+              Exportar Excel
+            </button>
+          </div>
+        </div>
       </header>
 
       <div className="flex min-h-0 flex-1 flex-col px-5 py-5 sm:px-8 lg:px-12 xl:px-16 2xl:px-20">
@@ -368,7 +423,7 @@ export function DepositoInventarioPage() {
             <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
               <div>
                 <h2 className="text-sm font-semibold uppercase tracking-wide text-[#CD1818]">
-                  Kardex valorizado
+                  Kardex local
                 </h2>
                 <p className="mt-0.5 text-xs text-[#8997A6]">
                   Expandí cada fila para ver lotes positivos y aplicar criterio
@@ -384,14 +439,13 @@ export function DepositoInventarioPage() {
           </div>
 
           <div className="min-h-0 flex-1 overflow-auto">
-            <table className="w-full min-w-[980px] border-collapse text-left text-sm">
+            <table className="w-full min-w-[820px] border-collapse text-left text-sm">
               <thead className="sticky top-0 z-10 shadow-sm">
                 <tr className="border-b border-gray-200 bg-gray-50 text-xs uppercase tracking-wide text-[#8997A6]">
                   <th className="w-14 px-4 py-3">Abrir</th>
                   <th className="px-4 py-3">Insumo</th>
                   <th className="px-4 py-3">Unidad base</th>
                   <th className="px-4 py-3 text-right">Stock total</th>
-                  <th className="px-4 py-3 text-right">Valorización</th>
                 </tr>
               </thead>
 
@@ -399,7 +453,7 @@ export function DepositoInventarioPage() {
                 {filasPagina.length === 0 ? (
                   <tr>
                     <td
-                      colSpan={5}
+                      colSpan={4}
                       className="px-4 py-16 text-center text-[#8997A6]"
                     >
                       No hay artículos que coincidan con los filtros actuales.
@@ -473,14 +527,10 @@ export function DepositoInventarioPage() {
                           >
                             {formatCantidad(fila.stockTotal)}
                           </td>
-
-                          <td className="whitespace-nowrap px-4 py-3 text-right font-semibold tabular-nums text-[#171717]">
-                            {formatMoneda(fila.valorizacion)}
-                          </td>
                         </tr>
 
                         <tr className="bg-white">
-                          <td colSpan={5} className="p-0">
+                          <td colSpan={4} className="p-0">
                             <div
                               className={`overflow-hidden transition-all duration-300 ease-out ${
                                 expanded ? 'max-h-[28rem] opacity-100' : 'max-h-0 opacity-0'
@@ -523,30 +573,6 @@ export function DepositoInventarioPage() {
                                                 <td className="px-4 py-3 font-medium text-[#171717]">
                                                   <div className="flex items-center gap-2">
                                                     <span>{lote.lote}</span>
-                                                    {lote.lote !== 'Sin lote' ? (
-                                                      <button
-                                                        type="button"
-                                                        onClick={(e) => {
-                                                          e.stopPropagation()
-                                                          handleRastrearLote(lote.lote)
-                                                        }}
-                                                        className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-gray-200 bg-white text-[#8997A6] transition hover:border-[#CD1818]/30 hover:text-[#CD1818]"
-                                                        aria-label={`Rastrear lote ${lote.lote}`}
-                                                        title="Rastrear lote"
-                                                      >
-                                                        <svg
-                                                          viewBox="0 0 20 20"
-                                                          fill="none"
-                                                          stroke="currentColor"
-                                                          strokeWidth="1.8"
-                                                          className="h-3.5 w-3.5"
-                                                          aria-hidden
-                                                        >
-                                                          <circle cx="8.5" cy="8.5" r="4.75" />
-                                                          <path d="m12 12 4.25 4.25" />
-                                                        </svg>
-                                                      </button>
-                                                    ) : null}
                                                   </div>
                                                 </td>
                                                 <td className="px-4 py-3">

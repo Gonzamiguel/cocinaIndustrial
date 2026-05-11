@@ -7,6 +7,7 @@ import {
   orderBy,
   query,
   serverTimestamp,
+  Timestamp,
   updateDoc,
   type Unsubscribe,
 } from 'firebase/firestore'
@@ -21,19 +22,23 @@ export interface Insumo {
   id: string
   nombreGenerico: string
   marca: string
-  /** Rubro opcional en Firestore (ej. lácteos). Si falta, la UI puede usar presentación. */
-  categoria: string
+  rubro: string
+  subrubro: string
   presentacion: string
   unidadBase: UnidadBaseInsumo
   contenidoNeto: number
   costoEnvase: number
   /** Denormalizado al guardar: costoEnvase / contenidoNeto */
   costoPorUnidadBase: number
+  creadoEn: Date | null
+  actualizadoEn: Date | null
 }
 
 export interface CrearInsumoInput {
   nombreGenerico: string
   marca: string
+  rubro: string
+  subrubro: string
   presentacion: string
   unidadBase: UnidadBaseInsumo
   contenidoNeto: number
@@ -78,26 +83,39 @@ function mapInsumoDoc(id: string, data: Record<string, unknown>): Insumo {
   const contenidoNeto = clampNonNegative(Number(data.contenidoNeto))
   const costoEnvase = clampNonNegative(Number(data.costoEnvase))
   const costoPorUnidadBase = computeCostoPorUnidadBase(costoEnvase, contenidoNeto)
+  const creadoEn = data.creadoEn instanceof Timestamp ? data.creadoEn.toDate() : null
+  const actualizadoEn =
+    data.actualizadoEn instanceof Timestamp ? data.actualizadoEn.toDate() : null
 
   return {
     id,
     nombreGenerico:
       typeof data.nombreGenerico === 'string' ? data.nombreGenerico.trim() : '',
     marca: typeof data.marca === 'string' ? data.marca.trim() : '',
-    categoria:
-      typeof data.categoria === 'string' ? data.categoria.trim() : '',
+    rubro:
+      typeof data.rubro === 'string'
+        ? data.rubro.trim()
+        : typeof data.categoria === 'string'
+          ? data.categoria.trim()
+          : '',
+    subrubro:
+      typeof data.subrubro === 'string' ? data.subrubro.trim() : '',
     presentacion:
       typeof data.presentacion === 'string' ? data.presentacion.trim() : '',
     unidadBase,
     contenidoNeto,
     costoEnvase,
     costoPorUnidadBase,
+    creadoEn,
+    actualizadoEn,
   }
 }
 
 function buildInsumoPayload(input: CrearInsumoInput): {
   nombreGenerico: string
   marca: string
+  rubro: string
+  subrubro: string
   presentacion: string
   unidadBase: UnidadBaseInsumo
   contenidoNeto: number
@@ -106,6 +124,8 @@ function buildInsumoPayload(input: CrearInsumoInput): {
 } {
   const nombreGenerico = input.nombreGenerico.trim()
   const marca = input.marca.trim()
+  const rubro = input.rubro.trim()
+  const subrubro = input.subrubro.trim()
   const presentacion = input.presentacion.trim()
   const contenidoNeto = Number(input.contenidoNeto)
   const costoEnvase = Number(input.costoEnvase)
@@ -115,6 +135,12 @@ function buildInsumoPayload(input: CrearInsumoInput): {
   }
   if (!UNIDADES_BASE_INSUMO.includes(input.unidadBase)) {
     throw new Error('Seleccioná una unidad base válida (Kg, Lt o Un).')
+  }
+  if (!rubro) {
+    throw new Error('Seleccioná un rubro.')
+  }
+  if (!subrubro) {
+    throw new Error('Seleccioná un subrubro.')
   }
   if (!Number.isFinite(contenidoNeto) || contenidoNeto <= 0) {
     throw new Error('El contenido neto debe ser mayor a 0.')
@@ -128,6 +154,8 @@ function buildInsumoPayload(input: CrearInsumoInput): {
   return {
     nombreGenerico,
     marca,
+    rubro,
+    subrubro,
     presentacion,
     unidadBase: input.unidadBase,
     contenidoNeto,

@@ -1,4 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
+import {
+  subscribeCategorias,
+  type Categoria,
+} from '../../lib/categorias'
 import { useToast } from '../../context/ToastContext'
 import {
   COLLECTION_INSUMOS,
@@ -29,6 +33,9 @@ export function DepositoInsumosPage() {
 
   const [nombreGenerico, setNombreGenerico] = useState('')
   const [marca, setMarca] = useState('')
+  const [categorias, setCategorias] = useState<Categoria[]>([])
+  const [rubro, setRubro] = useState('')
+  const [subrubro, setSubrubro] = useState('')
   const [presentacion, setPresentacion] = useState('')
   const [unidadBase, setUnidadBase] = useState<UnidadBaseInsumo>('Kg')
   const [contenidoNeto, setContenidoNeto] = useState('')
@@ -39,6 +46,10 @@ export function DepositoInsumosPage() {
       setItems(rows)
       setCargando(false)
     })
+  }, [])
+
+  useEffect(() => {
+    return subscribeCategorias(setCategorias)
   }, [])
 
   useEffect(() => {
@@ -65,6 +76,8 @@ export function DepositoInsumosPage() {
     setEditandoId(null)
     setNombreGenerico('')
     setMarca('')
+    setRubro('')
+    setSubrubro('')
     setPresentacion('')
     setUnidadBase('Kg')
     setContenidoNeto('')
@@ -75,6 +88,8 @@ export function DepositoInsumosPage() {
     setEditandoId(row.id)
     setNombreGenerico(row.nombreGenerico)
     setMarca(row.marca)
+    setRubro(row.rubro)
+    setSubrubro(row.subrubro)
     setPresentacion(row.presentacion)
     setUnidadBase(row.unidadBase)
     setContenidoNeto(String(row.contenidoNeto))
@@ -97,6 +112,8 @@ export function DepositoInsumosPage() {
     const payload: CrearInsumoInput = {
       nombreGenerico,
       marca,
+      rubro,
+      subrubro,
       presentacion,
       unidadBase,
       contenidoNeto: Number(contenidoNeto),
@@ -144,6 +161,23 @@ export function DepositoInsumosPage() {
   const labelUnidadBase = (u: UnidadBaseInsumo) =>
     u === 'Kg' ? 'kilogramo' : u === 'Lt' ? 'litro' : 'unidad'
 
+  const categoriaSeleccionada = useMemo(
+    () => categorias.find((item) => item.nombre === rubro) ?? null,
+    [categorias, rubro],
+  )
+
+  const rubrosDisponibles = useMemo(() => {
+    const base = categorias.map((item) => item.nombre)
+    if (rubro && !base.includes(rubro)) return [...base, rubro]
+    return base
+  }, [categorias, rubro])
+
+  const subrubrosDisponibles = useMemo(() => {
+    const base = categoriaSeleccionada?.subrubros ?? []
+    if (subrubro && !base.includes(subrubro)) return [...base, subrubro]
+    return base
+  }, [categoriaSeleccionada, subrubro])
+
   /** Vista lista + modal detalle (como recetario) */
   if (!isCreating) {
     return (
@@ -158,8 +192,8 @@ export function DepositoInsumosPage() {
                 Catálogo de insumos
               </h1>
               <p className="mt-2 text-sm text-[#8997A6]">
-                Marcas, presentaciones y costo por unidad base para cocina y
-                pedidos.
+                Rubros dinámicos, presentaciones y costo por unidad base para
+                cocina y pedidos.
               </p>
             </div>
             <button
@@ -184,10 +218,12 @@ export function DepositoInsumosPage() {
               </p>
             </div>
             <div className="min-h-0 flex-1 overflow-auto">
-              <table className="w-full min-w-[920px] border-collapse text-left text-sm">
+              <table className="w-full min-w-[1080px] border-collapse text-left text-sm">
                 <thead className="sticky top-0 z-10 shadow-sm">
                   <tr className="border-b border-gray-200 bg-gray-50 text-xs uppercase tracking-wide text-[#8997A6]">
                     <th className="px-4 py-3 font-semibold">Producto</th>
+                    <th className="px-4 py-3 font-semibold">Rubro</th>
+                    <th className="px-4 py-3 font-semibold">Subrubro</th>
                     <th className="px-4 py-3 font-semibold">Unidad base</th>
                     <th className="px-4 py-3 font-semibold">Contenido</th>
                     <th className="px-4 py-3 font-semibold">Costo envase</th>
@@ -201,7 +237,7 @@ export function DepositoInsumosPage() {
                   {cargando ? (
                     <tr>
                       <td
-                        colSpan={6}
+                        colSpan={8}
                         className="px-4 py-16 text-center text-[#8997A6]"
                       >
                         Cargando catálogo…
@@ -210,7 +246,7 @@ export function DepositoInsumosPage() {
                   ) : items.length === 0 ? (
                     <tr>
                       <td
-                        colSpan={6}
+                        colSpan={8}
                         className="px-4 py-16 text-center text-[#8997A6]"
                       >
                         No hay insumos aún. Creá uno con «Nuevo insumo».
@@ -221,6 +257,12 @@ export function DepositoInsumosPage() {
                       <tr key={row.id} className="hover:bg-gray-50/80">
                         <td className="px-4 py-3 font-medium text-[#171717]">
                           {formatLabelInsumo(row)}
+                        </td>
+                        <td className="px-4 py-3 text-[#171717]">
+                          {row.rubro || '—'}
+                        </td>
+                        <td className="px-4 py-3 text-[#171717]">
+                          {row.subrubro || '—'}
                         </td>
                         <td className="px-4 py-3 text-[#171717]">
                           {row.unidadBase}
@@ -338,6 +380,22 @@ export function DepositoInsumosPage() {
                   </div>
                   <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 sm:col-span-2">
                     <p className="text-xs font-medium uppercase tracking-wide text-[#8997A6]">
+                      Rubro
+                    </p>
+                    <p className="mt-1 font-semibold text-[#171717]">
+                      {insumoEnDetalle.rubro || '—'}
+                    </p>
+                  </div>
+                  <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 sm:col-span-2">
+                    <p className="text-xs font-medium uppercase tracking-wide text-[#8997A6]">
+                      Subrubro
+                    </p>
+                    <p className="mt-1 font-semibold text-[#171717]">
+                      {insumoEnDetalle.subrubro || '—'}
+                    </p>
+                  </div>
+                  <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 sm:col-span-2">
+                    <p className="text-xs font-medium uppercase tracking-wide text-[#8997A6]">
                       Presentación
                     </p>
                     <p className="mt-1 font-semibold text-[#171717]">
@@ -440,8 +498,8 @@ export function DepositoInsumosPage() {
           {editandoId ? 'Editar insumo' : 'Nuevo insumo'}
         </h1>
         <p className="mt-1.5 text-sm leading-relaxed text-[#8997A6]">
-          Completá nombre genérico, marca, presentación y costos. El costo por
-          unidad base se calcula al guardar.
+          Completá nombre genérico, rubro, subrubro, presentación y costos. El
+          costo por unidad base se calcula al guardar.
         </p>
       </div>
 
@@ -478,6 +536,53 @@ export function DepositoInsumosPage() {
                     className={inputClass}
                     placeholder="Ej. Arcor"
                   />
+                </label>
+                <label className="block md:col-span-2 lg:col-span-1">
+                  <span className="text-xs font-medium text-[#8997A6]">
+                    Rubro
+                  </span>
+                  <select
+                    required
+                    value={rubro}
+                    onChange={(e) => {
+                      const nextRubro = e.target.value
+                      setRubro(nextRubro)
+                      const categoria = categorias.find(
+                        (item) => item.nombre === nextRubro,
+                      )
+                      const primerSubrubro = categoria?.subrubros[0] ?? ''
+                      setSubrubro(primerSubrubro)
+                    }}
+                    className={inputClass}
+                  >
+                    <option value="">Seleccionar…</option>
+                    {rubrosDisponibles.map((item) => (
+                      <option key={item} value={item}>
+                        {item}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="block">
+                  <span className="text-xs font-medium text-[#8997A6]">
+                    Subrubro
+                  </span>
+                  <select
+                    required
+                    value={subrubro}
+                    onChange={(e) => setSubrubro(e.target.value)}
+                    disabled={!rubro}
+                    className={inputClass}
+                  >
+                    <option value="">
+                      {rubro ? 'Seleccionar…' : 'Elegí un rubro primero'}
+                    </option>
+                    {subrubrosDisponibles.map((item) => (
+                      <option key={item} value={item}>
+                        {item}
+                      </option>
+                    ))}
+                  </select>
                 </label>
                 <label className="block md:col-span-2 lg:col-span-1">
                   <span className="text-xs font-medium text-[#8997A6]">

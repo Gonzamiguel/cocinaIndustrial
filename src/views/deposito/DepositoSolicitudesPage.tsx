@@ -49,12 +49,12 @@ function bordeEstado(s: SolicitudMercaderia): string {
   }
 }
 
-function ModalGestionSolicitud({
+function GestionSolicitudScreen({
   solicitud,
-  onClose,
+  onBack,
 }: {
   solicitud: SolicitudMercaderia
-  onClose: () => void
+  onBack: () => void
 }) {
   const { showToast } = useToast()
   const depositoPuedeCambiarEstado = solicitud.estado !== 'Recibido'
@@ -79,14 +79,6 @@ function ModalGestionSolicitud({
     solicitud.observacionesDeposito,
     depositoPuedeCambiarEstado,
   ])
-
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
 
   async function guardar() {
     setGuardando(true)
@@ -133,20 +125,18 @@ function ModalGestionSolicitud({
   const fechaCreacionStr = formatFechaCreacion(solicitud.fechaCreacion)
 
   return (
-    <div
-      className="fixed inset-0 z-[100] flex items-end justify-center bg-black/45 p-0 sm:items-center sm:p-4"
-      role="presentation"
-      onClick={onClose}
-    >
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="modal-gestion-solicitud-titulo"
-        className="flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-t-2xl border border-neutral-200 bg-white shadow-2xl sm:rounded-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <div className="flex min-h-full flex-1 flex-col bg-gray-50">
+      <div className="shrink-0 border-b border-neutral-200 bg-white px-4 py-4 shadow-sm sm:px-6 lg:px-8 xl:px-10">
+        <button
+          type="button"
+          onClick={onBack}
+          className="inline-flex min-h-11 items-center gap-2 rounded-xl px-3 text-sm font-semibold text-[#CD1818] transition hover:bg-gray-100"
+        >
+          <span aria-hidden>←</span>
+          Volver al historial
+        </button>
         <div
-          className="shrink-0 border-b border-neutral-100 px-4 py-4 sm:px-5"
+          className="mt-3 rounded-xl border border-neutral-200 bg-white px-4 py-4 shadow-sm sm:px-5"
           style={{ borderLeft: bordeEstado(solicitud) }}
         >
           <div className="flex items-start justify-between gap-3">
@@ -155,7 +145,6 @@ function ModalGestionSolicitud({
                 Solicitud
               </p>
               <h2
-                id="modal-gestion-solicitud-titulo"
                 className="truncate font-mono text-sm font-semibold text-[#171717]"
                 title={solicitud.id}
               >
@@ -199,21 +188,6 @@ function ModalGestionSolicitud({
                 </div>
               </div>
             </div>
-            <button
-              type="button"
-              onClick={onClose}
-              className="shrink-0 rounded-lg p-2 text-[#8997A6] transition hover:bg-neutral-100 hover:text-[#171717]"
-              aria-label="Cerrar"
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                viewBox="0 0 20 20"
-                fill="currentColor"
-                className="h-5 w-5"
-              >
-                <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
-              </svg>
-            </button>
           </div>
 
           <div className="mt-4 flex flex-wrap justify-end gap-2">
@@ -250,105 +224,125 @@ function ModalGestionSolicitud({
             </button>
           </div>
         </div>
+      </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-5">
-          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[#CD1818]">
-            Insumos solicitados
-          </p>
-          <div className="overflow-x-auto rounded-xl border border-neutral-200">
-            <table className="w-full min-w-[720px] border-collapse text-sm">
-              <thead>
-                <tr className="border-b border-neutral-200 bg-gray-50 text-left text-xs uppercase text-[#8997A6]">
-                  <th className="px-3 py-2.5 font-semibold">Producto</th>
-                  <th className="px-3 py-2.5 font-semibold">Cantidad</th>
-                  <th className="px-3 py-2.5 font-semibold">Unidad</th>
-                  <th className="px-3 py-2.5 font-semibold">Presentación</th>
-                  <th className="px-3 py-2.5 font-semibold">Observación</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-neutral-100">
-                {solicitud.items.map((it, idx) => (
-                  <tr key={idx} className="bg-white">
-                    <td className="px-3 py-2.5 font-medium text-[#171717]">
-                      {it.producto}
-                    </td>
-                    <td className="px-3 py-2.5 tabular-nums text-[#171717]">
-                      {it.cantidad}
-                    </td>
-                    <td className="px-3 py-2.5 text-[#171717]">{it.unidadMedida}</td>
-                    <td className="px-3 py-2.5 text-[#171717]">{it.presentacion}</td>
-                    <td className="px-3 py-2.5 text-[#171717]">
-                      {it.observacion || '—'}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        <div className="shrink-0 border-t border-neutral-200 bg-neutral-50 px-4 py-4 sm:px-5">
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="text-left sm:col-span-1">
-              <span className="text-xs font-medium text-[#8997A6]">Estado</span>
-              {depositoPuedeCambiarEstado ? (
-                <select
-                  value={estado}
-                  onChange={(e) =>
-                    setEstado(e.target.value as EstadoSolicitudDeposito)
-                  }
-                  className="mt-1.5 w-full min-h-11 rounded-xl border border-gray-200 bg-white px-3 text-sm text-[#171717] outline-none focus:border-[#CD1818]/30 focus:ring-2 focus:ring-[#CD1818]/10"
-                >
-                  {ESTADOS_DEPOSITO.map((es) => (
-                    <option key={es} value={es}>
-                      {es}
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <div className="mt-1.5 space-y-1">
-                  <span
-                    className="inline-flex rounded-full px-2.5 py-1 text-xs font-semibold"
-                    style={estiloBadgeEstadoSolicitud(solicitud.estado)}
-                  >
-                    {solicitud.estado}
-                  </span>
-                  <p className="text-xs text-[#8997A6]">
-                    La cocina confirmó la recepción. El estado no puede modificarse
-                    desde depósito.
-                  </p>
-                </div>
-              )}
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:px-6 lg:px-8 xl:px-10">
+        <div className="mx-auto w-full max-w-6xl space-y-6">
+          <div className="rounded-xl border border-neutral-200 bg-white shadow-sm">
+            <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-5">
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[#CD1818]">
+                Insumos solicitados
+              </p>
+              <div className="overflow-x-auto rounded-xl border border-neutral-200">
+                <table className="w-full min-w-[720px] border-collapse text-sm">
+                  <thead>
+                    <tr className="border-b border-neutral-200 bg-gray-50 text-left text-xs uppercase text-[#8997A6]">
+                      <th className="px-3 py-2.5 font-semibold">Producto</th>
+                      <th className="px-3 py-2.5 font-semibold">Cantidad</th>
+                      <th className="px-3 py-2.5 font-semibold">Unidad</th>
+                      <th className="px-3 py-2.5 font-semibold">Presentación</th>
+                      <th className="px-3 py-2.5 font-semibold">Observación</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-neutral-100">
+                    {solicitud.items.map((it, idx) => (
+                      <tr key={idx} className="bg-white">
+                        <td className="px-3 py-2.5 font-medium text-[#171717]">
+                          {it.producto}
+                        </td>
+                        <td className="px-3 py-2.5 tabular-nums text-[#171717]">
+                          {it.cantidad}
+                        </td>
+                        <td className="px-3 py-2.5 text-[#171717]">
+                          {it.unidadMedida}
+                        </td>
+                        <td className="px-3 py-2.5 text-[#171717]">
+                          {it.presentacion}
+                        </td>
+                        <td className="px-3 py-2.5 text-[#171717]">
+                          {it.observacion || '—'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
-          <label className="mt-3 block text-left">
-            <span className="text-xs font-medium text-[#8997A6]">
-              Observaciones del depósito
-            </span>
-            <textarea
-              value={observaciones}
-              onChange={(e) => setObservaciones(e.target.value)}
-              rows={3}
-              placeholder='Ej. "Enviamos puré de tomate en vez de perita"'
-              className="mt-1.5 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-[#171717] outline-none focus:border-[#CD1818]/30 focus:ring-2 focus:ring-[#CD1818]/10"
-            />
-          </label>
-          <div className="mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-            <button
-              type="button"
-              onClick={onClose}
-              className="min-h-11 w-full rounded-xl border border-gray-200 bg-white px-4 text-sm font-semibold text-[#171717] shadow-sm transition hover:bg-neutral-50 sm:w-auto"
-            >
-              Cerrar
-            </button>
-            <button
-              type="button"
-              onClick={() => void guardar()}
-              disabled={guardando}
-              className="min-h-11 w-full rounded-xl bg-[#CD1818] px-5 text-sm font-semibold text-white shadow-sm transition hover:brightness-105 disabled:opacity-45 sm:w-auto"
-            >
-              {guardando ? 'Guardando…' : 'Guardar estado y observaciones'}
-            </button>
+
+          <div className="rounded-xl border border-neutral-200 bg-white shadow-sm">
+            <div className="border-b border-neutral-100 px-4 py-4 sm:px-5">
+              <h3 className="text-sm font-semibold text-[#CD1818]">
+                Gestión del pedido
+              </h3>
+              <p className="mt-1 text-xs text-[#8997A6]">
+                Actualizá el estado logístico y registrá observaciones internas del depósito.
+              </p>
+            </div>
+            <div className="bg-neutral-50 px-4 py-4 sm:px-5">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="text-left sm:col-span-1">
+                  <span className="text-xs font-medium text-[#8997A6]">Estado</span>
+                  {depositoPuedeCambiarEstado ? (
+                    <select
+                      value={estado}
+                      onChange={(e) =>
+                        setEstado(e.target.value as EstadoSolicitudDeposito)
+                      }
+                      className="mt-1.5 w-full min-h-11 rounded-xl border border-gray-200 bg-white px-3 text-sm text-[#171717] outline-none focus:border-[#CD1818]/30 focus:ring-2 focus:ring-[#CD1818]/10"
+                    >
+                      {ESTADOS_DEPOSITO.map((es) => (
+                        <option key={es} value={es}>
+                          {es}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <div className="mt-1.5 space-y-1">
+                      <span
+                        className="inline-flex rounded-full px-2.5 py-1 text-xs font-semibold"
+                        style={estiloBadgeEstadoSolicitud(solicitud.estado)}
+                      >
+                        {solicitud.estado}
+                      </span>
+                      <p className="text-xs text-[#8997A6]">
+                        La cocina confirmó la recepción. El estado no puede modificarse
+                        desde depósito.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+              <label className="mt-3 block text-left">
+                <span className="text-xs font-medium text-[#8997A6]">
+                  Observaciones del depósito
+                </span>
+                <textarea
+                  value={observaciones}
+                  onChange={(e) => setObservaciones(e.target.value)}
+                  rows={3}
+                  placeholder='Ej. "Enviamos puré de tomate en vez de perita"'
+                  className="mt-1.5 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-[#171717] outline-none focus:border-[#CD1818]/30 focus:ring-2 focus:ring-[#CD1818]/10"
+                />
+              </label>
+              <div className="mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                <button
+                  type="button"
+                  onClick={onBack}
+                  className="min-h-11 w-full rounded-xl border border-gray-200 bg-white px-4 text-sm font-semibold text-[#171717] shadow-sm transition hover:bg-neutral-50 sm:w-auto"
+                >
+                  Volver
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void guardar()}
+                  disabled={guardando}
+                  className="min-h-11 w-full rounded-xl bg-[#CD1818] px-5 text-sm font-semibold text-white shadow-sm transition hover:brightness-105 disabled:opacity-45 sm:w-auto"
+                >
+                  {guardando ? 'Guardando…' : 'Guardar estado y observaciones'}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -396,6 +390,12 @@ export function DepositoSolicitudesPage() {
 
   function cerrarModal() {
     setSolicitudActivaId(null)
+  }
+
+  if (solicitudActiva) {
+    return (
+      <GestionSolicitudScreen solicitud={solicitudActiva} onBack={cerrarModal} />
+    )
   }
 
   return (
@@ -504,9 +504,6 @@ export function DepositoSolicitudesPage() {
         )}
       </div>
 
-      {solicitudActiva ? (
-        <ModalGestionSolicitud solicitud={solicitudActiva} onClose={cerrarModal} />
-      ) : null}
     </div>
   )
 }

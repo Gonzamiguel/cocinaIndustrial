@@ -1,7 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
-import { InsumoSearchSelect } from '../../components/insumos/InsumoSearchSelect'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
-  formatLabelInsumo,
   subscribeInsumos,
   type Insumo,
 } from '../../lib/insumos'
@@ -18,7 +16,6 @@ import { useToast } from '../../context/ToastContext'
 
 type FilaDraft = {
   key: string
-  insumoId?: string | null
   producto: string
   cantidad: string
   unidadMedida: string
@@ -32,7 +29,6 @@ function nuevaFila(): FilaDraft {
       typeof crypto !== 'undefined' && crypto.randomUUID
         ? crypto.randomUUID()
         : String(Date.now() + Math.random()),
-    insumoId: undefined,
     producto: '',
     cantidad: '',
     unidadMedida: '',
@@ -54,8 +50,6 @@ function formatFechaCreacion(d: Date | null): string {
 
 const PRIORIDADES: PrioridadSolicitud[] = ['Normal', 'Alta', 'Urgente']
 
-const UNIDADES_MEDIDA = ['Kg', 'Lt', 'Un', 'Gr', 'Ml'] as const
-
 const PRESENTACIONES_OPCIONES = [
   'Caja',
   'Bolsa/Sacón',
@@ -72,6 +66,133 @@ const selectInsumoClass =
 
 const inputInsumoClass =
   'mt-2.5 w-full min-h-12 rounded-xl border border-gray-200 bg-white px-4 text-sm text-[#171717] shadow-sm outline-none transition focus:border-[#CD1818]/30 focus:ring-2 focus:ring-[#CD1818]/10'
+
+type OpcionInsumoGenerico = {
+  key: string
+  nombreGenerico: string
+  unidadBase: string
+  label: string
+}
+
+function normalizarTexto(value: string): string {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim()
+}
+
+function InsumoGenericoSearchSelect({
+  opciones,
+  selectedLabel,
+  onSelect,
+  onClear,
+}: {
+  opciones: OpcionInsumoGenerico[]
+  selectedLabel: string
+  onSelect: (option: OpcionInsumoGenerico) => void
+  onClear: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const wrapRef = useRef<HTMLDivElement>(null)
+
+  const filtered = useMemo(() => {
+    const q = normalizarTexto(query)
+    if (!q) return opciones.slice(0, 80)
+    return opciones.filter((option) =>
+      normalizarTexto(`${option.nombreGenerico} ${option.unidadBase}`).includes(q),
+    )
+  }, [opciones, query])
+
+  useEffect(() => {
+    if (!open) return
+    function handlePointer(event: MouseEvent) {
+      const el = wrapRef.current
+      if (el && !el.contains(event.target as Node)) {
+        setOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handlePointer)
+    return () => document.removeEventListener('mousedown', handlePointer)
+  }, [open])
+
+  return (
+    <div ref={wrapRef} className="relative min-w-0">
+      <span className="text-xs font-medium text-[#8997A6]">
+        Artículo genérico
+      </span>
+      {selectedLabel.trim() ? (
+        <div className="mt-2.5 flex flex-wrap items-stretch gap-2">
+          <div className="flex min-h-12 min-w-0 flex-1 items-center rounded-xl border border-gray-200 bg-gray-50 px-4 text-sm font-medium text-[#171717]">
+            <span className="line-clamp-2">{selectedLabel}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              onClear()
+              setQuery('')
+              setOpen(false)
+            }}
+            className="min-h-12 rounded-xl border border-gray-200 bg-white px-4 text-sm font-semibold text-[#8997A6] transition hover:border-[#CD1818]/30 hover:text-[#CD1818]"
+          >
+            Cambiar
+          </button>
+        </div>
+      ) : (
+        <>
+          <input
+            type="text"
+            value={open ? query : ''}
+            onChange={(e) => {
+              setQuery(e.target.value)
+              if (!open) setOpen(true)
+            }}
+            onFocus={() => {
+              setOpen(true)
+              setQuery('')
+            }}
+            placeholder="Buscar por nombre genérico…"
+            className={inputInsumoClass}
+            aria-expanded={open}
+            aria-controls="insumo-generico-search-listbox"
+            aria-autocomplete="list"
+          />
+          {open ? (
+            <ul
+              id="insumo-generico-search-listbox"
+              role="listbox"
+              className="absolute z-50 mt-1 max-h-56 w-full overflow-auto rounded-xl border border-gray-200 bg-white py-1 shadow-lg"
+            >
+              {filtered.length === 0 ? (
+                <li className="px-4 py-3 text-sm text-[#8997A6]">
+                  No hay coincidencias.
+                </li>
+              ) : (
+                filtered.map((option) => (
+                  <li key={option.key} role="option">
+                    <button
+                      type="button"
+                      className="w-full px-4 py-2.5 text-left text-sm text-[#171717] transition hover:bg-gray-50"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => {
+                        onSelect(option)
+                        setQuery('')
+                        setOpen(false)
+                      }}
+                    >
+                      {option.label}
+                    </button>
+                  </li>
+                ))
+              )}
+            </ul>
+          ) : null}
+        </>
+      )}
+    </div>
+  )
+}
 
 export function AdminSolicitudMercaderiaPage() {
   const { showToast } = useToast()
@@ -95,10 +216,25 @@ export function AdminSolicitudMercaderiaPage() {
     return subscribeInsumos(setInsumos)
   }, [])
 
-  const insumosById = useMemo(() => {
-    const m = new Map<string, Insumo>()
-    for (const i of insumos) m.set(i.id, i)
-    return m
+  const insumosGenericos = useMemo(() => {
+    const map = new Map<string, OpcionInsumoGenerico>()
+    for (const insumo of insumos) {
+      const nombreGenerico = insumo.nombreGenerico.trim()
+      if (!nombreGenerico) continue
+      const key = normalizarTexto(nombreGenerico)
+      if (map.has(key)) continue
+      map.set(key, {
+        key,
+        nombreGenerico,
+        unidadBase: insumo.unidadBase,
+        label: `${nombreGenerico} (${insumo.unidadBase})`,
+      })
+    }
+    return [...map.values()].sort((a, b) =>
+      a.nombreGenerico.localeCompare(b.nombreGenerico, 'es', {
+        sensitivity: 'base',
+      }),
+    )
   }, [insumos])
 
   useEffect(() => {
@@ -166,37 +302,14 @@ export function AdminSolicitudMercaderiaPage() {
     const items: ItemSolicitudMercaderia[] = []
     for (const f of filas) {
       const cant = Number(f.cantidad)
-      const idInsumo = f.insumoId?.trim()
-
-      if (idInsumo) {
-        if (!Number.isFinite(cant) || cant <= 0) continue
-        const ins = insumosById.get(idInsumo)
-        if (!ins) {
-          showToast(
-            'Un insumo del catálogo ya no está disponible. Revisá la fila.',
-            'error',
-          )
-          return
-        }
-        items.push({
-          insumoId: idInsumo,
-          producto: formatLabelInsumo(ins),
-          cantidad: cant,
-          unidadMedida: ins.unidadBase,
-          presentacion: ins.presentacion,
-          observacion: f.observacion.trim(),
-        })
-        continue
-      }
 
       const prod = f.producto.trim()
       if (!prod || !Number.isFinite(cant) || cant <= 0) continue
 
       const um = f.unidadMedida.trim()
-      const pres = f.presentacion.trim()
-      if (!um || !pres) {
+      if (!um) {
         showToast(
-          'En cada insumo con producto y cantidad, seleccioná unidad de medida y presentación.',
+          'En cada insumo con producto y cantidad, seleccioná o confirmá la unidad de medida.',
           'error',
         )
         return
@@ -206,7 +319,7 @@ export function AdminSolicitudMercaderiaPage() {
         producto: prod,
         cantidad: cant,
         unidadMedida: um,
-        presentacion: pres,
+        presentacion: f.presentacion.trim(),
         observacion: f.observacion.trim(),
       })
     }
@@ -648,12 +761,12 @@ export function AdminSolicitudMercaderiaPage() {
                 Insumos
               </p>
               <p className="mb-5 text-sm text-[#8997A6]">
-                Filas nuevas: elegí insumo del catálogo depósito. Podés seguir
-                usando texto libre si la fila ya tiene producto cargado a mano.
+                Elegí artículos por nombre genérico. La cocina solicita el concepto
+                del insumo y el depósito define luego la marca o presentación comercial.
               </p>
               <div className="mb-4 hidden rounded-xl border border-gray-200 bg-gray-50 px-5 py-3 lg:block">
                 <div className="grid gap-4 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#8997A6] lg:grid-cols-[minmax(0,2fr)_minmax(0,0.8fr)_minmax(0,1fr)_minmax(0,1.1fr)_minmax(0,1.6fr)_auto]">
-                  <span>Producto / Catálogo</span>
+                  <span>Artículo genérico</span>
                   <span>Cantidad</span>
                   <span>Unidad de medida</span>
                   <span>Presentación</span>
@@ -663,76 +776,49 @@ export function AdminSolicitudMercaderiaPage() {
               </div>
               <div className="space-y-5">
                 {filas.map((fila, i) => {
-                  const idInsumo = fila.insumoId?.trim()
-                  const ins = idInsumo ? insumosById.get(idInsumo) : undefined
-                  const legacySinCatalogo =
-                    !idInsumo && fila.producto.trim().length > 0
-                  const pendienteCatalogo =
-                    !idInsumo && !fila.producto.trim()
-                  const mostrarCampos =
-                    Boolean(idInsumo) || legacySinCatalogo
+                  const productoSeleccionado = fila.producto.trim().length > 0
 
                   return (
                     <div
                       key={fila.key}
                       className={`grid gap-5 rounded-xl border border-gray-200 bg-gray-50 p-5 shadow-sm lg:items-end lg:gap-x-4 lg:gap-y-4 lg:p-6 ${
-                        pendienteCatalogo
+                        !productoSeleccionado
                           ? ''
                           : 'lg:grid-cols-[minmax(0,2fr)_minmax(0,0.8fr)_minmax(0,1fr)_minmax(0,1.1fr)_minmax(0,1.6fr)_auto]'
                       }`}
                     >
-                      {legacySinCatalogo ? (
-                        <label className="block text-left">
-                          <span className="text-xs font-medium text-[#8997A6]">
-                            Producto (sin catálogo)
-                          </span>
-                          <input
-                            type="text"
-                            value={fila.producto}
-                            onChange={(e) =>
-                              actualizarFila(i, { producto: e.target.value })
-                            }
-                            className={inputInsumoClass}
-                            placeholder="Ej. Aceite girasol"
-                          />
-                        </label>
-                      ) : (
-                        <div
-                          className={
-                            pendienteCatalogo ? 'lg:col-span-6' : 'min-w-0'
+                      <div
+                        className={
+                          !productoSeleccionado ? 'lg:col-span-6' : 'min-w-0'
+                        }
+                      >
+                        <InsumoGenericoSearchSelect
+                          opciones={insumosGenericos}
+                          selectedLabel={
+                            fila.producto.trim() && fila.unidadMedida.trim()
+                              ? `${fila.producto} (${fila.unidadMedida})`
+                              : ''
                           }
-                        >
-                          <InsumoSearchSelect
-                            insumos={insumos}
-                            selectedId={idInsumo ?? null}
-                            selectedLabel={fila.producto}
-                            onSelect={(sel) =>
-                              actualizarFila(i, {
-                                insumoId: sel.id,
-                                producto: formatLabelInsumo(sel),
-                                unidadMedida: sel.unidadBase,
-                                presentacion: sel.presentacion,
-                              })
-                            }
-                            onClear={() =>
-                              actualizarFila(i, {
-                                insumoId: undefined,
-                                producto: '',
-                                unidadMedida: '',
-                                presentacion: '',
-                                cantidad: '',
-                              })
-                            }
-                          />
-                          {idInsumo && !ins ? (
-                            <p className="mt-2 text-xs text-[#CD1818]">
-                              Insumo no encontrado en el catálogo.
-                            </p>
-                          ) : null}
-                        </div>
-                      )}
+                          onSelect={(option) =>
+                            actualizarFila(i, {
+                              producto: option.nombreGenerico,
+                              unidadMedida: option.unidadBase,
+                              presentacion: '',
+                            })
+                          }
+                          onClear={() =>
+                            actualizarFila(i, {
+                              producto: '',
+                              unidadMedida: '',
+                              presentacion: '',
+                              cantidad: '',
+                              observacion: '',
+                            })
+                          }
+                        />
+                      </div>
 
-                      {mostrarCampos ? (
+                      {productoSeleccionado ? (
                         <>
                           <label className="block text-left">
                             <span className="text-xs font-medium text-[#8997A6]">
@@ -756,66 +842,36 @@ export function AdminSolicitudMercaderiaPage() {
                             <span className="text-xs font-medium text-[#8997A6]">
                               Unidad de medida
                             </span>
-                            {idInsumo && ins ? (
-                              <select
-                                value={ins.unidadBase}
-                                disabled
-                                className={`${selectInsumoClass} cursor-not-allowed opacity-90`}
-                              >
-                                <option value={ins.unidadBase}>
-                                  {ins.unidadBase}
-                                </option>
-                              </select>
-                            ) : (
-                              <select
-                                value={fila.unidadMedida}
-                                onChange={(e) =>
-                                  actualizarFila(i, {
-                                    unidadMedida: e.target.value,
-                                  })
-                                }
-                                className={selectInsumoClass}
-                                required
-                              >
-                                <option value="">Seleccionar...</option>
-                                {UNIDADES_MEDIDA.map((u) => (
-                                  <option key={u} value={u}>
-                                    {u}
-                                  </option>
-                                ))}
-                              </select>
-                            )}
+                            <select
+                              value={fila.unidadMedida}
+                              disabled
+                              className={`${selectInsumoClass} cursor-not-allowed opacity-90`}
+                            >
+                              <option value={fila.unidadMedida}>
+                                {fila.unidadMedida}
+                              </option>
+                            </select>
                           </label>
                           <label className="block text-left">
                             <span className="text-xs font-medium text-[#8997A6]">
                               Presentación
                             </span>
-                            {idInsumo && ins ? (
-                              <input
-                                type="text"
-                                readOnly
-                                value={ins.presentacion}
-                                className={`${inputInsumoClass} cursor-not-allowed bg-white`}
-                              />
-                            ) : (
-                              <select
-                                value={fila.presentacion}
-                                onChange={(e) =>
-                                  actualizarFila(i, {
-                                    presentacion: e.target.value,
-                                  })
-                                }
-                                className={selectInsumoClass}
-                                required
-                              >
-                                <option value="">Seleccionar...</option>
-                                {PRESENTACIONES_OPCIONES.map((p) => (
-                                  <option key={p} value={p}>
-                                    {p}
-                                  </option>
-                                ))}
-                              </select>
-                            )}
+                            <select
+                              value={fila.presentacion}
+                              onChange={(e) =>
+                                actualizarFila(i, {
+                                  presentacion: e.target.value,
+                                })
+                              }
+                              className={selectInsumoClass}
+                            >
+                              <option value="">Sin preferencia</option>
+                              {PRESENTACIONES_OPCIONES.map((p) => (
+                                <option key={p} value={p}>
+                                  {p}
+                                </option>
+                              ))}
+                            </select>
                           </label>
                           <label className="block text-left">
                             <span className="text-xs font-medium text-[#8997A6]">

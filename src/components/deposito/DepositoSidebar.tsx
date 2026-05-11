@@ -14,6 +14,16 @@ function IconBox(props: IconProps) {
   )
 }
 
+function IconDashboard(props: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" {...props}>
+      <path d="M4.75 12.25h5.5v7h-5.5z" />
+      <path d="M10.25 4.75h5.5v14.5h-5.5z" />
+      <path d="M15.75 8.25h3.5v11h-3.5z" />
+    </svg>
+  )
+}
+
 function IconMovimientos(props: IconProps) {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" {...props}>
@@ -29,6 +39,26 @@ function IconInventario(props: IconProps) {
       <path d="M4 7.5h16v11a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-11Z" />
       <path d="M8 7.5V5.25a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1V7.5" />
       <path d="M8 12h8M8 15.5h5" />
+    </svg>
+  )
+}
+
+function IconTrace(props: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" {...props}>
+      <path d="M6 6.5a1.75 1.75 0 1 0 0 3.5 1.75 1.75 0 0 0 0-3.5Z" />
+      <path d="M18 14a1.75 1.75 0 1 0 0 3.5 1.75 1.75 0 0 0 0-3.5Z" />
+      <path d="M7.75 8.25h4.5c1.8 0 3.25 1.45 3.25 3.25v2.5" />
+      <path d="M15.5 14h-3.25a2.75 2.75 0 0 1-2.75-2.75v-1" />
+    </svg>
+  )
+}
+
+function IconSettings(props: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" {...props}>
+      <path d="M12 8.75a3.25 3.25 0 1 0 0 6.5 3.25 3.25 0 0 0 0-6.5Z" />
+      <path d="M19.1 13.5a7.77 7.77 0 0 0 .05-1.5l1.5-1.16-1.5-2.6-1.82.4a7.42 7.42 0 0 0-1.3-.76L14.5 5h-3l-.53 1.88c-.45.19-.88.44-1.29.74l-1.85-.38-1.5 2.6 1.51 1.18a7.76 7.76 0 0 0 0 1.46l-1.5 1.18 1.5 2.6 1.85-.38c.4.3.83.55 1.28.74L11.5 19h3l.53-1.88c.46-.2.89-.45 1.3-.75l1.82.39 1.5-2.6-1.55-1.16Z" />
     </svg>
   )
 }
@@ -74,6 +104,20 @@ export function DepositoSidebar() {
         className="flex min-h-0 flex-1 gap-1 overflow-x-auto px-2 py-3 [-ms-overflow-style:none] [scrollbar-width:none] md:flex-col md:overflow-visible md:px-3 md:py-6 [&::-webkit-scrollbar]:hidden"
         aria-label="Depósito"
       >
+        <NavLink to="/deposito/dashboard" className={linkClass}>
+          <span className="flex min-w-0 items-center gap-3">
+            <span
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand-accent/12 text-brand-accent"
+              aria-hidden
+            >
+              <IconDashboard className="h-[18px] w-[18px]" />
+            </span>
+            <span className="min-w-0 flex-1 whitespace-nowrap overflow-hidden truncate">
+              Dashboard
+            </span>
+          </span>
+        </NavLink>
+
         <NavLink to="/deposito/solicitudes" className={linkClass}>
           <span className="flex min-w-0 items-center gap-3">
             <span
@@ -126,6 +170,34 @@ export function DepositoSidebar() {
             </span>
             <span className="min-w-0 flex-1 whitespace-nowrap overflow-hidden truncate">
               Inventario actual
+            </span>
+          </span>
+        </NavLink>
+
+        <NavLink to="/deposito/trazabilidad" className={linkClass}>
+          <span className="flex min-w-0 items-center gap-3">
+            <span
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand-accent/12 text-brand-accent"
+              aria-hidden
+            >
+              <IconTrace className="h-[18px] w-[18px]" />
+            </span>
+            <span className="min-w-0 flex-1 whitespace-nowrap overflow-hidden truncate">
+              Reporte de trazabilidad
+            </span>
+          </span>
+        </NavLink>
+
+        <NavLink to="/deposito/configuracion" className={linkClass}>
+          <span className="flex min-w-0 items-center gap-3">
+            <span
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand-accent/12 text-brand-accent"
+              aria-hidden
+            >
+              <IconSettings className="h-[18px] w-[18px]" />
+            </span>
+            <span className="min-w-0 flex-1 whitespace-nowrap overflow-hidden truncate">
+              Configuración
             </span>
           </span>
         </NavLink>

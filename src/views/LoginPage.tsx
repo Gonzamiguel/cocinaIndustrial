@@ -21,7 +21,14 @@ const LOGIN_SLIDES = [
 ] as const
 
 function parseRol(raw: unknown): UserRole | null {
-  if (raw === 'admin_cocina' || raw === 'admin_deposito') return raw
+  if (
+    raw === 'admin_cocina' ||
+    raw === 'admin_deposito' ||
+    raw === 'admin_campamento' ||
+    raw === 'analista'
+  ) {
+    return raw
+  }
   return null
 }
 
@@ -45,7 +52,13 @@ export function LoginPage() {
     if (authLoading) return
     if (user && rol) {
       navigate(
-        rol === 'admin_cocina' ? '/admin/pedidos' : '/deposito/solicitudes',
+        rol === 'admin_cocina'
+          ? '/admin/pedidos'
+          : rol === 'admin_deposito'
+            ? '/deposito/solicitudes'
+            : rol === 'admin_campamento'
+              ? '/campamento/recepcion'
+              : '/analista/dashboard',
         { replace: true },
       )
     }
@@ -103,11 +116,33 @@ export function LoginPage() {
         navigate(from, { replace: true })
         return
       }
+      if (from === '/analista' || from?.startsWith('/analista/')) {
+        if (rolLeído !== 'analista') {
+          await signOut(auth)
+          setError('No tenés permiso para acceder a esa sección.')
+          return
+        }
+        navigate(from, { replace: true })
+        return
+      }
+      if (from === '/campamento' || from?.startsWith('/campamento/')) {
+        if (rolLeído !== 'admin_campamento') {
+          await signOut(auth)
+          setError('No tenés permiso para acceder a esa sección.')
+          return
+        }
+        navigate(from, { replace: true })
+        return
+      }
 
       if (rolLeído === 'admin_cocina') {
         navigate('/admin/pedidos', { replace: true })
-      } else {
+      } else if (rolLeído === 'admin_deposito') {
         navigate('/deposito/solicitudes', { replace: true })
+      } else if (rolLeído === 'admin_campamento') {
+        navigate('/campamento/recepcion', { replace: true })
+      } else {
+        navigate('/analista/dashboard', { replace: true })
       }
     } catch (err) {
       const code =

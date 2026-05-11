@@ -11,19 +11,38 @@ import type { User } from 'firebase/auth'
 import { onAuthStateChanged, signOut } from 'firebase/auth'
 import { doc, getDoc } from 'firebase/firestore'
 import { getAuthApp, getDb } from '../lib/firebase'
+import { UBICACION_CAMPAMENTO_CASPOSO } from '../lib/movimientosInventario'
 
-export type UserRole = 'admin_cocina' | 'admin_deposito'
+export type UserRole =
+  | 'admin_cocina'
+  | 'admin_deposito'
+  | 'admin_campamento'
+  | 'analista'
 
 const USUARIOS_COLLECTION = 'usuarios'
 
 function parseRol(raw: unknown): UserRole | null {
-  if (raw === 'admin_cocina' || raw === 'admin_deposito') return raw
+  if (
+    raw === 'admin_cocina' ||
+    raw === 'admin_deposito' ||
+    raw === 'admin_campamento' ||
+    raw === 'analista'
+  ) {
+    return raw
+  }
   return null
+}
+
+function parseUbicacionId(raw: unknown): string | null {
+  if (typeof raw !== 'string' || !raw.trim()) return null
+  return raw.trim().toUpperCase()
 }
 
 export type AuthContextValue = {
   user: User | null
   rol: UserRole | null
+  /** Sucursal asignada (p. ej. campamento); solo aplica a `admin_campamento`. */
+  ubicacionId: string | null
   loading: boolean
   logout: () => Promise<void>
 }
@@ -33,6 +52,7 @@ const AuthContext = createContext<AuthContextValue | null>(null)
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [rol, setRol] = useState<UserRole | null>(null)
+  const [ubicacionId, setUbicacionId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -44,6 +64,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (!nextUser) {
         setRol(null)
+        setUbicacionId(null)
         setLoading(false)
         return
       }
@@ -55,10 +76,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (cancelled) return
         if (!snap.exists()) {
           setRol(null)
+          setUbicacionId(null)
           return
         }
         const data = snap.data() as Record<string, unknown>
-        setRol(parseRol(data.rol))
+        const r = parseRol(data.rol)
+        setRol(r)
+        const ubic = parseUbicacionId(data.ubicacionId)
+        if (r === 'admin_campamento') {
+          setUbicacionId(ubic ?? UBICACION_CAMPAMENTO_CASPOSO)
+        } else {
+          setUbicacionId(ubic)
+        }
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -73,6 +102,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = useCallback(async () => {
     await signOut(getAuthApp())
     setRol(null)
+    setUbicacionId(null)
     setUser(null)
   }, [])
 
@@ -80,10 +110,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     () => ({
       user,
       rol,
+      ubicacionId,
       loading,
       logout,
     }),
-    [user, rol, loading, logout],
+    [user, rol, ubicacionId, loading, logout],
   )
 
   return (

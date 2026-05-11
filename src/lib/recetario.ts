@@ -11,6 +11,7 @@ import {
   type Unsubscribe,
 } from 'firebase/firestore'
 import { getDb } from './firebase'
+import { costoFilaRecetaFromInsumo, type Insumo } from './insumos'
 
 export const COLLECTION_RECETARIO = 'recetario'
 
@@ -252,4 +253,60 @@ export async function actualizarReceta(
     ...payload,
     ultimaActualizacion: serverTimestamp(),
   })
+}
+
+export type FilaAuditoriaCostoReceta = {
+  recetaId: string
+  nombre: string
+  costoTeorico: number
+  ultimaActualizacionPrecio: Date | null
+}
+
+/** Costo teórico por receta según precios actuales de insumos (misma lógica que la vista de analista). */
+export function buildFilasAuditoriaCostoRecetas(
+  insumos: Insumo[],
+  recetas: RecetaTecnica[],
+): FilaAuditoriaCostoReceta[] {
+  const insumosById = new Map(insumos.map((insumo) => [insumo.id, insumo]))
+
+  return [...recetas]
+    .map((receta) => {
+      let costoTeorico = 0
+      let ultimaActualizacionPrecio: Date | null = null
+
+      for (const ingrediente of receta.ingredientes) {
+        const insumo = ingrediente.insumoId
+          ? insumosById.get(ingrediente.insumoId)
+          : undefined
+
+        if (insumo) {
+          costoTeorico += costoFilaRecetaFromInsumo(
+            ingrediente.cantidadBruta,
+            ingrediente.porcentajeMerma,
+            insumo.costoPorUnidadBase,
+          )
+
+          const referenciaFecha = insumo.actualizadoEn ?? insumo.creadoEn
+          if (
+            referenciaFecha &&
+            (!ultimaActualizacionPrecio ||
+              referenciaFecha.getTime() > ultimaActualizacionPrecio.getTime())
+          ) {
+            ultimaActualizacionPrecio = referenciaFecha
+          }
+        } else {
+          costoTeorico += ingrediente.costoEstimado
+        }
+      }
+
+      return {
+        recetaId: receta.id,
+        nombre: receta.nombre,
+        costoTeorico,
+        ultimaActualizacionPrecio,
+      }
+    })
+    .sort((a, b) =>
+      a.nombre.localeCompare(b.nombre, 'es', { sensitivity: 'base' }),
+    )
 }
