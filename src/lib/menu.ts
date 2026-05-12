@@ -4,6 +4,7 @@ import {
   deleteDoc,
   doc,
   getDocs,
+  limit,
   onSnapshot,
   orderBy,
   query,
@@ -25,6 +26,8 @@ export interface MenuItem {
   categoria: CategoriaMenu
   stock: number
   aceptaGuarnicion: boolean
+  /** Si viene del recetario, enlaza la ficha técnica con el ítem del menú cliente. */
+  recetaId?: string
 }
 
 const MENU_COLLECTION = 'menu'
@@ -238,7 +241,64 @@ function mapDoc(id: string, data: Record<string, unknown>): MenuItem {
         ? false
         : true
       : false
-  return { id, nombre, categoria, stock, aceptaGuarnicion }
+  const recetaIdRaw = data.recetaId
+  const recetaId =
+    typeof recetaIdRaw === 'string' && recetaIdRaw.trim().length > 0
+      ? recetaIdRaw.trim()
+      : undefined
+  return { id, nombre, categoria, stock, aceptaGuarnicion, recetaId }
+}
+
+/**
+ * Crea o actualiza un documento en `menu` vinculado a una receta del recetario.
+ * Así las fichas «Principal» / «Guarnición» aparecen en gestión de menú con stock inicial 0.
+ */
+export async function upsertMenuItemLinkedToReceta(
+  recetaId: string,
+  input: {
+    nombre: string
+    categoria: CategoriaMenu
+    aceptaGuarnicion: boolean
+  },
+): Promise<void> {
+  const rid = recetaId.trim()
+  if (!rid) throw new Error('Identificador de receta inválido')
+
+  const db = getDb()
+  const nombre = input.nombre.trim()
+  if (!nombre) throw new Error('El nombre es obligatorio')
+
+  const q = query(
+    collection(db, MENU_COLLECTION),
+    where('recetaId', '==', rid),
+    limit(1),
+  )
+  const snap = await getDocs(q)
+
+  if (snap.empty) {
+    await addDoc(collection(db, MENU_COLLECTION), {
+      nombre,
+      categoria: input.categoria,
+      stock: 0,
+      recetaId: rid,
+      ...(input.categoria === 'principal'
+        ? { aceptaGuarnicion: input.aceptaGuarnicion }
+        : {}),
+    })
+    return
+  }
+
+  const existing = snap.docs[0]
+  const payload: Record<string, unknown> = {
+    nombre,
+    categoria: input.categoria,
+  }
+  if (input.categoria === 'principal') {
+    payload.aceptaGuarnicion = input.aceptaGuarnicion
+  } else {
+    payload.aceptaGuarnicion = false
+  }
+  await updateDoc(doc(db, MENU_COLLECTION, existing.id), payload)
 }
 
 /** Suscripción en tiempo real a todo el menú (ordenado por nombre). */

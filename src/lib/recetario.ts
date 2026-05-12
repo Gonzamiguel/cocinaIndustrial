@@ -12,6 +12,7 @@ import {
 } from 'firebase/firestore'
 import { getDb } from './firebase'
 import { costoFilaRecetaFromInsumo, type Insumo } from './insumos'
+import { upsertMenuItemLinkedToReceta, type CategoriaMenu } from './menu'
 
 export const COLLECTION_RECETARIO = 'recetario'
 
@@ -233,13 +234,22 @@ function buildRecetaFirestorePayload(input: CrearRecetaInput): {
   }
 }
 
+function categoriaMenuDesdeReceta(categoria: CategoriaReceta): CategoriaMenu {
+  return categoria === 'Guarnición' ? 'guarnicion' : 'principal'
+}
+
 export async function crearReceta(input: CrearRecetaInput): Promise<void> {
   const payload = buildRecetaFirestorePayload(input)
   const db = getDb()
-  await addDoc(collection(db, COLLECTION_RECETARIO), {
+  const ref = await addDoc(collection(db, COLLECTION_RECETARIO), {
     ...payload,
     fechaCreacion: serverTimestamp(),
     ultimaActualizacion: serverTimestamp(),
+  })
+  await upsertMenuItemLinkedToReceta(ref.id, {
+    nombre: payload.nombre,
+    categoria: categoriaMenuDesdeReceta(payload.categoria),
+    aceptaGuarnicion: payload.aceptaGuarnicion,
   })
 }
 
@@ -252,6 +262,11 @@ export async function actualizarReceta(
   await updateDoc(doc(db, COLLECTION_RECETARIO, id), {
     ...payload,
     ultimaActualizacion: serverTimestamp(),
+  })
+  await upsertMenuItemLinkedToReceta(id, {
+    nombre: payload.nombre,
+    categoria: categoriaMenuDesdeReceta(payload.categoria),
+    aceptaGuarnicion: payload.aceptaGuarnicion,
   })
 }
 
