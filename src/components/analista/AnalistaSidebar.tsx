@@ -1,4 +1,5 @@
 import type { SVGProps } from 'react'
+import { Factory } from 'lucide-react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 
@@ -75,6 +76,11 @@ const navItems = [
     to: '/analista/resumen-mensual',
     label: 'Resumen mensual',
     Icon: IconResumenMensual,
+  },
+  {
+    to: '/analista/produccion',
+    label: 'Eficiencia de receta',
+    Icon: Factory,
   },
 ] as const
 

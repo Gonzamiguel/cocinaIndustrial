@@ -194,7 +194,14 @@ function InsumoGenericoSearchSelect({
   )
 }
 
-export function AdminSolicitudMercaderiaPage() {
+export type AdminSolicitudMercaderiaPageProps = {
+  /** En pestañas: sin encabezados duplicados ni contenedores extra. */
+  variant?: 'standalone' | 'embedded'
+}
+
+export function AdminSolicitudMercaderiaPage({
+  variant = 'standalone',
+}: AdminSolicitudMercaderiaPageProps) {
   const { showToast } = useToast()
   const [insumos, setInsumos] = useState<Insumo[]>([])
   const [lista, setLista] = useState<SolicitudMercaderia[]>([])
@@ -357,39 +364,78 @@ export function AdminSolicitudMercaderiaPage() {
 
   /** Vista historial: tabla a pantalla completa en el área de contenido */
   if (!isCreating) {
+    const embedded = variant === 'embedded'
     return (
-      <div className="flex min-h-full flex-1 flex-col bg-neutral-50">
-        <header className="shrink-0 border-b border-neutral-200 bg-white px-5 py-5 shadow-sm sm:px-8 xl:px-10">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="min-w-0">
-              <h1 className="text-xl font-semibold tracking-tight text-[#CD1818]">
-                Solicitar mercadería
-              </h1>
-              <p className="mt-1 text-sm text-[#8997A6]">
-                Seguimiento en tiempo real de tus solicitudes al depósito.
-              </p>
-            </div>
+      <div
+        className={
+          embedded
+            ? 'flex min-h-0 flex-1 flex-col'
+            : 'flex min-h-full flex-1 flex-col bg-neutral-50'
+        }
+      >
+        {embedded ? (
+          <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
             <button
               type="button"
               onClick={() => setIsCreating(true)}
-              className="inline-flex min-h-12 shrink-0 items-center justify-center gap-2 rounded-xl bg-[#CD1818] px-6 text-base font-semibold text-white shadow-sm transition hover:brightness-105 active:brightness-95"
+              className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-lg bg-[#CD1818] px-4 text-sm font-semibold text-white shadow-sm transition hover:brightness-105 active:brightness-95"
             >
-              <span className="text-xl leading-none">+</span>
+              <span className="text-lg leading-none">+</span>
               Nueva solicitud
             </button>
           </div>
-        </header>
-
-        <div className="flex min-h-0 flex-1 flex-col px-5 py-5 sm:px-8 lg:px-12 xl:px-16 2xl:px-20">
-          <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
-            <div className="shrink-0 border-b border-neutral-100 px-5 py-4 sm:px-6">
-              <h2 className="text-sm font-semibold uppercase tracking-wide text-[#CD1818]">
-                Historial de solicitudes
-              </h2>
-              <p className="mt-0.5 text-xs text-[#8997A6]">
-                Actualización en vivo cuando el depósito cambia el estado u observaciones.
-              </p>
+        ) : (
+          <header className="shrink-0 border-b border-neutral-200 bg-white px-5 py-5 shadow-sm sm:px-8 xl:px-10">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0">
+                <h1 className="text-xl font-semibold tracking-tight text-[#CD1818]">
+                  Solicitar mercadería
+                </h1>
+                <p className="mt-1 text-sm text-[#8997A6]">
+                  Seguimiento en tiempo real de tus solicitudes al depósito.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsCreating(true)}
+                className="inline-flex min-h-12 shrink-0 items-center justify-center gap-2 rounded-xl bg-[#CD1818] px-6 text-base font-semibold text-white shadow-sm transition hover:brightness-105 active:brightness-95"
+              >
+                <span className="text-xl leading-none">+</span>
+                Nueva solicitud
+              </button>
             </div>
+          </header>
+        )}
+
+        <div
+          className={
+            embedded
+              ? 'flex min-h-0 flex-1 flex-col overflow-hidden'
+              : 'flex min-h-0 flex-1 flex-col px-5 py-5 sm:px-8 lg:px-12 xl:px-16 2xl:px-20'
+          }
+        >
+          <div
+            className={
+              embedded
+                ? 'flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-neutral-200 bg-white'
+                : 'flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm'
+            }
+          >
+            {embedded ? (
+              <div className="shrink-0 border-b border-neutral-100 px-3 py-2 text-xs text-[#8997A6]">
+                {solicitudesOrdenadas.length} registro
+                {solicitudesOrdenadas.length === 1 ? '' : 's'} · actualización en vivo
+              </div>
+            ) : (
+              <div className="shrink-0 border-b border-neutral-100 px-5 py-4 sm:px-6">
+                <h2 className="text-sm font-semibold uppercase tracking-wide text-[#CD1818]">
+                  Historial de solicitudes
+                </h2>
+                <p className="mt-0.5 text-xs text-[#8997A6]">
+                  Actualización en vivo cuando el depósito cambia el estado u observaciones.
+                </p>
+              </div>
+            )}
             <div className="min-h-0 flex-1 overflow-auto">
               <table className="w-full min-w-[720px] border-collapse text-left text-sm">
                 <thead className="sticky top-0 z-10 shadow-sm">
@@ -697,33 +743,63 @@ export function AdminSolicitudMercaderiaPage() {
   }
 
   /** Vista formulario: lista larga con scroll + pie fijo con envío */
+  const embedded = variant === 'embedded'
   return (
-    <div className="flex min-h-full flex-1 flex-col bg-neutral-50">
-      <div className="shrink-0 border-b border-neutral-200 bg-white px-4 py-4 shadow-sm sm:px-6 lg:px-8 xl:px-10">
+    <div
+      className={
+        embedded
+          ? 'flex min-h-0 flex-1 flex-col'
+          : 'flex min-h-full flex-1 flex-col bg-neutral-50'
+      }
+    >
+      <div
+        className={
+          embedded
+            ? 'shrink-0 border-b border-neutral-200 pb-3'
+            : 'shrink-0 border-b border-neutral-200 bg-white px-4 py-4 shadow-sm sm:px-6 lg:px-8 xl:px-10'
+        }
+      >
         <button
           type="button"
           onClick={() => setIsCreating(false)}
-          className="inline-flex min-h-11 items-center gap-2 rounded-xl px-3 text-sm font-semibold text-[#CD1818] transition hover:bg-gray-100"
+          className="inline-flex min-h-10 items-center gap-2 rounded-lg px-2 text-sm font-semibold text-[#CD1818] transition hover:bg-neutral-100"
         >
           <span aria-hidden>←</span>
           Volver al historial
         </button>
-        <h1 className="mt-2 text-xl font-semibold tracking-tight text-[#CD1818]">
-          Nueva solicitud
-        </h1>
-        <p className="mt-1.5 text-sm leading-relaxed text-[#8997A6]">
-          Completá fecha, prioridad e insumos. El envío queda fijo abajo a la
-          derecha.
-        </p>
+        {embedded ? (
+          <p className="mt-1 text-xs text-[#8997A6]">
+            Fecha, prioridad e insumos. Enviá con el botón inferior.
+          </p>
+        ) : (
+          <>
+            <h1 className="mt-2 text-xl font-semibold tracking-tight text-[#CD1818]">
+              Nueva solicitud
+            </h1>
+            <p className="mt-1.5 text-sm leading-relaxed text-[#8997A6]">
+              Completá fecha, prioridad e insumos. El envío queda fijo abajo a la
+              derecha.
+            </p>
+          </>
+        )}
       </div>
 
-      <form
-        onSubmit={handleEnviar}
-        className="flex min-h-0 flex-1 flex-col"
-      >
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-32 pt-6 sm:px-6 sm:pb-36 lg:px-8 xl:px-10">
+      <form onSubmit={handleEnviar} className="flex min-h-0 flex-1 flex-col">
+        <div
+          className={
+            embedded
+              ? 'min-h-0 flex-1 overflow-y-auto pb-28 pt-4'
+              : 'min-h-0 flex-1 overflow-y-auto px-4 pb-32 pt-6 sm:px-6 sm:pb-36 lg:px-8 xl:px-10'
+          }
+        >
           <div className="w-full space-y-8">
-            <div className="grid gap-5 rounded-xl border border-gray-200 bg-white p-6 shadow-sm sm:grid-cols-2 sm:p-7">
+            <div
+              className={
+                embedded
+                  ? 'grid gap-4 rounded-lg border border-neutral-200 bg-white p-4 sm:grid-cols-2'
+                  : 'grid gap-5 rounded-xl border border-gray-200 bg-white p-6 shadow-sm sm:grid-cols-2 sm:p-7'
+              }
+            >
               <label className="block text-left">
                 <span className="text-xs font-medium text-[#8997A6]">
                   Fecha de entrega esperada
@@ -756,14 +832,28 @@ export function AdminSolicitudMercaderiaPage() {
               </label>
             </div>
 
-            <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm sm:p-7">
-              <p className="mb-5 text-sm font-semibold text-[#CD1818]">
+            <div
+              className={
+                embedded
+                  ? 'rounded-lg border border-neutral-200 bg-white p-4'
+                  : 'rounded-xl border border-gray-200 bg-white p-6 shadow-sm sm:p-7'
+              }
+            >
+              <p
+                className={
+                  embedded
+                    ? 'mb-3 text-xs font-semibold uppercase tracking-wide text-[#CD1818]'
+                    : 'mb-5 text-sm font-semibold text-[#CD1818]'
+                }
+              >
                 Insumos
               </p>
+              {embedded ? null : (
               <p className="mb-5 text-sm text-[#8997A6]">
                 Elegí artículos por nombre genérico. La cocina solicita el concepto
                 del insumo y el depósito define luego la marca o presentación comercial.
               </p>
+              )}
               <div className="mb-4 hidden rounded-xl border border-gray-200 bg-gray-50 px-5 py-3 lg:block">
                 <div className="grid gap-4 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#8997A6] lg:grid-cols-[minmax(0,2fr)_minmax(0,0.8fr)_minmax(0,1fr)_minmax(0,1.1fr)_minmax(0,1.6fr)_auto]">
                   <span>Artículo genérico</span>

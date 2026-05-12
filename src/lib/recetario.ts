@@ -310,3 +310,20 @@ export function buildFilasAuditoriaCostoRecetas(
       a.nombre.localeCompare(b.nombre, 'es', { sensitivity: 'base' }),
     )
 }
+
+/**
+ * Costo teórico de elaborar `cantidadPorciones` según la receta y precios actuales de insumos.
+ * Escala el costo del lote estándar (rendimiento declarado) proporcionalmente.
+ */
+export function costoTeoricoProduccionPorciones(
+  insumos: Insumo[],
+  receta: RecetaTecnica,
+  cantidadPorciones: number,
+): number {
+  const n = Number(cantidadPorciones)
+  if (!Number.isFinite(n) || n <= 0) return 0
+  const rend = Math.max(1, Math.floor(receta.rendimientoPorciones) || 1)
+  const filas = buildFilasAuditoriaCostoRecetas(insumos, [receta])
+  const costoLote = filas[0]?.costoTeorico ?? 0
+  return costoLote * (n / rend)
+}

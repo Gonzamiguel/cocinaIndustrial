@@ -48,7 +48,7 @@ service cloud.firestore {
     }
 
     function puedeLeerMovimientos() {
-      return isAdminDeposito() || isAnalista() || isAdminCampamento();
+      return isAdminDeposito() || isAnalista() || isAdminCampamento() || isAdminCocina();
     }
 
     /** Ubicación operativa del usuario campamento (fallback Casposo si no está en el doc). */
@@ -68,21 +68,40 @@ service cloud.firestore {
         && request.resource.data.ubicacionId == campamentoUbicacionUsuario();
     }
 
+    /** Ubicación cocina central (fallback COCINA si no está en el doc). */
+    function cocinaUbicacionUsuario() {
+      return (userDocExists() &&
+        userData().keys().hasAny(['ubicacionId']) &&
+        userData().ubicacionId is string &&
+        userData().ubicacionId != '')
+        ? userData().ubicacionId
+        : 'COCINA';
+    }
+
+    /** Cocina: movimientos e ingresos solo en su ubicación operativa. */
+    function cocinaUbicacionCoincide() {
+      return isAdminCocina()
+        && request.resource.data.keys().hasAny(['ubicacionId'])
+        && request.resource.data.ubicacionId == cocinaUbicacionUsuario();
+    }
+
     function puedeCrearMovimiento() {
-      return isAdminDeposito() || campamentoUbicacionCoincide();
+      return isAdminDeposito() || campamentoUbicacionCoincide() || cocinaUbicacionCoincide();
     }
 
     function puedeEscribirSaldoLote() {
-      return isAdminDeposito() || campamentoUbicacionCoincide();
+      return isAdminDeposito() || campamentoUbicacionCoincide() || cocinaUbicacionCoincide();
     }
 
-    /** Recepción en sucursal: cerrar egreso EN_TRANSITO destinado a esta ubicación. */
-    function campamentoPuedeCerrarRecepcionEgreso() {
-      return isAdminCampamento()
-        && resource.data.tipo == 'EGRESO'
+    /** Recepción en sucursal o cocina: cerrar egreso EN_TRANSITO destinado a esta ubicación. */
+    function receptorPuedeCerrarRecepcionEgreso() {
+      return resource.data.tipo == 'EGRESO'
         && resource.data.estadoTraslado == 'EN_TRANSITO'
         && resource.data.keys().hasAny(['ubicacionDestino'])
-        && resource.data.ubicacionDestino == campamentoUbicacionUsuario();
+        && (
+          (isAdminCampamento() && resource.data.ubicacionDestino == campamentoUbicacionUsuario())
+          || (isAdminCocina() && resource.data.ubicacionDestino == cocinaUbicacionUsuario())
+        );
     }
 
     /** Pedido público (cliente anónimo o staff): creación con campos mínimos. */
@@ -138,9 +157,9 @@ service cloud.firestore {
     }
 
     match /solicitudes_mercaderia/{id} {
-      allow read: if signedIn() && (isAdminCocina() || isAdminDeposito());
-      allow create: if isAdminCocina();
-      allow update: if isAdminCocina() || isAdminDeposito();
+      allow read: if signedIn() && (isAdminCocina() || isAdminDeposito() || isAdminCampamento());
+      allow create: if isAdminCocina() || isAdminCampamento();
+      allow update: if isAdminCocina() || isAdminDeposito() || isAdminCampamento();
       allow delete: if isAdminDeposito();
     }
 
@@ -150,7 +169,7 @@ service cloud.firestore {
       allow update: if signedIn() && (
           isAdminDeposito()
           || (
-            campamentoPuedeCerrarRecepcionEgreso()
+            receptorPuedeCerrarRecepcionEgreso()
             && request.resource.data.diff(resource.data).changedKeys().hasOnly(['estadoTraslado', 'recibidoEn'])
             && request.resource.data.estadoTraslado == 'RECIBIDO'
           )
@@ -162,6 +181,18 @@ service cloud.firestore {
       allow read: if signedIn() && puedeLeerMovimientos();
       allow create, update: if signedIn() && puedeEscribirSaldoLote();
       allow delete: if signedIn() && isAdminDeposito();
+    }
+
+    match /produccion_cocina/{id} {
+      allow read: if signedIn() && (isAnalista() || isAdminDeposito() || isAdminCocina());
+      allow create: if signedIn() && isAdminCocina()
+        && request.resource.data.keys().hasAll([
+          'fecha', 'ubicacionId', 'recetaId', 'recetaNombre', 'cantidadPorciones',
+          'insumoProductoId', 'nombreProducto', 'costoTeorico', 'costoReal',
+          'desvioPorcentaje', 'egresoId', 'ingresoId'
+        ])
+        && request.resource.data.ubicacionId == cocinaUbicacionUsuario();
+      allow update, delete: if false;
     }
 
     match /{document=**} {

@@ -246,6 +246,18 @@ export const UBICACION_DEPOSITO_CENTRAL = 'CENTRAL'
 /** ID de sucursal / campamento (ej. Casposo). */
 export const UBICACION_CAMPAMENTO_CASPOSO = 'CASPOSO'
 
+/** Stock local de cocina central (traslados desde depósito y producción). */
+export const UBICACION_COCINA_CENTRAL = 'COCINA'
+
+/** Auditoría de corridas de producción (costo teórico vs declarado). */
+export const COLLECTION_PRODUCCION_COCINA = 'produccion_cocina'
+
+/** Egreso interno: insumos consumidos al elaborar platos (sin remito de transporte). */
+export const MOTIVO_EGRESO_PRODUCCION_COCINA = 'PRODUCCION_COCINA' as const
+
+export const DESTINO_EGRESO_PRODUCCION_COCINA =
+  'Producción interna (consumo de insumos)' as const
+
 export type EstadoTrasladoInventario = 'EN_TRANSITO' | 'RECIBIDO'
 
 /** Ítem de movimiento (trazabilidad HACCP); permite congelar costo histórico por unidad base. */
@@ -388,6 +400,7 @@ export function ubicacionDestinoDesdeDestinoEgreso(
 ): string | undefined {
   const n = normalizarTexto(destinoLabel)
   if (n.includes('casposo')) return UBICACION_CAMPAMENTO_CASPOSO
+  if (n.includes('cocina central')) return UBICACION_COCINA_CENTRAL
   return undefined
 }
 
@@ -858,9 +871,15 @@ export async function crearMovimiento(input: CrearMovimientoInput): Promise<stri
 
     const esConsumoDiarioCampamento =
       input.motivo?.trim() === MOTIVO_EGRESO_CONSUMO_DIARIO
+    const esProduccionCocina =
+      input.motivo?.trim() === MOTIVO_EGRESO_PRODUCCION_COCINA
 
     const transporte = normalizarTransporte(input.transporte)
-    if (!esConsumoDiarioCampamento && requiereDatosTransporte(destino)) {
+    if (
+      !esConsumoDiarioCampamento &&
+      !esProduccionCocina &&
+      requiereDatosTransporte(destino)
+    ) {
       if (!transporte?.chofer) throw new Error('Indicá el nombre del chofer.')
       if (!transporte.patente) throw new Error('Indicá la patente del vehículo.')
       if (!transporte.precinto) throw new Error('Indicá el número de precinto.')
@@ -1437,6 +1456,267 @@ export async function confirmarRecepcionTrasladoCampamento(input: {
       )
     }
   })
+}
+
+export interface ProduccionCocinaRegistro {
+  id: string
+  fecha: Date | null
+  ubicacionId: string
+  recetaId: string
+  recetaNombre: string
+  cantidadPorciones: number
+  insumoProductoId: string
+  nombreProducto: string
+  costoTeorico: number
+  costoReal: number
+  desvioPorcentaje: number
+  egresoId: string
+  ingresoId: string
+}
+
+function mapProduccionCocinaDoc(
+  id: string,
+  data: Record<string, unknown>,
+): ProduccionCocinaRegistro | null {
+  const fechaRaw = data.fecha
+  let fecha: Date | null = null
+  if (fechaRaw instanceof Timestamp) fecha = fechaRaw.toDate()
+
+  const ubicacionId =
+    typeof data.ubicacionId === 'string' ? data.ubicacionId.trim().toUpperCase() : ''
+  const recetaId = typeof data.recetaId === 'string' ? data.recetaId.trim() : ''
+  const recetaNombre =
+    typeof data.recetaNombre === 'string' ? data.recetaNombre.trim() : '—'
+  const insumoProductoId =
+    typeof data.insumoProductoId === 'string' ? data.insumoProductoId.trim() : ''
+  const nombreProducto =
+    typeof data.nombreProducto === 'string' ? data.nombreProducto.trim() : '—'
+
+  const cantidadPorciones = Number(data.cantidadPorciones)
+  const costoTeorico = Number(data.costoTeorico)
+  const costoReal = Number(data.costoReal)
+  const desvioPorcentaje = Number(data.desvioPorcentaje)
+
+  const egresoId = typeof data.egresoId === 'string' ? data.egresoId.trim() : ''
+  const ingresoId = typeof data.ingresoId === 'string' ? data.ingresoId.trim() : ''
+
+  if (!ubicacionId || !recetaId || !egresoId || !ingresoId) return null
+
+  return {
+    id,
+    fecha,
+    ubicacionId,
+    recetaId,
+    recetaNombre,
+    cantidadPorciones: Number.isFinite(cantidadPorciones) ? cantidadPorciones : 0,
+    insumoProductoId,
+    nombreProducto,
+    costoTeorico: Number.isFinite(costoTeorico) ? costoTeorico : 0,
+    costoReal: Number.isFinite(costoReal) ? costoReal : 0,
+    desvioPorcentaje: Number.isFinite(desvioPorcentaje) ? desvioPorcentaje : 0,
+    egresoId,
+    ingresoId,
+  }
+}
+
+/** Historial de producción en cocina (eficiencia de receta / auditoría). */
+export function subscribeProduccionCocinaRegistros(
+  onChange: (rows: ProduccionCocinaRegistro[]) => void,
+  limite = 500,
+): Unsubscribe {
+  const db = getDb()
+  const q = query(
+    collection(db, COLLECTION_PRODUCCION_COCINA),
+    orderBy('fecha', 'desc'),
+    limit(Math.min(Math.max(1, limite), FIRESTORE_QUERY_LIMIT_MAX)),
+  )
+  return onSnapshot(
+    q,
+    (snap) => {
+      const rows: ProduccionCocinaRegistro[] = []
+      snap.forEach((d) => {
+        const m = mapProduccionCocinaDoc(d.id, d.data() as Record<string, unknown>)
+        if (m) rows.push(m)
+      })
+      onChange(rows)
+    },
+    (err) => {
+      console.error('subscribeProduccionCocinaRegistros', err)
+      onChange([])
+    },
+  )
+}
+
+/**
+ * Producción en cocina: un egreso de insumos y un ingreso de producto terminado,
+ * más registro de auditoría, en una sola transacción (incluye `saldo_lotes`).
+ */
+export async function registrarProduccionCocina(input: {
+  ubicacionId: string
+  fecha: Date
+  recetaId: string
+  recetaNombre: string
+  cantidadPorciones: number
+  insumoProductoId: string
+  nombreProductoSnapshot: string
+  loteProductoTerminado: string
+  /** Ítems de egreso con lote y cantidades reales (unidad base del insumo). */
+  itemsEgreso: ItemMovimientoInventario[]
+  costoTeoricoTotal: number
+}): Promise<{ egresoId: string; ingresoId: string; registroId: string }> {
+  const db = getDb()
+  const ub = input.ubicacionId.trim().toUpperCase()
+  if (!ub) throw new Error('Ubicación inválida.')
+
+  const nPorciones = Number(input.cantidadPorciones)
+  if (!Number.isFinite(nPorciones) || nPorciones <= 0) {
+    throw new Error('Indicá una cantidad de porciones producida mayor a cero.')
+  }
+
+  const insumoProdId = input.insumoProductoId.trim()
+  if (!insumoProdId) throw new Error('Seleccioná el insumo de producto terminado.')
+
+  const nombreProd = input.nombreProductoSnapshot.trim()
+  if (!nombreProd) throw new Error('Nombre de producto inválido.')
+
+  const loteProd = input.loteProductoTerminado.trim()
+  if (!loteProd) throw new Error('Lote de producto terminado inválido.')
+
+  const baseEgreso = normalizarItems(input.itemsEgreso, 'EGRESO')
+  if (baseEgreso.length === 0) {
+    throw new Error('Indicá al menos un insumo consumido con cantidad mayor a cero.')
+  }
+
+  const egresoRef = doc(collection(db, COLLECTION_MOVIMIENTOS_INVENTARIO))
+  const ingresoRef = doc(collection(db, COLLECTION_MOVIMIENTOS_INVENTARIO))
+  const prodRef = doc(collection(db, COLLECTION_PRODUCCION_COCINA))
+
+  const fechaTs = Timestamp.fromDate(input.fecha)
+  const rnd = Math.random().toString(36).slice(2, 7).toUpperCase()
+  const numeroEgreso = `PRD-EGR-${Date.now()}-${rnd}`
+  const numeroIngreso = `PRD-ING-${Date.now()}-${rnd}`
+
+  await runTransaction(db, async (t) => {
+    const itemsEgreso = await congelarCostoPorUnidadBaseEnTransaccion(t, db, baseEgreso)
+    const agg = agregarItemsEgresoPorSaldo(db, ub, itemsEgreso)
+    const filas = [...agg.values()]
+    const snaps = await Promise.all(filas.map((row) => t.get(row.ref)))
+
+    for (let i = 0; i < filas.length; i++) {
+      const row = filas[i]
+      const snap = snaps[i]
+      const disponible = snap.exists()
+        ? clampNonNegative(Number(snap.data()?.cantidad ?? 0))
+        : 0
+      if (disponible + 1e-9 < row.cantidad) {
+        throw new Error(
+          `Stock insuficiente para «${row.nombreSnapshot}» (lote ${row.loteLabel}). Disponible: ${disponible.toLocaleString('es-AR', { maximumFractionDigits: 4 })}, solicitado: ${row.cantidad.toLocaleString('es-AR', { maximumFractionDigits: 4 })}.`,
+        )
+      }
+    }
+
+    const costoReal = costoTotalItemsMovimiento(itemsEgreso)
+    const costoTeorico = clampNonNegative(Number(input.costoTeoricoTotal))
+    const desvioPorcentaje =
+      costoTeorico > 1e-9
+        ? ((costoReal - costoTeorico) / costoTeorico) * 100
+        : costoReal > 0
+          ? 100
+          : 0
+
+    const insumoProdSnap = await t.get(doc(db, COLLECTION_INSUMOS, insumoProdId))
+    if (!insumoProdSnap.exists()) {
+      throw new Error('El insumo de producto terminado no existe en el catálogo.')
+    }
+    const insRaw = insumoProdSnap.data() as Record<string, unknown>
+    const costoUnitProd = clampNonNegative(Number(insRaw.costoPorUnidadBase))
+
+    const itemProducto: ItemMovimientoInventario = {
+      insumoId: insumoProdId,
+      nombreSnapshot: nombreProd,
+      cantidad: nPorciones,
+      lote: loteProd,
+      controlCalidadOk: true,
+      costoPorUnidadBaseSnapshot: costoUnitProd,
+    }
+    const itemsIngreso = normalizarItems([itemProducto], 'INGRESO')
+    if (itemsIngreso.length === 0) {
+      throw new Error('No se pudo normalizar el ingreso de producto terminado.')
+    }
+
+    t.set(egresoRef, {
+      tipo: 'EGRESO' as const,
+      fecha: fechaTs,
+      destino: DESTINO_EGRESO_PRODUCCION_COCINA,
+      numeroDocumento: numeroEgreso,
+      ubicacionId: ub,
+      motivo: MOTIVO_EGRESO_PRODUCCION_COCINA,
+      observacionesComanda: `Receta: ${input.recetaNombre.trim()} · ${input.recetaId}`,
+      items: itemsEgreso.map((it) => itemToFirestore(it, false)),
+      creadoEn: serverTimestamp(),
+    })
+
+    for (const row of filas) {
+      t.set(
+        row.ref,
+        {
+          ubicacionId: ub,
+          insumoId: row.insumoId,
+          loteKey: row.loteKey,
+          cantidad: increment(-row.cantidad),
+          actualizadoEn: serverTimestamp(),
+        },
+        { merge: true },
+      )
+    }
+
+    t.set(ingresoRef, {
+      tipo: 'INGRESO' as const,
+      fecha: fechaTs,
+      proveedor: 'Producción cocina central',
+      tipoDocumento: 'Remito' as const,
+      numeroDocumento: numeroIngreso,
+      ubicacionId: ub,
+      items: itemsIngreso.map((it) => itemToFirestore(it, true)),
+      creadoEn: serverTimestamp(),
+    })
+
+    for (const it of itemsIngreso) {
+      const qty = Math.abs(Number(it.cantidad))
+      if (qty <= 0) continue
+      const lk = normalizarLoteKey(it.lote)
+      const sref = refSaldoLote(db, ub, it.insumoId, lk)
+      t.set(
+        sref,
+        {
+          ubicacionId: ub,
+          insumoId: it.insumoId,
+          loteKey: lk,
+          cantidad: increment(qty),
+          actualizadoEn: serverTimestamp(),
+        },
+        { merge: true },
+      )
+    }
+
+    t.set(prodRef, {
+      fecha: fechaTs,
+      ubicacionId: ub,
+      recetaId: input.recetaId.trim(),
+      recetaNombre: input.recetaNombre.trim(),
+      cantidadPorciones: nPorciones,
+      insumoProductoId: insumoProdId,
+      nombreProducto: nombreProd,
+      costoTeorico,
+      costoReal,
+      desvioPorcentaje,
+      egresoId: egresoRef.id,
+      ingresoId: ingresoRef.id,
+      creadoEn: serverTimestamp(),
+    })
+  })
+
+  return { egresoId: egresoRef.id, ingresoId: ingresoRef.id, registroId: prodRef.id }
 }
 
 /** @deprecated Usar subscribeMovimientosInventario */

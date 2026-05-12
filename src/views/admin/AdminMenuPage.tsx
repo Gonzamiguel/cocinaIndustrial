@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { Factory, UtensilsCrossed } from 'lucide-react'
 import {
   deleteMenuItem,
   subscribeMenu,
@@ -8,6 +9,7 @@ import {
   type CategoriaMenu,
   type MenuItem,
 } from '../../lib/menu'
+import { AdminProduccionCocinaTab } from './AdminProduccionCocinaTab'
 
 const labelCategoria = (c: CategoriaMenu) =>
   c === 'principal' ? 'Plato principal' : 'Guarnición'
@@ -59,6 +61,7 @@ function PencilIcon({ className }: { className?: string }) {
 
 export function AdminMenuPage() {
   const itemsPorPagina = 8
+  const [menuTab, setMenuTab] = useState<'stock' | 'produccion'>('stock')
   const [items, setItems] = useState<MenuItem[]>([])
   const [filtroActivo, setFiltroActivo] = useState<CategoriaMenu>('principal')
   const [busyId, setBusyId] = useState<string | null>(null)
@@ -190,14 +193,13 @@ export function AdminMenuPage() {
     'outline-none transition focus:border-[#CD1818]/30 focus:bg-white focus:ring-2 focus:ring-[#CD1818]/10'
 
   return (
-    <div className="flex flex-1 flex-col bg-gray-50">
-      <header className="border-b border-gray-200 bg-white px-4 py-4 shadow-sm sm:px-6 lg:px-8">
-        <h1 className="text-xl font-semibold tracking-tight text-[#CD1818]">
+    <div className="flex min-h-0 flex-1 flex-col bg-neutral-50">
+      <header className="shrink-0 border-b border-neutral-200 bg-white px-4 py-4 sm:px-6 lg:px-8">
+        <h1 className="text-lg font-semibold tracking-tight text-[#CD1818] sm:text-xl">
           Gestión de menú
         </h1>
-        <p className="mt-1 text-sm text-[#8997A6]">
-          Stock y edición del menú para la vista cliente. Los platos nuevos se
-          cargan desde{' '}
+        <p className="mt-1 text-xs text-[#8997A6] sm:text-sm">
+          Stock para la vista cliente y registro de producción. Altas de platos en{' '}
           <Link
             to="/admin/recetario"
             className="font-medium text-[#CD1818] underline-offset-2 hover:text-[#171717] hover:underline"
@@ -206,7 +208,7 @@ export function AdminMenuPage() {
           </Link>
           .
         </p>
-        <div className="mt-3 md:hidden">
+        <div className="mt-2 md:hidden">
           <Link
             to="/"
             className="text-xs font-medium text-[#CD1818] underline-offset-2 hover:text-[#171717] hover:underline"
@@ -214,9 +216,40 @@ export function AdminMenuPage() {
             Ir a vista cliente
           </Link>
         </div>
+        <nav
+          className="mt-4 flex flex-wrap gap-2 border-t border-neutral-100 pt-4"
+          aria-label="Secciones menú"
+        >
+          <button
+            type="button"
+            onClick={() => setMenuTab('stock')}
+            className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold transition sm:px-4 ${
+              menuTab === 'stock'
+                ? 'bg-[#CD1818] text-white shadow-sm'
+                : 'border border-neutral-200 bg-white text-[#171717] hover:bg-neutral-50'
+            }`}
+          >
+            <UtensilsCrossed className="h-4 w-4 shrink-0" aria-hidden />
+            Stock de platos
+          </button>
+          <button
+            type="button"
+            onClick={() => setMenuTab('produccion')}
+            className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold transition sm:px-4 ${
+              menuTab === 'produccion'
+                ? 'bg-[#CD1818] text-white shadow-sm'
+                : 'border border-neutral-200 bg-white text-[#171717] hover:bg-neutral-50'
+            }`}
+          >
+            <Factory className="h-4 w-4 shrink-0" aria-hidden />
+            Registrar producción
+          </button>
+        </nav>
       </header>
 
-      <div className="flex-1 space-y-8 overflow-auto p-4 sm:p-6 lg:p-8">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-4 py-4 sm:px-6 lg:px-8">
+        {menuTab === 'stock' ? (
+          <div className="flex min-h-0 flex-1 flex-col space-y-4 overflow-auto">
         {error ? (
           <div
             role="alert"
@@ -226,13 +259,9 @@ export function AdminMenuPage() {
           </div>
         ) : null}
 
-        <section>
-          <div className="mb-4 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-[#CD1818]">
-              Platos en menú
-            </h2>
+            <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">
             <div
-              className="inline-flex rounded-xl border border-gray-200 bg-white p-1 shadow-sm"
+              className="inline-flex rounded-lg border border-neutral-200 bg-white p-1"
               role="tablist"
               aria-label="Filtrar por categoría"
             >
@@ -492,7 +521,15 @@ export function AdminMenuPage() {
               </div>
             </div>
           )}
-        </section>
+        </div>
+        ) : (
+          <div className="flex min-h-0 flex-1 flex-col overflow-auto">
+            <AdminProduccionCocinaTab
+              className="flex min-h-0 flex-1 flex-col"
+              onAfterSuccess={() => setMenuTab('stock')}
+            />
+          </div>
+        )}
       </div>
     </div>
   )

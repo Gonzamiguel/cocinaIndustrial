@@ -96,7 +96,7 @@ const navItems = [
   },
   {
     to: '/admin/mercaderia',
-    label: 'Solicitar mercadería',
+    label: 'Mercadería',
     Icon: IconBox,
     accent: true,
   },

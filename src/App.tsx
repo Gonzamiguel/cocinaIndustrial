@@ -7,11 +7,12 @@ import { LayoutDeposito } from './layouts/LayoutDeposito'
 import { AdminMenuPage } from './views/admin/AdminMenuPage'
 import { AdminPedidosPage } from './views/admin/AdminPedidosPage'
 import { AdminRecetarioPage } from './views/admin/AdminRecetarioPage'
-import { AdminSolicitudMercaderiaPage } from './views/admin/AdminSolicitudMercaderiaPage'
+import { AdminMercaderiaPage } from './views/admin/AdminMercaderiaPage'
 import { AnalistaCostosPage } from './views/analista/AnalistaCostosPage'
 import { AnalistaDashboardPage } from './views/analista/AnalistaDashboardPage'
 import { AnalistaLogisticaPage } from './views/analista/AnalistaLogisticaPage'
 import { AnalistaMovimientosPage } from './views/analista/AnalistaMovimientosPage'
+import { AnalistaProduccionPage } from './views/analista/AnalistaProduccionPage'
 import { AnalistaResumenMensualPage } from './views/analista/AnalistaResumenMensualPage'
 import { DashboardPage } from './views/admin/DashboardPage'
 import { ClientView } from './views/ClientView'
@@ -27,6 +28,7 @@ import { CampamentoComandasPage } from './views/campamento/CampamentoComandasPag
 import { CampamentoNuevaComandaPage } from './views/campamento/CampamentoNuevaComandaPage'
 import { CampamentoInventarioPage } from './views/campamento/CampamentoInventarioPage'
 import { CampamentoRecepcionPage } from './views/campamento/CampamentoRecepcionPage'
+import { CampamentoSolicitudPage } from './views/campamento/CampamentoSolicitudPage'
 
 export default function App() {
   return (
@@ -47,7 +49,7 @@ export default function App() {
         <Route path="dashboard" element={<DashboardPage />} />
         <Route path="menu" element={<AdminMenuPage />} />
         <Route path="recetario" element={<AdminRecetarioPage />} />
-        <Route path="mercaderia" element={<AdminSolicitudMercaderiaPage />} />
+        <Route path="mercaderia" element={<AdminMercaderiaPage />} />
       </Route>
 
       <Route
@@ -86,6 +88,7 @@ export default function App() {
         <Route path="costos" element={<AnalistaCostosPage />} />
         <Route path="logistica" element={<AnalistaLogisticaPage />} />
         <Route path="resumen-mensual" element={<AnalistaResumenMensualPage />} />
+        <Route path="produccion" element={<AnalistaProduccionPage />} />
       </Route>
 
       <Route
@@ -98,6 +101,7 @@ export default function App() {
       >
         <Route index element={<Navigate to="/campamento/recepcion" replace />} />
         <Route path="recepcion" element={<CampamentoRecepcionPage />} />
+        <Route path="solicitud-mercaderia" element={<CampamentoSolicitudPage />} />
         <Route path="inventario" element={<CampamentoInventarioPage />} />
         <Route path="comandas/nueva" element={<CampamentoNuevaComandaPage />} />
         <Route path="comandas" element={<CampamentoComandasPage />} />

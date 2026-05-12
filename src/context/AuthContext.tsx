@@ -11,7 +11,10 @@ import type { User } from 'firebase/auth'
 import { onAuthStateChanged, signOut } from 'firebase/auth'
 import { doc, getDoc } from 'firebase/firestore'
 import { getAuthApp, getDb } from '../lib/firebase'
-import { UBICACION_CAMPAMENTO_CASPOSO } from '../lib/movimientosInventario'
+import {
+  UBICACION_CAMPAMENTO_CASPOSO,
+  UBICACION_COCINA_CENTRAL,
+} from '../lib/movimientosInventario'
 
 export type UserRole =
   | 'admin_cocina'
@@ -41,7 +44,7 @@ function parseUbicacionId(raw: unknown): string | null {
 export type AuthContextValue = {
   user: User | null
   rol: UserRole | null
-  /** Sucursal asignada (p. ej. campamento); solo aplica a `admin_campamento`. */
+  /** Sucursal asignada (campamento o cocina central); fallback según rol. */
   ubicacionId: string | null
   loading: boolean
   logout: () => Promise<void>
@@ -85,6 +88,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const ubic = parseUbicacionId(data.ubicacionId)
         if (r === 'admin_campamento') {
           setUbicacionId(ubic ?? UBICACION_CAMPAMENTO_CASPOSO)
+        } else if (r === 'admin_cocina') {
+          setUbicacionId(ubic ?? UBICACION_COCINA_CENTRAL)
         } else {
           setUbicacionId(ubic)
         }

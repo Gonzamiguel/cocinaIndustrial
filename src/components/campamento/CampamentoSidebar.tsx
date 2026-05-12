@@ -1,4 +1,4 @@
-import { ClipboardList, Database, PackageCheck } from 'lucide-react'
+import { ClipboardList, Database, PackageCheck, PackagePlus } from 'lucide-react'
 import type { SVGProps } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
@@ -20,6 +20,11 @@ const navItems = [
     to: '/campamento/recepcion',
     label: 'Recepción de mercadería',
     Icon: PackageCheck,
+  },
+  {
+    to: '/campamento/solicitud-mercaderia',
+    label: 'Solicitud al depósito',
+    Icon: PackagePlus,
   },
   {
     to: '/campamento/inventario',
