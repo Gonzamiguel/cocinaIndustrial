@@ -9,6 +9,7 @@
  * - solicitudes_mercaderia: cocina → depósito (fechaCreacion, items, estado, etc.)
  * - insumos: catálogo depósito (nombre genérico, marca, rubro, subrubro, presentación, costo por unidad base)
  * - movimientos_inventario: ingresos, egresos, ajustes y decomisos (trazabilidad HACCP; opcional precio en ingresos)
+ * - saldo_lotes: cantidades por ubicación / insumo / lote para validación atómica en egresos
  * - usuarios: { rol: 'admin_cocina' | 'admin_deposito' | 'admin_campamento' | 'analista', ubicacionId?: string } (doc id = UID de Auth)
  *
  * Nota: la apiKey en cliente es pública por diseño; restringe dominios en la consola Firebase.

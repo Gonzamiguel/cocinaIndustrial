@@ -13,6 +13,7 @@ import {
   guardarComandaConsumoDiario,
   lotesDisponiblesParaEgreso,
   subscribeMovimientosInventarioPorUbicacion,
+  opcionesHistorialAmplio,
   type ItemMovimientoInventario,
   type LoteDisponibleEgreso,
   type MovimientoInventario,
@@ -53,7 +54,11 @@ export function CampamentoNuevaComandaPage() {
       setMovimientos([])
       return
     }
-    return subscribeMovimientosInventarioPorUbicacion(ubicacionId, setMovimientos)
+    return subscribeMovimientosInventarioPorUbicacion(
+      ubicacionId,
+      setMovimientos,
+      opcionesHistorialAmplio(35000),
+    )
   }, [ubicacionId])
 
   const ub = ubicacionId?.trim().toUpperCase() ?? ''

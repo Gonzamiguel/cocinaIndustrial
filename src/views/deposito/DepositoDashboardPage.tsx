@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import {
   subscribeMovimientosInventario,
   movimientosEnUbicacion,
+  opcionesHistorialAmplio,
   UBICACION_DEPOSITO_CENTRAL,
   type MovimientoInventario,
 } from '../../lib/movimientosInventario'
@@ -179,7 +180,10 @@ export function DepositoDashboardPage() {
   }, [])
 
   useEffect(() => {
-    return subscribeMovimientosInventario(setMovimientos)
+    return subscribeMovimientosInventario(
+      setMovimientos,
+      opcionesHistorialAmplio(45000),
+    )
   }, [])
 
   const insumosById = useMemo(() => {

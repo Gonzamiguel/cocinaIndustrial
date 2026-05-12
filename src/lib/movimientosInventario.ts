@@ -1,20 +1,221 @@
 import {
   collection,
   doc,
-  getDoc,
+  getDocs,
+  increment,
+  limit,
   onSnapshot,
   orderBy,
   query,
+  runTransaction,
   serverTimestamp,
   Timestamp,
   where,
   writeBatch,
+  type QueryConstraint,
+  type Transaction,
   type Unsubscribe,
 } from 'firebase/firestore'
 import { COLLECTION_INSUMOS, computeCostoPorUnidadBase } from './insumos'
 import { getDb } from './firebase'
 
 export const COLLECTION_MOVIMIENTOS_INVENTARIO = 'movimientos_inventario'
+
+/** Saldos por (ubicación, insumo, lote) para validación atómica en egresos. */
+export const COLLECTION_SALDO_LOTES = 'saldo_lotes'
+
+/** Ventana por defecto al suscribirse al historial (costo Firestore). */
+export const DEFAULT_MOVIMIENTOS_RECENT_DAYS = 30
+
+/** Límite por defecto de documentos por consulta en tiempo real. */
+export const DEFAULT_MOVIMIENTOS_LIMIT = 100
+
+/**
+ * Firestore limita `limit()` a 10000 en consultas estructuradas.
+ * @see https://firebase.google.com/docs/firestore/quotas
+ */
+export const FIRESTORE_QUERY_LIMIT_MAX = 10000
+
+export type OpcionesSuscripcionMovimientos = {
+  /** Máximo de documentos devueltos tras filtros de fecha. Por defecto {@link DEFAULT_MOVIMIENTOS_LIMIT}. */
+  limite?: number
+  /**
+   * Inicio del rango (inclusive, inicio del día local).
+   * - `undefined` (omitido): últimos {@link DEFAULT_MOVIMIENTOS_RECENT_DAYS} días.
+   * - `null`: sin límite inferior (solo `orderBy` + `limite`; mayor costo).
+   */
+  fechaDesde?: Date | null
+  /** Fin del rango (inclusive, fin del día local). */
+  fechaHasta?: Date | null
+}
+
+/** Sin fecha desde: los N movimientos más recientes (tope Firestore: {@link FIRESTORE_QUERY_LIMIT_MAX}). */
+export function opcionesHistorialAmplio(
+  limite = FIRESTORE_QUERY_LIMIT_MAX,
+): OpcionesSuscripcionMovimientos {
+  return {
+    fechaDesde: null,
+    limite: Math.min(limite, FIRESTORE_QUERY_LIMIT_MAX),
+  }
+}
+
+function normalizarLimiteConsulta(limite: number): number {
+  const n = Number.isFinite(limite) ? Math.floor(limite) : DEFAULT_MOVIMIENTOS_LIMIT
+  return Math.min(Math.max(1, n), FIRESTORE_QUERY_LIMIT_MAX)
+}
+
+function construirQueryMovimientosTodos(
+  db: ReturnType<typeof getDb>,
+  opciones: OpcionesSuscripcionMovimientos,
+) {
+  const limite = normalizarLimiteConsulta(
+    opciones.limite ?? DEFAULT_MOVIMIENTOS_LIMIT,
+  )
+  const fechaDesde =
+    opciones.fechaDesde === undefined
+      ? startOfDayLocal(
+          new Date(
+            Date.now() - DEFAULT_MOVIMIENTOS_RECENT_DAYS * 24 * 60 * 60 * 1000,
+          ),
+        )
+      : opciones.fechaDesde
+
+  const parts: QueryConstraint[] = []
+
+  if (fechaDesde != null) {
+    parts.push(where('fecha', '>=', Timestamp.fromDate(fechaDesde)))
+  }
+  if (opciones.fechaHasta != null) {
+    parts.push(
+      where(
+        'fecha',
+        '<=',
+        Timestamp.fromDate(endOfDayLocal(opciones.fechaHasta)),
+      ),
+    )
+  }
+
+  parts.push(orderBy('fecha', 'desc'))
+  parts.push(limit(limite))
+
+  return query(collection(db, COLLECTION_MOVIMIENTOS_INVENTARIO), ...parts)
+}
+
+function construirQueryMovimientosUbicacion(
+  db: ReturnType<typeof getDb>,
+  ubicacionId: string,
+  opciones: OpcionesSuscripcionMovimientos,
+) {
+  const ub = ubicacionId.trim().toUpperCase()
+  const limite = normalizarLimiteConsulta(
+    opciones.limite ?? DEFAULT_MOVIMIENTOS_LIMIT,
+  )
+  const fechaDesde =
+    opciones.fechaDesde === undefined
+      ? startOfDayLocal(
+          new Date(
+            Date.now() - DEFAULT_MOVIMIENTOS_RECENT_DAYS * 24 * 60 * 60 * 1000,
+          ),
+        )
+      : opciones.fechaDesde
+
+  const parts: QueryConstraint[] = [where('ubicacionId', '==', ub)]
+
+  if (fechaDesde != null) {
+    parts.push(where('fecha', '>=', Timestamp.fromDate(fechaDesde)))
+  }
+  if (opciones.fechaHasta != null) {
+    parts.push(
+      where(
+        'fecha',
+        '<=',
+        Timestamp.fromDate(endOfDayLocal(opciones.fechaHasta)),
+      ),
+    )
+  }
+
+  parts.push(orderBy('fecha', 'desc'))
+  parts.push(limit(limite))
+
+  return query(collection(db, COLLECTION_MOVIMIENTOS_INVENTARIO), ...parts)
+}
+
+function startOfDayLocal(d: Date): Date {
+  const x = new Date(d)
+  x.setHours(0, 0, 0, 0)
+  return x
+}
+
+function endOfDayLocal(d: Date): Date {
+  const x = new Date(d)
+  x.setHours(23, 59, 59, 999)
+  return x
+}
+
+/** Id estable para `saldo_lotes` (evita caracteres problemáticos en paths). */
+export function saldoLoteDocumentId(
+  ubicacionId: string,
+  insumoId: string,
+  loteKey: string,
+): string {
+  const u = ubicacionId.trim().toUpperCase()
+  const id = insumoId.trim()
+  const lk = typeof loteKey === 'string' ? loteKey.trim() : ''
+  const raw = `${u}|${id}|${lk}`
+  const b64 = btoa(unescape(encodeURIComponent(raw)))
+  return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '')
+}
+
+function refSaldoLote(
+  db: ReturnType<typeof getDb>,
+  ubicacionId: string,
+  insumoId: string,
+  loteKey: string,
+) {
+  return doc(
+    db,
+    COLLECTION_SALDO_LOTES,
+    saldoLoteDocumentId(ubicacionId, insumoId, loteKey),
+  )
+}
+
+type AgregadoSaldoEgreso = {
+  ref: ReturnType<typeof doc>
+  cantidad: number
+  nombreSnapshot: string
+  loteLabel: string
+  insumoId: string
+  loteKey: string
+}
+
+function agregarItemsEgresoPorSaldo(
+  db: ReturnType<typeof getDb>,
+  ubicacionId: string,
+  items: ItemMovimientoInventario[],
+): Map<string, AgregadoSaldoEgreso> {
+  const map = new Map<string, AgregadoSaldoEgreso>()
+  const ub = ubicacionId.trim().toUpperCase()
+  for (const it of items) {
+    const lk = normalizarLoteKey(it.lote)
+    const id = saldoLoteDocumentId(ub, it.insumoId, lk)
+    const cant = Math.abs(Number(it.cantidad))
+    if (!Number.isFinite(cant) || cant <= 0) continue
+    const prev = map.get(id)
+    if (prev) {
+      prev.cantidad += cant
+    } else {
+      map.set(id, {
+        ref: refSaldoLote(db, ub, it.insumoId, lk),
+        cantidad: cant,
+        nombreSnapshot: it.nombreSnapshot,
+        loteLabel: lk || '(sin lote)',
+        insumoId: it.insumoId,
+        loteKey: lk,
+      })
+    }
+  }
+  return map
+}
 
 export type TipoMovimientoInventario =
   | 'INGRESO'
@@ -460,15 +661,109 @@ function itemToFirestore(it: ItemMovimientoInventario, incluirPrecio: boolean) {
   }
 }
 
+async function congelarCostoPorUnidadBaseEnTransaccion(
+  transaction: Transaction,
+  db: ReturnType<typeof getDb>,
+  items: ItemMovimientoInventario[],
+): Promise<ItemMovimientoInventario[]> {
+  const faltantes = [...new Set(
+    items
+      .filter(
+        (item) =>
+          item.costoPorUnidadBaseSnapshot == null ||
+          !Number.isFinite(item.costoPorUnidadBaseSnapshot),
+      )
+      .map((item) => item.insumoId),
+  )]
+
+  if (faltantes.length === 0) return items
+
+  const snaps = await Promise.all(
+    faltantes.map((id) => transaction.get(doc(db, COLLECTION_INSUMOS, id))),
+  )
+  const costoPorInsumoId = new Map<string, number>()
+
+  for (let i = 0; i < faltantes.length; i++) {
+    const snap = snaps[i]
+    if (!snap.exists()) continue
+    const raw = snap.data() as Record<string, unknown>
+    costoPorInsumoId.set(
+      faltantes[i],
+      clampNonNegative(Number(raw.costoPorUnidadBase)),
+    )
+  }
+
+  return items.map((item) => {
+    if (
+      item.costoPorUnidadBaseSnapshot != null &&
+      Number.isFinite(item.costoPorUnidadBaseSnapshot)
+    ) {
+      return item
+    }
+    const snapshot = costoPorInsumoId.get(item.insumoId)
+    return snapshot != null
+      ? { ...item, costoPorUnidadBaseSnapshot: snapshot }
+      : item
+  })
+}
+
+function agregarNetDeltaAjustePorSaldo(
+  db: ReturnType<typeof getDb>,
+  items: ItemMovimientoInventario[],
+): Map<
+  string,
+  {
+    ref: ReturnType<typeof doc>
+    netDelta: number
+    nombreSnapshot: string
+    loteLabel: string
+    insumoId: string
+    loteKey: string
+  }
+> {
+  const map = new Map<
+    string,
+    {
+      ref: ReturnType<typeof doc>
+      netDelta: number
+      nombreSnapshot: string
+      loteLabel: string
+      insumoId: string
+      loteKey: string
+    }
+  >()
+  const ub = UBICACION_DEPOSITO_CENTRAL
+  for (const it of items) {
+    const lk = normalizarLoteKey(it.lote)
+    const id = saldoLoteDocumentId(ub, it.insumoId, lk)
+    const delta = Number(it.cantidad)
+    if (!Number.isFinite(delta) || delta === 0) continue
+    const prev = map.get(id)
+    if (prev) {
+      prev.netDelta += delta
+    } else {
+      map.set(id, {
+        ref: refSaldoLote(db, ub, it.insumoId, lk),
+        netDelta: delta,
+        nombreSnapshot: it.nombreSnapshot,
+        loteLabel: lk || '(sin lote)',
+        insumoId: it.insumoId,
+        loteKey: lk,
+      })
+    }
+  }
+  return map
+}
+
 /**
  * Registra cualquier tipo de movimiento.
  * INGRESO con precio unitario &gt; 0 actualiza costo de envase en el catálogo.
+ * EGRESO / DECOMISO validan y actualizan `saldo_lotes` en una transacción.
  */
 export async function crearMovimiento(input: CrearMovimientoInput): Promise<string> {
   const fechaTs = Timestamp.fromDate(input.fecha)
   const db = getDb()
   const movRef = doc(collection(db, COLLECTION_MOVIMIENTOS_INVENTARIO))
-  const batch = writeBatch(db)
 
   if (input.tipo === 'INGRESO') {
     const proveedor = input.proveedor.trim()
@@ -497,20 +792,61 @@ export async function crearMovimiento(input: CrearMovimientoInput): Promise<stri
     ).toUpperCase()
     const egresoOrigen = input.egresoTrasladoOrigenId?.trim()
 
-    batch.set(movRef, {
-      tipo: 'INGRESO' as const,
-      fecha: fechaTs,
-      proveedor,
-      tipoDocumento: input.tipoDocumento,
-      numeroDocumento,
-      ubicacionId,
-      items: items.map((it) => itemToFirestore(it, true)),
-      creadoEn: serverTimestamp(),
-      ...(egresoOrigen ? { egresoTrasladoOrigenId: egresoOrigen } : {}),
-    })
+    const idsCatalogo = [...precioActualizaCatalogo.keys()]
 
-    await aplicarActualizacionCostos(batch, db, precioActualizaCatalogo)
-    await batch.commit()
+    await runTransaction(db, async (t) => {
+      const insumoSnaps = await Promise.all(
+        idsCatalogo.map((id) => t.get(doc(db, COLLECTION_INSUMOS, id))),
+      )
+
+      t.set(movRef, {
+        tipo: 'INGRESO' as const,
+        fecha: fechaTs,
+        proveedor,
+        tipoDocumento: input.tipoDocumento,
+        numeroDocumento,
+        ubicacionId,
+        items: items.map((it) => itemToFirestore(it, true)),
+        creadoEn: serverTimestamp(),
+        ...(egresoOrigen ? { egresoTrasladoOrigenId: egresoOrigen } : {}),
+      })
+
+      for (const it of items) {
+        const lk = normalizarLoteKey(it.lote)
+        const qty = Math.abs(Number(it.cantidad))
+        if (!Number.isFinite(qty) || qty <= 0) continue
+        const sref = refSaldoLote(db, ubicacionId, it.insumoId, lk)
+        t.set(
+          sref,
+          {
+            ubicacionId,
+            insumoId: it.insumoId,
+            loteKey: lk,
+            cantidad: increment(qty),
+            actualizadoEn: serverTimestamp(),
+          },
+          { merge: true },
+        )
+      }
+
+      for (let i = 0; i < idsCatalogo.length; i++) {
+        const insumoId = idsCatalogo[i]
+        const snap = insumoSnaps[i]
+        if (!snap.exists()) continue
+        const nuevoCostoEnvase = precioActualizaCatalogo.get(insumoId)!
+        const raw = snap.data() as Record<string, unknown>
+        const contenidoNeto = clampNonNegative(Number(raw.contenidoNeto))
+        const costoPorUnidadBase = computeCostoPorUnidadBase(
+          nuevoCostoEnvase,
+          contenidoNeto,
+        )
+        t.update(doc(db, COLLECTION_INSUMOS, insumoId), {
+          costoEnvase: nuevoCostoEnvase,
+          costoPorUnidadBase: clampNonNegative(costoPorUnidadBase),
+          actualizadoEn: serverTimestamp(),
+        })
+      }
+    })
     return movRef.id
   }
 
@@ -530,11 +866,8 @@ export async function crearMovimiento(input: CrearMovimientoInput): Promise<stri
       if (!transporte.precinto) throw new Error('Indicá el número de precinto.')
     }
 
-    const items = await congelarCostoPorUnidadBaseSiFalta(
-      db,
-      normalizarItems(input.items, 'EGRESO'),
-    )
-    if (items.length === 0) {
+    const baseItems = normalizarItems(input.items, 'EGRESO')
+    if (baseItems.length === 0) {
       throw new Error('Agregá al menos un ítem válido con insumo y cantidad.')
     }
 
@@ -552,46 +885,192 @@ export async function crearMovimiento(input: CrearMovimientoInput): Promise<stri
     const motivoTrim = input.motivo?.trim()
     const obsComandaTrim = input.observacionesComanda?.trim()
 
-    batch.set(movRef, {
-      tipo: 'EGRESO' as const,
-      fecha: fechaTs,
-      destino,
-      numeroDocumento,
-      ubicacionId,
-      ...(transporte ? { transporte } : {}),
-      ...(motivoTrim ? { motivo: motivoTrim } : {}),
-      ...(obsComandaTrim ? { observacionesComanda: obsComandaTrim } : {}),
-      items: items.map((it) => itemToFirestore(it, false)),
-      creadoEn: serverTimestamp(),
-      ...(esTraslado && ubicacionDestinoInferida
-        ? {
-            ubicacionDestino: ubicacionDestinoInferida,
-            estadoTraslado: 'EN_TRANSITO' as const,
-          }
-        : {}),
+    await runTransaction(db, async (t) => {
+      const items = await congelarCostoPorUnidadBaseEnTransaccion(
+        t,
+        db,
+        baseItems,
+      )
+      const agg = agregarItemsEgresoPorSaldo(db, ubicacionId, items)
+      const filas = [...agg.values()]
+
+      const snaps = await Promise.all(filas.map((row) => t.get(row.ref)))
+
+      for (let i = 0; i < filas.length; i++) {
+        const row = filas[i]
+        const snap = snaps[i]
+        const disponible = snap.exists()
+          ? clampNonNegative(Number(snap.data()?.cantidad ?? 0))
+          : 0
+        if (disponible + 1e-9 < row.cantidad) {
+          const sinSaldo =
+            !snap.exists() || disponible === 0
+              ? ' Ejecutá «Recalcular saldos desde movimientos» en Configuración del depósito si acabas de migrar.'
+              : ''
+          throw new Error(
+            `Stock insuficiente en servidor para «${row.nombreSnapshot}» (lote ${row.loteLabel}). Disponible: ${disponible.toLocaleString('es-AR', { maximumFractionDigits: 4 })}, solicitado: ${row.cantidad.toLocaleString('es-AR', { maximumFractionDigits: 4 })}.${sinSaldo}`,
+          )
+        }
+      }
+
+      t.set(movRef, {
+        tipo: 'EGRESO' as const,
+        fecha: fechaTs,
+        destino,
+        numeroDocumento,
+        ubicacionId,
+        ...(transporte ? { transporte } : {}),
+        ...(motivoTrim ? { motivo: motivoTrim } : {}),
+        ...(obsComandaTrim ? { observacionesComanda: obsComandaTrim } : {}),
+        items: items.map((it) => itemToFirestore(it, false)),
+        creadoEn: serverTimestamp(),
+        ...(esTraslado && ubicacionDestinoInferida
+          ? {
+              ubicacionDestino: ubicacionDestinoInferida,
+              estadoTraslado: 'EN_TRANSITO' as const,
+            }
+          : {}),
+      })
+
+      for (const row of filas) {
+        t.set(
+          row.ref,
+          {
+            ubicacionId,
+            insumoId: row.insumoId,
+            loteKey: row.loteKey,
+            cantidad: increment(-row.cantidad),
+            actualizadoEn: serverTimestamp(),
+          },
+          { merge: true },
+        )
+      }
     })
-    await batch.commit()
     return movRef.id
   }
 
-  const motivo = input.motivo.trim()
-  if (!motivo) throw new Error('Indicá el motivo.')
+  if (input.tipo === 'DECOMISO') {
+    const motivo = input.motivo.trim()
+    if (!motivo) throw new Error('Indicá el motivo.')
 
-  const items = normalizarItems(input.items, input.tipo)
-  if (items.length === 0) {
-    throw new Error('Agregá al menos un ítem válido con insumo y cantidad.')
+    const baseItems = normalizarItems(input.items, 'DECOMISO')
+    if (baseItems.length === 0) {
+      throw new Error('Agregá al menos un ítem válido con insumo y cantidad.')
+    }
+
+    const ubicacionId = UBICACION_DEPOSITO_CENTRAL
+
+    await runTransaction(db, async (t) => {
+      const items = await congelarCostoPorUnidadBaseEnTransaccion(
+        t,
+        db,
+        baseItems,
+      )
+      const agg = agregarItemsEgresoPorSaldo(db, ubicacionId, items)
+      const filas = [...agg.values()]
+      const snaps = await Promise.all(filas.map((row) => t.get(row.ref)))
+
+      for (let i = 0; i < filas.length; i++) {
+        const row = filas[i]
+        const snap = snaps[i]
+        const disponible = snap.exists()
+          ? clampNonNegative(Number(snap.data()?.cantidad ?? 0))
+          : 0
+        if (disponible + 1e-9 < row.cantidad) {
+          const sinSaldo =
+            !snap.exists() || disponible === 0
+              ? ' Ejecutá «Recalcular saldos desde movimientos» en Configuración del depósito si acabas de migrar.'
+              : ''
+          throw new Error(
+            `Stock insuficiente en servidor para «${row.nombreSnapshot}» (lote ${row.loteLabel}). Disponible: ${disponible.toLocaleString('es-AR', { maximumFractionDigits: 4 })}, solicitado: ${row.cantidad.toLocaleString('es-AR', { maximumFractionDigits: 4 })}.${sinSaldo}`,
+          )
+        }
+      }
+
+      t.set(movRef, {
+        tipo: 'DECOMISO' as const,
+        fecha: fechaTs,
+        motivo,
+        ubicacionId,
+        items: items.map((it) => itemToFirestore(it, false)),
+        creadoEn: serverTimestamp(),
+      })
+
+      for (const row of filas) {
+        t.set(
+          row.ref,
+          {
+            ubicacionId,
+            insumoId: row.insumoId,
+            loteKey: row.loteKey,
+            cantidad: increment(-row.cantidad),
+            actualizadoEn: serverTimestamp(),
+          },
+          { merge: true },
+        )
+      }
+    })
+    return movRef.id
   }
 
-  batch.set(movRef, {
-    tipo: input.tipo,
-    fecha: fechaTs,
-    motivo,
-    ubicacionId: UBICACION_DEPOSITO_CENTRAL,
-    items: items.map((it) => itemToFirestore(it, false)),
-    creadoEn: serverTimestamp(),
-  })
-  await batch.commit()
-  return movRef.id
+  if (input.tipo === 'AJUSTE') {
+    const motivo = input.motivo.trim()
+    if (!motivo) throw new Error('Indicá el motivo.')
+
+    const items = normalizarItems(input.items, 'AJUSTE')
+    if (items.length === 0) {
+      throw new Error('Agregá al menos un ítem válido con insumo y cantidad.')
+    }
+
+    const ubicacionId = UBICACION_DEPOSITO_CENTRAL
+
+    await runTransaction(db, async (t) => {
+      const deltas = agregarNetDeltaAjustePorSaldo(db, items)
+      const negativos = [...deltas.values()].filter((d) => d.netDelta < 0)
+      const snapsNeg = await Promise.all(negativos.map((d) => t.get(d.ref)))
+
+      for (let i = 0; i < negativos.length; i++) {
+        const row = negativos[i]
+        const snap = snapsNeg[i]
+        const disponible = snap.exists()
+          ? clampNonNegative(Number(snap.data()?.cantidad ?? 0))
+          : 0
+        const necesita = Math.abs(row.netDelta)
+        if (disponible + 1e-9 < necesita) {
+          throw new Error(
+            `Ajuste inválido: stock insuficiente para «${row.nombreSnapshot}» (lote ${row.loteLabel}). Disponible: ${disponible.toLocaleString('es-AR', { maximumFractionDigits: 4 })}, ajuste: ${row.netDelta.toLocaleString('es-AR', { maximumFractionDigits: 4 })}.`,
+          )
+        }
+      }
+
+      t.set(movRef, {
+        tipo: 'AJUSTE' as const,
+        fecha: fechaTs,
+        motivo,
+        ubicacionId,
+        items: items.map((it) => itemToFirestore(it, false)),
+        creadoEn: serverTimestamp(),
+      })
+
+      for (const d of deltas.values()) {
+        if (d.netDelta === 0) continue
+        t.set(
+          d.ref,
+          {
+            ubicacionId,
+            insumoId: d.insumoId,
+            loteKey: d.loteKey,
+            cantidad: increment(d.netDelta),
+            actualizadoEn: serverTimestamp(),
+          },
+          { merge: true },
+        )
+      }
+    })
+    return movRef.id
+  }
+
+  throw new Error('Tipo de movimiento no soportado.')
 }
 
 /** Valorización de ítems según `costoPorUnidadBaseSnapshot` (ARS). */
@@ -689,81 +1168,6 @@ function normalizarItems(
   return out
 }
 
-async function congelarCostoPorUnidadBaseSiFalta(
-  db: ReturnType<typeof getDb>,
-  items: ItemMovimientoInventario[],
-): Promise<ItemMovimientoInventario[]> {
-  const faltantes = [...new Set(
-    items
-      .filter(
-        (item) =>
-          item.costoPorUnidadBaseSnapshot == null ||
-          !Number.isFinite(item.costoPorUnidadBaseSnapshot),
-      )
-      .map((item) => item.insumoId),
-  )]
-
-  if (faltantes.length === 0) return items
-
-  const snaps = await Promise.all(
-    faltantes.map((id) => getDoc(doc(db, COLLECTION_INSUMOS, id))),
-  )
-  const costoPorInsumoId = new Map<string, number>()
-
-  for (let i = 0; i < faltantes.length; i++) {
-    const snap = snaps[i]
-    if (!snap.exists()) continue
-    const raw = snap.data() as Record<string, unknown>
-    costoPorInsumoId.set(
-      faltantes[i],
-      clampNonNegative(Number(raw.costoPorUnidadBase)),
-    )
-  }
-
-  return items.map((item) => {
-    if (
-      item.costoPorUnidadBaseSnapshot != null &&
-      Number.isFinite(item.costoPorUnidadBaseSnapshot)
-    ) {
-      return item
-    }
-    const snapshot = costoPorInsumoId.get(item.insumoId)
-    return snapshot != null
-      ? { ...item, costoPorUnidadBaseSnapshot: snapshot }
-      : item
-  })
-}
-
-async function aplicarActualizacionCostos(
-  batch: ReturnType<typeof writeBatch>,
-  db: ReturnType<typeof getDb>,
-  precioActualizaCatalogo: Map<string, number>,
-): Promise<void> {
-  const idsActualizar = [...precioActualizaCatalogo.keys()]
-  if (idsActualizar.length === 0) return
-
-  const snaps = await Promise.all(
-    idsActualizar.map((id) => getDoc(doc(db, COLLECTION_INSUMOS, id))),
-  )
-  for (let i = 0; i < idsActualizar.length; i++) {
-    const insumoId = idsActualizar[i]
-    const snap = snaps[i]
-    if (!snap.exists()) continue
-    const nuevoCostoEnvase = precioActualizaCatalogo.get(insumoId)!
-    const raw = snap.data() as Record<string, unknown>
-    const contenidoNeto = clampNonNegative(Number(raw.contenidoNeto))
-    const costoPorUnidadBase = computeCostoPorUnidadBase(
-      nuevoCostoEnvase,
-      contenidoNeto,
-    )
-    batch.update(doc(db, COLLECTION_INSUMOS, insumoId), {
-      costoEnvase: nuevoCostoEnvase,
-      costoPorUnidadBase: clampNonNegative(costoPorUnidadBase),
-      actualizadoEn: serverTimestamp(),
-    })
-  }
-}
-
 /** @deprecated Usar crearMovimiento */
 export async function crearMovimientoIngreso(input: {
   fecha: Date
@@ -784,12 +1188,10 @@ export async function crearMovimientoIngreso(input: {
 
 export function subscribeMovimientosInventario(
   onChange: (rows: MovimientoInventario[]) => void,
+  opciones: OpcionesSuscripcionMovimientos = {},
 ): Unsubscribe {
   const db = getDb()
-  const q = query(
-    collection(db, COLLECTION_MOVIMIENTOS_INVENTARIO),
-    orderBy('fecha', 'desc'),
-  )
+  const q = construirQueryMovimientosTodos(db, opciones)
   return onSnapshot(
     q,
     (snap) => {
@@ -814,14 +1216,10 @@ export function subscribeMovimientosInventario(
 export function subscribeMovimientosInventarioPorUbicacion(
   ubicacionId: string,
   onChange: (rows: MovimientoInventario[]) => void,
+  opciones: OpcionesSuscripcionMovimientos = {},
 ): Unsubscribe {
   const db = getDb()
-  const ub = ubicacionId.trim().toUpperCase()
-  const q = query(
-    collection(db, COLLECTION_MOVIMIENTOS_INVENTARIO),
-    where('ubicacionId', '==', ub),
-    orderBy('fecha', 'desc'),
-  )
+  const q = construirQueryMovimientosUbicacion(db, ubicacionId, opciones)
   return onSnapshot(
     q,
     (snap) => {
@@ -876,6 +1274,64 @@ export function subscribeTrasladosPendientesRecepcion(
 }
 
 /**
+ * Reconstruye documentos en `saldo_lotes` a partir de todo el historial de movimientos.
+ * Ejecutar tras desplegar saldos por lote o si hubo inconsistencias.
+ */
+export async function rebuildSaldoLotesDesdeMovimientos(): Promise<void> {
+  const db = getDb()
+  const snap = await getDocs(collection(db, COLLECTION_MOVIMIENTOS_INVENTARIO))
+  const acum = new Map<
+    string,
+    { ubicacionId: string; insumoId: string; loteKey: string; cantidad: number }
+  >()
+
+  for (const d of snap.docs) {
+    const m = mapMovimientoDoc(d.id, d.data() as Record<string, unknown>)
+    if (!m) continue
+    const ub = ubicacionEfectivaMovimiento(m)
+    for (const it of m.items) {
+      const lk = normalizarLoteKey(it.lote)
+      const key = saldoLoteDocumentId(ub, it.insumoId, lk)
+      const qty = Number(it.cantidad)
+      if (!Number.isFinite(qty)) continue
+      let delta = 0
+      if (m.tipo === 'INGRESO') delta = Math.abs(qty)
+      else if (m.tipo === 'EGRESO' || m.tipo === 'DECOMISO') delta = -Math.abs(qty)
+      else if (m.tipo === 'AJUSTE') delta = qty
+      const prev = acum.get(key)
+      const cantidad = (prev?.cantidad ?? 0) + delta
+      acum.set(key, {
+        ubicacionId: ub,
+        insumoId: it.insumoId,
+        loteKey: lk,
+        cantidad,
+      })
+    }
+  }
+
+  let batch = writeBatch(db)
+  let ops = 0
+  for (const [key, v] of acum) {
+    const cantidad = Math.max(0, v.cantidad)
+    const ref = doc(db, COLLECTION_SALDO_LOTES, key)
+    batch.set(ref, {
+      ubicacionId: v.ubicacionId,
+      insumoId: v.insumoId,
+      loteKey: v.loteKey,
+      cantidad,
+      actualizadoEn: serverTimestamp(),
+    })
+    ops++
+    if (ops >= 450) {
+      await batch.commit()
+      batch = writeBatch(db)
+      ops = 0
+    }
+  }
+  if (ops > 0) await batch.commit()
+}
+
+/**
  * Cierra un traslado: marca el egreso como recibido y genera el ingreso en la sucursal destino.
  */
 export async function confirmarRecepcionTrasladoCampamento(input: {
@@ -887,78 +1343,100 @@ export async function confirmarRecepcionTrasladoCampamento(input: {
   const { egresoId, ubicacionRecepcionId, itemsRecibidos } = input
   const db = getDb()
   const egresoRef = doc(db, COLLECTION_MOVIMIENTOS_INVENTARIO, egresoId)
-  const snap = await getDoc(egresoRef)
-  if (!snap.exists()) throw new Error('No se encontró el movimiento de egreso.')
+  const ingresoRef = doc(collection(db, COLLECTION_MOVIMIENTOS_INVENTARIO))
 
-  const mov = mapMovimientoDoc(egresoId, snap.data() as Record<string, unknown>)
-  if (!mov || mov.tipo !== 'EGRESO') {
-    throw new Error('El documento no es un egreso válido.')
-  }
-  if (mov.estadoTraslado !== 'EN_TRANSITO') {
-    throw new Error('Este remito ya no está pendiente de recepción.')
-  }
-  if (mov.ubicacionDestino !== ubicacionRecepcionId.trim().toUpperCase()) {
-    throw new Error('Este traslado no corresponde a tu sucursal.')
-  }
+  await runTransaction(db, async (t) => {
+    const egresoSnap = await t.get(egresoRef)
+    if (!egresoSnap.exists()) throw new Error('No se encontró el movimiento de egreso.')
 
-  if (itemsRecibidos.length !== mov.items.length) {
-    throw new Error('La cantidad de ítems no coincide con el remito.')
-  }
-
-  for (let i = 0; i < mov.items.length; i++) {
-    const orig = mov.items[i]
-    const rec = itemsRecibidos[i]
-    if (rec.insumoId !== orig.insumoId) {
-      throw new Error('Los ítems no coinciden con el remito.')
+    const mov = mapMovimientoDoc(
+      egresoId,
+      egresoSnap.data() as Record<string, unknown>,
+    )
+    if (!mov || mov.tipo !== 'EGRESO') {
+      throw new Error('El documento no es un egreso válido.')
     }
-    const q = Number(rec.cantidad)
-    if (!Number.isFinite(q) || q < 0) {
-      throw new Error('Cantidad recibida inválida.')
+    if (mov.estadoTraslado !== 'EN_TRANSITO') {
+      throw new Error('Este remito ya no está pendiente de recepción.')
     }
-    if (q > orig.cantidad + 1e-9) {
-      throw new Error(
-        `La cantidad recibida no puede superar la enviada (${orig.nombreSnapshot}).`,
+    if (mov.ubicacionDestino !== ubicacionRecepcionId.trim().toUpperCase()) {
+      throw new Error('Este traslado no corresponde a tu sucursal.')
+    }
+
+    if (itemsRecibidos.length !== mov.items.length) {
+      throw new Error('La cantidad de ítems no coincide con el remito.')
+    }
+
+    for (let i = 0; i < mov.items.length; i++) {
+      const orig = mov.items[i]
+      const rec = itemsRecibidos[i]
+      if (rec.insumoId !== orig.insumoId) {
+        throw new Error('Los ítems no coinciden con el remito.')
+      }
+      const q = Number(rec.cantidad)
+      if (!Number.isFinite(q) || q < 0) {
+        throw new Error('Cantidad recibida inválida.')
+      }
+      if (q > orig.cantidad + 1e-9) {
+        throw new Error(
+          `La cantidad recibida no puede superar la enviada (${orig.nombreSnapshot}).`,
+        )
+      }
+    }
+
+    const mergedParaIngreso = mov.items.map((orig, i) => {
+      const rec = itemsRecibidos[i]
+      const qty = Number(rec.cantidad) || 0
+      return {
+        ...orig,
+        cantidad: qty,
+        controlCalidadOk: true,
+      }
+    })
+
+    const itemsIngreso = normalizarItems(mergedParaIngreso, 'INGRESO')
+    if (itemsIngreso.length === 0) {
+      throw new Error('Indicá al menos una cantidad recibida mayor a cero.')
+    }
+
+    const fechaRecepcion = Timestamp.fromDate(new Date())
+    const numeroRc = `RC-${mov.numeroDocumento}-${egresoId.slice(0, 8)}`
+    const ubicacionIngreso = ubicacionRecepcionId.trim().toUpperCase()
+
+    t.update(egresoRef, {
+      estadoTraslado: 'RECIBIDO',
+      recibidoEn: serverTimestamp(),
+    })
+    t.set(ingresoRef, {
+      tipo: 'INGRESO' as const,
+      fecha: fechaRecepcion,
+      proveedor: 'Depósito central (traslado)',
+      tipoDocumento: 'Remito' as const,
+      numeroDocumento: numeroRc,
+      ubicacionId: ubicacionIngreso,
+      egresoTrasladoOrigenId: egresoId,
+      items: itemsIngreso.map((it) => itemToFirestore(it, false)),
+      creadoEn: serverTimestamp(),
+    })
+
+    for (const it of itemsIngreso) {
+      const qty = Math.abs(Number(it.cantidad))
+      if (qty <= 0) continue
+      const lk = normalizarLoteKey(it.lote)
+      const sref = refSaldoLote(db, ubicacionIngreso, it.insumoId, lk)
+      t.set(
+        sref,
+        {
+          ubicacionId: ubicacionIngreso,
+          insumoId: it.insumoId,
+          loteKey: lk,
+          cantidad: increment(qty),
+          actualizadoEn: serverTimestamp(),
+        },
+        { merge: true },
       )
     }
-  }
-
-  const mergedParaIngreso = mov.items.map((orig, i) => {
-    const rec = itemsRecibidos[i]
-    const qty = Number(rec.cantidad) || 0
-    return {
-      ...orig,
-      cantidad: qty,
-      controlCalidadOk: true,
-    }
   })
-
-  const itemsIngreso = normalizarItems(mergedParaIngreso, 'INGRESO')
-  if (itemsIngreso.length === 0) {
-    throw new Error('Indicá al menos una cantidad recibida mayor a cero.')
-  }
-
-  const ingresoRef = doc(collection(db, COLLECTION_MOVIMIENTOS_INVENTARIO))
-  const fechaRecepcion = Timestamp.fromDate(new Date())
-  const numeroRc = `RC-${mov.numeroDocumento}-${egresoId.slice(0, 8)}`
-  const ubicacionIngreso = ubicacionRecepcionId.trim().toUpperCase()
-
-  const batch = writeBatch(db)
-  batch.update(egresoRef, {
-    estadoTraslado: 'RECIBIDO',
-    recibidoEn: serverTimestamp(),
-  })
-  batch.set(ingresoRef, {
-    tipo: 'INGRESO' as const,
-    fecha: fechaRecepcion,
-    proveedor: 'Depósito central (traslado)',
-    tipoDocumento: 'Remito' as const,
-    numeroDocumento: numeroRc,
-    ubicacionId: ubicacionIngreso,
-    egresoTrasladoOrigenId: egresoId,
-    items: itemsIngreso.map((it) => itemToFirestore(it, false)),
-    creadoEn: serverTimestamp(),
-  })
-  await batch.commit()
 }
 
 /** @deprecated Usar subscribeMovimientosInventario */

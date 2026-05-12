@@ -1,9 +1,171 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // MVP: abierto. Antes de producción: autenticación y validación de campos.
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function userPath(uid) {
+      return /databases/$(database)/documents/usuarios/$(uid);
+    }
+
+    function userDocExists() {
+      return signedIn() && exists(userPath(request.auth.uid));
+    }
+
+    function userData() {
+      return get(userPath(request.auth.uid)).data;
+    }
+
+    function userRole() {
+      return userDocExists() ? userData().rol : null;
+    }
+
+    function hasRole(r) {
+      return userRole() == r;
+    }
+
+    function isAdminCocina() {
+      return hasRole('admin_cocina');
+    }
+
+    function isAdminDeposito() {
+      return hasRole('admin_deposito');
+    }
+
+    function isAdminCampamento() {
+      return hasRole('admin_campamento');
+    }
+
+    function isAnalista() {
+      return hasRole('analista');
+    }
+
+    /** Staff con documento en `usuarios` (excluye solo anónimos sin rol). */
+    function staffLeerInsumos() {
+      return isAdminDeposito() || isAnalista() || isAdminCampamento() || isAdminCocina();
+    }
+
+    function puedeLeerMovimientos() {
+      return isAdminDeposito() || isAnalista() || isAdminCampamento();
+    }
+
+    /** Ubicación operativa del usuario campamento (fallback Casposo si no está en el doc). */
+    function campamentoUbicacionUsuario() {
+      return (userDocExists() &&
+        userData().keys().hasAny(['ubicacionId']) &&
+        userData().ubicacionId is string &&
+        userData().ubicacionId != '')
+        ? userData().ubicacionId
+        : 'CASPOSO';
+    }
+
+    /** Campamento: solo documentos cuya ubicación coincide con la del usuario. */
+    function campamentoUbicacionCoincide() {
+      return isAdminCampamento()
+        && request.resource.data.keys().hasAny(['ubicacionId'])
+        && request.resource.data.ubicacionId == campamentoUbicacionUsuario();
+    }
+
+    function puedeCrearMovimiento() {
+      return isAdminDeposito() || campamentoUbicacionCoincide();
+    }
+
+    function puedeEscribirSaldoLote() {
+      return isAdminDeposito() || campamentoUbicacionCoincide();
+    }
+
+    /** Recepción en sucursal: cerrar egreso EN_TRANSITO destinado a esta ubicación. */
+    function campamentoPuedeCerrarRecepcionEgreso() {
+      return isAdminCampamento()
+        && resource.data.tipo == 'EGRESO'
+        && resource.data.estadoTraslado == 'EN_TRANSITO'
+        && resource.data.keys().hasAny(['ubicacionDestino'])
+        && resource.data.ubicacionDestino == campamentoUbicacionUsuario();
+    }
+
+    /** Pedido público (cliente anónimo o staff): creación con campos mínimos. */
+    function pedidoClienteValido() {
+      return request.resource.data.keys().hasAll(['nombreCliente', 'lugarEntrega'])
+        && request.resource.data.nombreCliente is string
+        && request.resource.data.lugarEntrega is string
+        && (
+          !request.resource.data.keys().hasAny(['fechaConsumo'])
+          || request.resource.data.fechaConsumo is string
+        );
+    }
+
+    /** Descuento de stock del menú: solo baja estricta de `stock`. */
+    function menuSoloDescuentaStock() {
+      return request.resource.data.diff(resource.data).changedKeys().hasOnly(['stock'])
+        && request.resource.data.stock is int
+        && request.resource.data.stock >= 0
+        && request.resource.data.stock < resource.data.stock;
+    }
+
+    match /usuarios/{userId} {
+      allow read: if signedIn() && request.auth.uid == userId;
+      allow write: if false;
+    }
+
+    match /menu/{itemId} {
+      allow read: if signedIn();
+      allow create, delete: if isAdminCocina();
+      allow update: if isAdminCocina() || (signedIn() && menuSoloDescuentaStock());
+    }
+
+    match /pedidos/{pedidoId} {
+      allow read: if signedIn() && (isAdminCocina() || isAnalista());
+      allow create: if signedIn() && pedidoClienteValido();
+      allow update: if isAdminCocina();
+      allow delete: if isAdminCocina();
+    }
+
+    match /insumos/{insumoId} {
+      allow read: if signedIn() && staffLeerInsumos();
+      allow create, update, delete: if isAdminDeposito() || isAnalista();
+    }
+
+    match /categorias/{catId} {
+      allow read: if signedIn() && staffLeerInsumos();
+      allow create, update, delete: if isAdminDeposito();
+    }
+
+    match /recetario/{docId} {
+      allow read: if signedIn() && (isAdminCocina() || isAdminDeposito() || isAnalista());
+      allow create, update, delete: if isAdminCocina();
+    }
+
+    match /solicitudes_mercaderia/{id} {
+      allow read: if signedIn() && (isAdminCocina() || isAdminDeposito());
+      allow create: if isAdminCocina();
+      allow update: if isAdminCocina() || isAdminDeposito();
+      allow delete: if isAdminDeposito();
+    }
+
+    match /movimientos_inventario/{movId} {
+      allow read: if signedIn() && puedeLeerMovimientos();
+      allow create: if signedIn() && puedeCrearMovimiento();
+      allow update: if signedIn() && (
+          isAdminDeposito()
+          || (
+            campamentoPuedeCerrarRecepcionEgreso()
+            && request.resource.data.diff(resource.data).changedKeys().hasOnly(['estadoTraslado', 'recibidoEn'])
+            && request.resource.data.estadoTraslado == 'RECIBIDO'
+          )
+        );
+      allow delete: if signedIn() && isAdminDeposito();
+    }
+
+    match /saldo_lotes/{docId} {
+      allow read: if signedIn() && puedeLeerMovimientos();
+      allow create, update: if signedIn() && puedeEscribirSaldoLote();
+      allow delete: if signedIn() && isAdminDeposito();
+    }
+
     match /{document=**} {
-      allow read, write: if true;
+      allow read, write: if false;
     }
   }
 }

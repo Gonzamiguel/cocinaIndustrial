@@ -4,6 +4,7 @@ import { subscribeCategorias, type Categoria } from '../../lib/categorias'
 import {
   subscribeMovimientosInventario,
   movimientosEnUbicacion,
+  opcionesHistorialAmplio,
   UBICACION_DEPOSITO_CENTRAL,
   type MovimientoInventario,
 } from '../../lib/movimientosInventario'
@@ -131,7 +132,10 @@ export function DepositoInventarioPage() {
   }, [])
 
   useEffect(() => {
-    return subscribeMovimientosInventario(setMovimientos)
+    return subscribeMovimientosInventario(
+      setMovimientos,
+      opcionesHistorialAmplio(45000),
+    )
   }, [])
 
   useEffect(() => {

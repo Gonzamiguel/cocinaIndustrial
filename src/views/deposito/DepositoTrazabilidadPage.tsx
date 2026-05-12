@@ -4,6 +4,7 @@ import { CheckCircle, Truck, Utensils, Warehouse } from 'lucide-react'
 import {
   MOTIVO_EGRESO_CONSUMO_DIARIO,
   subscribeMovimientosInventario,
+  opcionesHistorialAmplio,
   UBICACION_DEPOSITO_CENTRAL,
   ubicacionEfectivaMovimiento,
   type MovimientoEgreso,
@@ -168,7 +169,10 @@ export function DepositoTrazabilidadPage() {
   const [loteBuscado, setLoteBuscado] = useState('')
 
   useEffect(() => {
-    return subscribeMovimientosInventario(setMovimientos)
+    return subscribeMovimientosInventario(
+      setMovimientos,
+      opcionesHistorialAmplio(50000),
+    )
   }, [])
 
   useEffect(() => {

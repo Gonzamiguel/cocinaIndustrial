@@ -5,6 +5,7 @@ import { useAuth } from '../../context/AuthContext'
 import {
   costoTotalItemsMovimiento,
   subscribeMovimientosInventarioPorUbicacion,
+  opcionesHistorialAmplio,
   type MovimientoEgreso,
   type MovimientoInventario,
 } from '../../lib/movimientosInventario'
@@ -64,7 +65,11 @@ export function CampamentoComandasPage() {
       setMovimientos([])
       return
     }
-    return subscribeMovimientosInventarioPorUbicacion(ubicacionId, setMovimientos)
+    return subscribeMovimientosInventarioPorUbicacion(
+      ubicacionId,
+      setMovimientos,
+      opcionesHistorialAmplio(35000),
+    )
   }, [ubicacionId])
 
   const todasLasComandas = useMemo(

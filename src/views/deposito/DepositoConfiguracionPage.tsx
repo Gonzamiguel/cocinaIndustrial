@@ -9,6 +9,7 @@ import {
   subscribeCategorias,
   type Categoria,
 } from '../../lib/categorias'
+import { rebuildSaldoLotesDesdeMovimientos } from '../../lib/movimientosInventario'
 
 const inputClass =
   'mt-2 w-full min-h-11 rounded-xl border border-gray-200 bg-white px-4 text-sm text-[#171717] shadow-sm outline-none transition focus:border-[#CD1818]/30 focus:ring-2 focus:ring-[#CD1818]/10'
@@ -22,6 +23,7 @@ export function DepositoConfiguracionPage() {
   const [nuevoSubrubro, setNuevoSubrubro] = useState('')
   const [guardandoRubro, setGuardandoRubro] = useState(false)
   const [guardandoSubrubro, setGuardandoSubrubro] = useState(false)
+  const [recalculandoSaldos, setRecalculandoSaldos] = useState(false)
 
   useEffect(() => {
     return subscribeCategorias((rows) => {
@@ -132,6 +134,28 @@ export function DepositoConfiguracionPage() {
         err instanceof Error ? err.message : 'No se pudo eliminar el rubro.',
         'error',
       )
+    }
+  }
+
+  async function handleRecalcularSaldos() {
+    if (
+      !confirm(
+        '¿Recalcular todos los saldos por lote desde el historial de movimientos? En bases grandes puede tardar varios minutos.',
+      )
+    ) {
+      return
+    }
+    setRecalculandoSaldos(true)
+    try {
+      await rebuildSaldoLotesDesdeMovimientos()
+      showToast('Saldos recalculados correctamente.')
+    } catch (err) {
+      showToast(
+        err instanceof Error ? err.message : 'No se pudieron recalcular los saldos.',
+        'error',
+      )
+    } finally {
+      setRecalculandoSaldos(false)
     }
   }
 
@@ -314,6 +338,29 @@ export function DepositoConfiguracionPage() {
             )}
           </section>
         </div>
+
+        <section className="mt-6 rounded-xl border border-amber-200 bg-amber-50/50 p-5 shadow-sm">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-[#CD1818]">
+            Sincronización de saldos (lotes)
+          </h2>
+          <p className="mt-2 text-sm text-[#8997A6]">
+            Recalculá la colección{' '}
+            <code className="rounded bg-white px-1 font-mono text-xs text-[#171717]">
+              saldo_lotes
+            </code>{' '}
+            a partir de todo el historial de movimientos. Necesario tras migrar a validación de stock en
+            servidor o si aparecen errores de stock insuficiente tras ingresos históricos. En bases muy
+            grandes puede tardar.
+          </p>
+          <button
+            type="button"
+            disabled={recalculandoSaldos}
+            onClick={() => void handleRecalcularSaldos()}
+            className="mt-4 inline-flex min-h-11 items-center rounded-xl bg-[#171717] px-5 text-sm font-semibold text-white shadow-sm transition hover:brightness-110 disabled:opacity-45"
+          >
+            {recalculandoSaldos ? 'Recalculando…' : 'Recalcular saldos desde movimientos'}
+          </button>
+        </section>
       </div>
     </div>
   )

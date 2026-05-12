@@ -14,6 +14,7 @@ import {
 import { subscribeInsumos, type Insumo } from '../../lib/insumos'
 import {
   subscribeMovimientosInventario,
+  opcionesHistorialAmplio,
   type MovimientoInventario,
 } from '../../lib/movimientosInventario'
 import {
@@ -149,7 +150,12 @@ export function AnalistaResumenMensualPage() {
 
   useEffect(() => subscribeInsumos(setInsumos), [])
   useEffect(() => subscribeRecetario(setRecetas), [])
-  useEffect(() => subscribeMovimientosInventario(setMovimientos), [])
+  useEffect(() => {
+    return subscribeMovimientosInventario(
+      setMovimientos,
+      opcionesHistorialAmplio(15000),
+    )
+  }, [])
 
   const parsed = parseMesInput(mesInput)
 

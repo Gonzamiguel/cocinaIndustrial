@@ -6,6 +6,7 @@ import { useAuth } from '../../context/AuthContext'
 import { subscribeCategorias, type Categoria } from '../../lib/categorias'
 import {
   subscribeMovimientosInventarioPorUbicacion,
+  opcionesHistorialAmplio,
   type MovimientoInventario,
 } from '../../lib/movimientosInventario'
 import { subscribeInsumos, type Insumo } from '../../lib/insumos'
@@ -127,7 +128,11 @@ export function CampamentoInventarioPage() {
       setMovimientos([])
       return
     }
-    return subscribeMovimientosInventarioPorUbicacion(ubicacionId, setMovimientos)
+    return subscribeMovimientosInventarioPorUbicacion(
+      ubicacionId,
+      setMovimientos,
+      opcionesHistorialAmplio(35000),
+    )
   }, [ubicacionId])
 
   useEffect(() => {

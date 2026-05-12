@@ -9,6 +9,7 @@ import {
 import { subscribeInsumos, type Insumo } from '../../lib/insumos'
 import {
   subscribeMovimientosInventario,
+  opcionesHistorialAmplio,
   type MovimientoInventario,
 } from '../../lib/movimientosInventario'
 
@@ -17,7 +18,12 @@ export function AnalistaLogisticaPage() {
   const [movimientos, setMovimientos] = useState<MovimientoInventario[]>([])
 
   useEffect(() => subscribeInsumos(setInsumos), [])
-  useEffect(() => subscribeMovimientosInventario(setMovimientos), [])
+  useEffect(() => {
+    return subscribeMovimientosInventario(
+      setMovimientos,
+      opcionesHistorialAmplio(12000),
+    )
+  }, [])
 
   const filas = useMemo(
     () => buildFilasMovimientoAnalista(movimientos, insumos),

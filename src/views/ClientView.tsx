@@ -11,6 +11,7 @@ import {
   getVentanaRodanteConsumo,
   type DiaConsumo,
 } from '../lib/fechasDinamicas'
+import { ensureSesionClienteAnonima } from '../lib/authPublico'
 
 /** Paleta sobria alineada con dashboard. */
 const TAB_ACTIVO = 'bg-[#CD1818] text-white shadow-sm'
@@ -92,10 +93,28 @@ export function ClientView() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [successModalOpen, setSuccessModalOpen] = useState(false)
+  const [authListo, setAuthListo] = useState(false)
 
   useEffect(() => {
-    return subscribeMenu(setItems)
+    let cancelado = false
+    void (async () => {
+      try {
+        await ensureSesionClienteAnonima()
+      } catch (err) {
+        console.error(err)
+      } finally {
+        if (!cancelado) setAuthListo(true)
+      }
+    })()
+    return () => {
+      cancelado = true
+    }
   }, [])
+
+  useEffect(() => {
+    if (!authListo) return
+    return subscribeMenu(setItems)
+  }, [authListo])
 
   useEffect(() => {
     setSelecciones((prev) => normalizarSelecciones(diasDisponibles, prev))

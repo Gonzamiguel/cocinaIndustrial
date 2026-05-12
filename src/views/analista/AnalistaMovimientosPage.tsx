@@ -12,10 +12,29 @@ import {
 import { subscribeInsumos, type Insumo } from '../../lib/insumos'
 import {
   subscribeMovimientosInventario,
+  opcionesHistorialAmplio,
   type MovimientoInventario,
 } from '../../lib/movimientosInventario'
 
 const FILTRO_TODOS = '__todos__'
+
+function parseFechaFiltroInicio(s: string): Date | null {
+  const t = s.trim()
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(t)) return null
+  const [y, m, d] = t.split('-').map(Number)
+  const dt = new Date(y, m - 1, d)
+  dt.setHours(0, 0, 0, 0)
+  return dt
+}
+
+function parseFechaFiltroFin(s: string): Date | null {
+  const t = s.trim()
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(t)) return null
+  const [y, m, d] = t.split('-').map(Number)
+  const dt = new Date(y, m - 1, d)
+  dt.setHours(23, 59, 59, 999)
+  return dt
+}
 
 function pad(value: number): string {
   return String(value).padStart(2, '0')
@@ -63,7 +82,23 @@ export function AnalistaMovimientosPage() {
 
   useEffect(() => subscribeInsumos(setInsumos), [])
   useEffect(() => subscribeCategorias(setCategorias), [])
-  useEffect(() => subscribeMovimientosInventario(setMovimientos), [])
+  useEffect(() => {
+    const desdeTrim = fechaDesde.trim()
+    const hastaTrim = fechaHasta.trim()
+    if (!desdeTrim && !hastaTrim) {
+      return subscribeMovimientosInventario(
+        setMovimientos,
+        opcionesHistorialAmplio(15000),
+      )
+    }
+    const desdeDt = desdeTrim ? parseFechaFiltroInicio(fechaDesde) : null
+    const hastaDt = hastaTrim ? parseFechaFiltroFin(fechaHasta) : undefined
+    return subscribeMovimientosInventario(setMovimientos, {
+      fechaDesde: desdeTrim ? desdeDt ?? undefined : null,
+      fechaHasta: hastaDt,
+      limite: 10000,
+    })
+  }, [fechaDesde, fechaHasta])
 
   const filas = useMemo(
     () => buildFilasMovimientoAnalista(movimientos, insumos),
