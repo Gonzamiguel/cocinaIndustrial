@@ -22,7 +22,6 @@ import { DepositoDashboardPage } from './views/deposito/DepositoDashboardPage'
 import { DepositoInsumosPage } from './views/deposito/DepositoInsumosPage'
 import { DepositoInventarioPage } from './views/deposito/DepositoInventarioPage'
 import { DepositoMovimientosPage } from './views/deposito/DepositoMovimientosPage'
-import { DepositoSolicitudesPage } from './views/deposito/DepositoSolicitudesPage'
 import { DepositoTrazabilidadPage } from './views/deposito/DepositoTrazabilidadPage'
 import { CampamentoComandasPage } from './views/campamento/CampamentoComandasPage'
 import { CampamentoNuevaComandaPage } from './views/campamento/CampamentoNuevaComandaPage'
@@ -61,8 +60,11 @@ export default function App() {
         }
       >
         <Route index element={<Navigate to="/deposito/dashboard" replace />} />
+        <Route
+          path="solicitudes"
+          element={<Navigate to="/deposito/movimientos" replace />}
+        />
         <Route path="dashboard" element={<DepositoDashboardPage />} />
-        <Route path="solicitudes" element={<DepositoSolicitudesPage />} />
         <Route path="insumos" element={<DepositoInsumosPage />} />
         <Route path="configuracion" element={<DepositoConfiguracionPage />} />
         <Route path="movimientos" element={<DepositoMovimientosPage />} />

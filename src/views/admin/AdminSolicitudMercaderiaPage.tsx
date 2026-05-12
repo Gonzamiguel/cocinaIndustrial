@@ -12,6 +12,7 @@ import {
   type PrioridadSolicitud,
   type SolicitudMercaderia,
 } from '../../lib/solicitudesMercaderia'
+import { useAuth } from '../../context/AuthContext'
 import { useToast } from '../../context/ToastContext'
 
 type FilaDraft = {
@@ -21,6 +22,8 @@ type FilaDraft = {
   unidadMedida: string
   presentacion: string
   observacion: string
+  /** Primer insumo del catálogo que coincide con el nombre genérico (egreso desde solicitud). */
+  insumoRepresentativoId: string
 }
 
 function nuevaFila(): FilaDraft {
@@ -34,6 +37,7 @@ function nuevaFila(): FilaDraft {
     unidadMedida: '',
     presentacion: '',
     observacion: '',
+    insumoRepresentativoId: '',
   }
 }
 
@@ -202,6 +206,7 @@ export type AdminSolicitudMercaderiaPageProps = {
 export function AdminSolicitudMercaderiaPage({
   variant = 'standalone',
 }: AdminSolicitudMercaderiaPageProps) {
+  const { ubicacionId } = useAuth()
   const { showToast } = useToast()
   const [insumos, setInsumos] = useState<Insumo[]>([])
   const [lista, setLista] = useState<SolicitudMercaderia[]>([])
@@ -322,12 +327,14 @@ export function AdminSolicitudMercaderiaPage({
         return
       }
 
+      const repId = f.insumoRepresentativoId.trim()
       items.push({
         producto: prod,
         cantidad: cant,
         unidadMedida: um,
         presentacion: f.presentacion.trim(),
         observacion: f.observacion.trim(),
+        ...(repId ? { insumoId: repId } : {}),
       })
     }
 
@@ -346,6 +353,7 @@ export function AdminSolicitudMercaderiaPage({
         fechaEntregaEsperada: fechaEntrega.trim(),
         prioridad,
         items,
+        ubicacionSolicitanteId: ubicacionId,
       })
       showToast('Solicitud enviada al depósito.')
       setFilas([nuevaFila()])
@@ -889,13 +897,19 @@ export function AdminSolicitudMercaderiaPage({
                               ? `${fila.producto} (${fila.unidadMedida})`
                               : ''
                           }
-                          onSelect={(option) =>
+                          onSelect={(option) => {
+                            const primer = insumos.find(
+                              (ins) =>
+                                normalizarTexto(ins.nombreGenerico.trim()) ===
+                                option.key,
+                            )
                             actualizarFila(i, {
                               producto: option.nombreGenerico,
                               unidadMedida: option.unidadBase,
                               presentacion: '',
+                              insumoRepresentativoId: primer?.id ?? '',
                             })
-                          }
+                          }}
                           onClear={() =>
                             actualizarFila(i, {
                               producto: '',
@@ -903,6 +917,7 @@ export function AdminSolicitudMercaderiaPage({
                               presentacion: '',
                               cantidad: '',
                               observacion: '',
+                              insumoRepresentativoId: '',
                             })
                           }
                         />

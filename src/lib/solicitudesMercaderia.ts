@@ -75,6 +75,8 @@ export interface SolicitudMercaderia {
   observacionesDeposito: string
   /** Notas de cocina al confirmar recepción (opcional). */
   observacionesRecepcion: string
+  /** Quién pidió (COCINA, CASPOSO, etc.); define destino del egreso. */
+  ubicacionSolicitanteId?: string
   items: ItemSolicitudMercaderia[]
 }
 
@@ -82,6 +84,8 @@ export interface CrearSolicitudMercaderiaInput {
   fechaEntregaEsperada: string
   prioridad: PrioridadSolicitud
   items: ItemSolicitudMercaderia[]
+  /** Ubicación operativa del usuario que envía la solicitud. */
+  ubicacionSolicitanteId?: string | null
 }
 
 function mapItem(raw: unknown): ItemSolicitudMercaderia | null {
@@ -149,6 +153,12 @@ function mapDoc(id: string, data: Record<string, unknown>): SolicitudMercaderia 
       ? data.observacionesRecepcion
       : ''
 
+  const ubicSolRaw = data.ubicacionSolicitanteId
+  const ubicacionSolicitanteId =
+    typeof ubicSolRaw === 'string' && ubicSolRaw.trim().length > 0
+      ? ubicSolRaw.trim().toUpperCase()
+      : undefined
+
   const itemsRaw = data.items
   const items: ItemSolicitudMercaderia[] = []
   if (Array.isArray(itemsRaw)) {
@@ -166,6 +176,7 @@ function mapDoc(id: string, data: Record<string, unknown>): SolicitudMercaderia 
     estado,
     observacionesDeposito,
     observacionesRecepcion,
+    ...(ubicacionSolicitanteId ? { ubicacionSolicitanteId } : {}),
     items,
   }
 }
@@ -222,6 +233,7 @@ export async function crearSolicitudMercaderia(
   }
 
   const db = getDb()
+  const ubicSol = input.ubicacionSolicitanteId?.trim().toUpperCase()
   await addDoc(collection(db, COLLECTION_SOLICITUDES), {
     fechaCreacion: serverTimestamp(),
     fechaEntregaEsperada: input.fechaEntregaEsperada.trim(),
@@ -229,6 +241,7 @@ export async function crearSolicitudMercaderia(
     estado: 'Pendiente' as EstadoSolicitud,
     observacionesDeposito: '',
     observacionesRecepcion: '',
+    ...(ubicSol ? { ubicacionSolicitanteId: ubicSol } : {}),
     items,
   })
 }

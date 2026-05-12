@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { InsumoSearchSelect } from '../../components/insumos/InsumoSearchSelect'
+import { DepositoSolicitudesMercaderiaPanel } from '../../components/deposito/DepositoSolicitudesMercaderiaPanel'
 import { useToast } from '../../context/ToastContext'
+import type { EgresoPrefillDesdeSolicitud } from '../../lib/depositoEgresoPrefill'
 import {
   exportarMovimientoInventarioPdf,
   exportarMovimientosInventarioExcel,
@@ -358,6 +361,17 @@ export function DepositoMovimientosPage() {
 
   const [detalleModalId, setDetalleModalId] = useState<string | null>(null)
 
+  const location = useLocation()
+  const navigate = useNavigate()
+  const prefillConsumidoRef = useRef(false)
+  const [depositoVistaTab, setDepositoVistaTab] = useState<
+    'historial' | 'solicitudes'
+  >('historial')
+  const [egresoSolicitudId, setEgresoSolicitudId] = useState<string | null>(null)
+  const [egresoDestinoBloqueado, setEgresoDestinoBloqueado] = useState(false)
+  const [egresoUbicacionDestinoExplicita, setEgresoUbicacionDestinoExplicita] =
+    useState<string | undefined>(undefined)
+
   useEffect(() => {
     return subscribeInsumos(setInsumos)
   }, [])
@@ -374,6 +388,45 @@ export function DepositoMovimientosPage() {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [detalleModalId])
+
+  useEffect(() => {
+    const st = location.state as {
+      egresoDesdeSolicitud?: EgresoPrefillDesdeSolicitud
+    } | null
+    const pre = st?.egresoDesdeSolicitud
+    if (!pre) {
+      prefillConsumidoRef.current = false
+      return
+    }
+    if (prefillConsumidoRef.current) return
+    prefillConsumidoRef.current = true
+
+    setDepositoVistaTab('historial')
+    setIsCreating(true)
+    setTipoMovimiento('EGRESO')
+    setDestino(pre.destinoEgreso)
+    setEgresoDestinoBloqueado(true)
+    setEgresoUbicacionDestinoExplicita(pre.ubicacionDestino)
+    setEgresoSolicitudId(pre.solicitudId)
+    setFilas(
+      pre.items.length > 0
+        ? pre.items.map((it) => ({
+            ...nuevaFila(),
+            insumoId: it.insumoId,
+            nombreSnapshot: it.nombreSnapshot,
+            cantidad: String(it.cantidad),
+            lote: '',
+            fechaVencimiento: '',
+            temperatura: '',
+            controlCalidadOk: false,
+            precioUnitarioFacturado: '',
+            egresoLoteDefinido: false,
+          }))
+        : [nuevaFila()],
+    )
+
+    navigate(location.pathname, { replace: true, state: {} })
+  }, [location.state, location.pathname, navigate])
 
   const insumosById = useMemo(() => {
     const m = new Map<string, Insumo>()
@@ -533,6 +586,10 @@ export function DepositoMovimientosPage() {
     setPatente('')
     setPrecinto('')
     setFilas([nuevaFila()])
+    setEgresoSolicitudId(null)
+    setEgresoDestinoBloqueado(false)
+    setEgresoUbicacionDestinoExplicita(undefined)
+    prefillConsumidoRef.current = false
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -660,6 +717,10 @@ export function DepositoMovimientosPage() {
           destino: destino.trim(),
           numeroDocumento: numeroDocumento.trim(),
           ...(transporte ? { transporte } : {}),
+          ...(egresoUbicacionDestinoExplicita
+            ? { ubicacionDestino: egresoUbicacionDestinoExplicita }
+            : {}),
+          ...(egresoSolicitudId ? { solicitudId: egresoSolicitudId } : {}),
           items: payloadItems,
         })
         setRemitoReciente({
@@ -689,7 +750,13 @@ export function DepositoMovimientosPage() {
         setRemitoReciente(null)
       }
 
-      showToast('Movimiento registrado correctamente.')
+      if (tipoMovimiento === 'EGRESO' && egresoSolicitudId) {
+        showToast(
+          `Egreso generado y solicitud ${egresoSolicitudId} marcada como enviada.`,
+        )
+      } else {
+        showToast('Movimiento registrado correctamente.')
+      }
       resetFormulario()
       setIsCreating(false)
     } catch (err) {
@@ -715,11 +782,40 @@ export function DepositoMovimientosPage() {
                 Historial unificado: ingresos, egresos, ajustes y decomisos con
                 trazabilidad HACCP.
               </p>
+              <nav
+                className="mt-4 flex flex-wrap gap-2 border-t border-neutral-100 pt-4"
+                aria-label="Secciones movimientos"
+              >
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={depositoVistaTab === 'historial'}
+                  onClick={() => setDepositoVistaTab('historial')}
+                  className={tabClass(depositoVistaTab === 'historial')}
+                >
+                  Historial de movimientos
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={depositoVistaTab === 'solicitudes'}
+                  onClick={() => setDepositoVistaTab('solicitudes')}
+                  className={tabClass(depositoVistaTab === 'solicitudes')}
+                >
+                  Solicitudes pendientes
+                </button>
+              </nav>
             </div>
             <button
               type="button"
               onClick={() => setIsCreating(true)}
-              className="inline-flex min-h-12 shrink-0 items-center justify-center gap-2 rounded-xl bg-[#CD1818] px-6 text-base font-semibold text-white shadow-sm transition hover:brightness-105 active:brightness-95"
+              disabled={depositoVistaTab !== 'historial'}
+              title={
+                depositoVistaTab !== 'historial'
+                  ? 'Volvé al historial para registrar un movimiento nuevo'
+                  : undefined
+              }
+              className="inline-flex min-h-12 shrink-0 items-center justify-center gap-2 rounded-xl bg-[#CD1818] px-6 text-base font-semibold text-white shadow-sm transition hover:brightness-105 active:brightness-95 disabled:cursor-not-allowed disabled:opacity-40"
             >
               <span className="text-xl leading-none">+</span>
               Nuevo movimiento
@@ -728,7 +824,11 @@ export function DepositoMovimientosPage() {
         </header>
 
         <div className="flex min-h-0 flex-1 flex-col px-5 py-5 sm:px-8 lg:px-12 xl:px-16 2xl:px-20">
-          {remitoReciente ? (
+          {depositoVistaTab === 'solicitudes' ? (
+            <DepositoSolicitudesMercaderiaPanel />
+          ) : (
+            <>
+              {remitoReciente ? (
             <div className="mb-5 rounded-xl border border-[#CD1818]/15 bg-white p-5 shadow-sm">
               <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                 <div>
@@ -913,7 +1013,8 @@ export function DepositoMovimientosPage() {
               </table>
             </div>
           </div>
-        </div>
+            </>
+          )}
 
         {movimientoDetalle ? (
           <div
@@ -937,7 +1038,11 @@ export function DepositoMovimientosPage() {
                     ? ` · ${movimientoDetalle.proveedor} · ${movimientoDetalle.tipoDocumento} ${movimientoDetalle.numeroDocumento}`
                     : null}
                   {movimientoDetalle.tipo === 'EGRESO'
-                    ? ` · ${movimientoDetalle.destino} · Doc. ${movimientoDetalle.numeroDocumento}`
+                    ? ` · ${movimientoDetalle.destino} · Doc. ${movimientoDetalle.numeroDocumento}${
+                        movimientoDetalle.solicitudId
+                          ? ` · Solicitud ${movimientoDetalle.solicitudId}`
+                          : ''
+                      }`
                     : null}
                   {(movimientoDetalle.tipo === 'AJUSTE' ||
                     movimientoDetalle.tipo === 'DECOMISO') &&
@@ -1068,6 +1173,7 @@ export function DepositoMovimientosPage() {
           </div>
         ) : null}
       </div>
+    </div>
     )
   }
 
@@ -1076,19 +1182,63 @@ export function DepositoMovimientosPage() {
       <div className="shrink-0 border-b border-neutral-200 bg-white px-4 py-4 shadow-sm sm:px-6 lg:px-8 xl:px-10">
         <button
           type="button"
-          onClick={() => setIsCreating(false)}
+          onClick={() => {
+            resetFormulario()
+            setIsCreating(false)
+          }}
           className="inline-flex min-h-11 items-center gap-2 rounded-xl px-3 text-sm font-semibold text-[#CD1818] transition hover:bg-gray-100"
         >
           <span aria-hidden>←</span>
           Volver al historial
         </button>
-        <h1 className="mt-2 text-xl font-semibold tracking-tight text-[#CD1818]">
+        <nav
+          className="mt-3 flex flex-wrap gap-2 border-t border-neutral-100 pt-3"
+          aria-label="Secciones movimientos"
+        >
+          <button
+            type="button"
+            role="tab"
+            aria-selected
+            className={tabClass(true)}
+          >
+            Historial de movimientos
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={false}
+            disabled={Boolean(egresoSolicitudId)}
+            title={
+              egresoSolicitudId
+                ? 'Completá o cancelá el egreso vinculado a la solicitud antes de cambiar de sección'
+                : undefined
+            }
+            onClick={() => {
+              if (!egresoSolicitudId) {
+                resetFormulario()
+                setIsCreating(false)
+                setDepositoVistaTab('solicitudes')
+              }
+            }}
+            className={`${tabClass(false)} disabled:cursor-not-allowed disabled:opacity-40`}
+          >
+            Solicitudes pendientes
+          </button>
+        </nav>
+        <h1 className="mt-3 text-xl font-semibold tracking-tight text-[#CD1818]">
           Nuevo movimiento
         </h1>
         <p className="mt-1.5 text-sm leading-relaxed text-[#8997A6]">
           Elegí el tipo de movimiento y completá el encabezado. En ingresos, el
           precio unitario facturado actualiza el costo del envase en el catálogo.
         </p>
+        {egresoSolicitudId ? (
+          <p className="mt-3 rounded-lg border border-[#CD1818]/20 bg-[#CD1818]/5 px-3 py-2 text-sm text-[#171717]">
+            Completando egreso desde solicitud{' '}
+            <span className="font-mono text-xs">{egresoSolicitudId}</span>: el destino
+            queda fijado; elegí los lotes en cada fila antes de guardar.
+          </p>
+        ) : null}
       </div>
 
       <form
@@ -1107,10 +1257,11 @@ export function DepositoMovimientosPage() {
                 </span>
                 <select
                   value={tipoMovimiento}
+                  disabled={Boolean(egresoSolicitudId)}
                   onChange={(e) =>
                     setTipoMovimiento(e.target.value as TipoMovimientoInventario)
                   }
-                  className="mt-2 w-full min-h-12 rounded-xl border border-gray-200 bg-white px-4 text-sm text-[#171717] shadow-sm outline-none transition focus:border-[#CD1818]/30 focus:ring-2 focus:ring-[#CD1818]/10"
+                  className="mt-2 w-full min-h-12 rounded-xl border border-gray-200 bg-white px-4 text-sm text-[#171717] shadow-sm outline-none transition focus:border-[#CD1818]/30 focus:ring-2 focus:ring-[#CD1818]/10 disabled:cursor-not-allowed disabled:bg-neutral-100"
                 >
                   {TIPOS_MOV.map((t) => (
                     <option key={t.value} value={t.value}>
@@ -1192,9 +1343,10 @@ export function DepositoMovimientosPage() {
                       </span>
                       <select
                         value={destino}
+                        disabled={egresoDestinoBloqueado}
                         onChange={(e) => setDestino(e.target.value)}
                         required
-                        className="mt-2 w-full min-h-12 rounded-xl border border-gray-200 bg-white px-4 text-sm text-[#171717] shadow-sm outline-none transition focus:border-[#CD1818]/30 focus:ring-2 focus:ring-[#CD1818]/10"
+                        className="mt-2 w-full min-h-12 rounded-xl border border-gray-200 bg-white px-4 text-sm text-[#171717] shadow-sm outline-none transition focus:border-[#CD1818]/30 focus:ring-2 focus:ring-[#CD1818]/10 disabled:cursor-not-allowed disabled:bg-neutral-100"
                       >
                         {DESTINOS_EGRESO.map((d) => (
                           <option key={d} value={d}>

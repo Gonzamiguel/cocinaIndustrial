@@ -118,20 +118,6 @@ export function DepositoSidebar() {
           </span>
         </NavLink>
 
-        <NavLink to="/deposito/solicitudes" className={linkClass}>
-          <span className="flex min-w-0 items-center gap-3">
-            <span
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand-accent/12 text-brand-accent"
-              aria-hidden
-            >
-              <IconBox className="h-[18px] w-[18px]" />
-            </span>
-            <span className="min-w-0 flex-1 whitespace-nowrap overflow-hidden truncate">
-              Solicitudes de mercadería
-            </span>
-          </span>
-        </NavLink>
-
         <NavLink to="/deposito/insumos" className={linkClass}>
           <span className="flex min-w-0 items-center gap-3">
             <span

@@ -55,7 +55,7 @@ export function LoginPage() {
         rol === 'admin_cocina'
           ? '/admin/pedidos'
           : rol === 'admin_deposito'
-            ? '/deposito/solicitudes'
+            ? '/deposito/movimientos'
             : rol === 'admin_campamento'
               ? '/campamento/recepcion'
               : '/analista/dashboard',
@@ -138,7 +138,7 @@ export function LoginPage() {
       if (rolLeído === 'admin_cocina') {
         navigate('/admin/pedidos', { replace: true })
       } else if (rolLeído === 'admin_deposito') {
-        navigate('/deposito/solicitudes', { replace: true })
+        navigate('/deposito/movimientos', { replace: true })
       } else if (rolLeído === 'admin_campamento') {
         navigate('/campamento/recepcion', { replace: true })
       } else {

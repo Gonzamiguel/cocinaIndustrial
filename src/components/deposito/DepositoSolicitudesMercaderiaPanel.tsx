@@ -1,4 +1,14 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { PackagePlus } from 'lucide-react'
+import { useToast } from '../../context/ToastContext'
+import type { EgresoPrefillDesdeSolicitud } from '../../lib/depositoEgresoPrefill'
+import {
+  formatLabelInsumo,
+  subscribeInsumos,
+  type Insumo,
+} from '../../lib/insumos'
+import { destinoEgresoYUbicacionDesdeSolicitante } from '../../lib/movimientosInventario'
 import {
   actualizarSolicitudMercaderiaDeposito,
   ESTADOS_DEPOSITO,
@@ -9,10 +19,17 @@ import {
 } from '../../lib/solicitudesMercaderia'
 import { exportarSolicitudMercaderiaExcel } from '../../lib/mercaderiaExcel'
 import { exportarSolicitudMercaderiaPdf } from '../../lib/mercaderiaPdf'
-import { useToast } from '../../context/ToastContext'
 
 const btnExportOutline =
   'inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-[#CD1818] shadow-sm transition hover:bg-gray-50'
+
+function normalizarTexto(value: string): string {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim()
+}
 
 function ordenPrioridadVisual(a: SolicitudMercaderia): number {
   if (a.estado === 'Pendiente') return 0
@@ -49,12 +66,49 @@ function bordeEstado(s: SolicitudMercaderia): string {
   }
 }
 
+function etiquetaDestinoSolicitud(s: SolicitudMercaderia): string {
+  return destinoEgresoYUbicacionDesdeSolicitante(s.ubicacionSolicitanteId).destinoEgreso
+}
+
+function construirPrefillEgreso(
+  solicitud: SolicitudMercaderia,
+  insumos: Insumo[],
+): EgresoPrefillDesdeSolicitud | null {
+  const { destinoEgreso, ubicacionDestino } = destinoEgresoYUbicacionDesdeSolicitante(
+    solicitud.ubicacionSolicitanteId,
+  )
+  const items: EgresoPrefillDesdeSolicitud['items'] = []
+  for (const it of solicitud.items) {
+    let insumoId = it.insumoId?.trim() ?? ''
+    if (!insumoId) {
+      const key = normalizarTexto(it.producto)
+      const match = insumos.find(
+        (i) => normalizarTexto(i.nombreGenerico.trim()) === key,
+      )
+      insumoId = match?.id ?? ''
+    }
+    if (!insumoId) continue
+    const ins = insumos.find((i) => i.id === insumoId)
+    const nombreSnapshot = ins ? formatLabelInsumo(ins) : it.producto
+    items.push({ insumoId, nombreSnapshot, cantidad: it.cantidad })
+  }
+  if (items.length === 0) return null
+  return {
+    solicitudId: solicitud.id,
+    destinoEgreso,
+    ubicacionDestino,
+    items,
+  }
+}
+
 function GestionSolicitudScreen({
   solicitud,
   onBack,
+  onPrepararEnvio,
 }: {
   solicitud: SolicitudMercaderia
   onBack: () => void
+  onPrepararEnvio: (s: SolicitudMercaderia) => void
 }) {
   const { showToast } = useToast()
   const depositoPuedeCambiarEstado = solicitud.estado !== 'Recibido'
@@ -79,6 +133,9 @@ function GestionSolicitudScreen({
     solicitud.observacionesDeposito,
     depositoPuedeCambiarEstado,
   ])
+
+  const puedePrepararEnvio =
+    solicitud.estado === 'Pendiente' || solicitud.estado === 'En Preparación'
 
   async function guardar() {
     setGuardando(true)
@@ -125,7 +182,7 @@ function GestionSolicitudScreen({
   const fechaCreacionStr = formatFechaCreacion(solicitud.fechaCreacion)
 
   return (
-    <div className="flex min-h-full flex-1 flex-col bg-gray-50">
+    <div className="flex min-h-0 flex-1 flex-col bg-gray-50">
       <div className="shrink-0 border-b border-neutral-200 bg-white px-4 py-4 shadow-sm sm:px-6 lg:px-8 xl:px-10">
         <button
           type="button"
@@ -133,13 +190,13 @@ function GestionSolicitudScreen({
           className="inline-flex min-h-11 items-center gap-2 rounded-xl px-3 text-sm font-semibold text-[#CD1818] transition hover:bg-gray-100"
         >
           <span aria-hidden>←</span>
-          Volver al historial
+          Volver al listado
         </button>
         <div
           className="mt-3 rounded-xl border border-neutral-200 bg-white px-4 py-4 shadow-sm sm:px-5"
           style={{ borderLeft: bordeEstado(solicitud) }}
         >
-          <div className="flex items-start justify-between gap-3">
+          <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="min-w-0">
               <p className="text-[10px] font-semibold uppercase tracking-wide text-[#8997A6]">
                 Solicitud
@@ -160,6 +217,10 @@ function GestionSolicitudScreen({
                     Entrega esperada:
                   </span>{' '}
                   {solicitud.fechaEntregaEsperada || '—'}
+                </p>
+                <p>
+                  <span className="font-medium text-[#171717]">Destino:</span>{' '}
+                  {etiquetaDestinoSolicitud(solicitud)}
                 </p>
                 <div className="flex flex-wrap items-center gap-2 pt-1">
                   <span
@@ -188,6 +249,16 @@ function GestionSolicitudScreen({
                 </div>
               </div>
             </div>
+            {puedePrepararEnvio ? (
+              <button
+                type="button"
+                onClick={() => onPrepararEnvio(solicitud)}
+                className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-[#CD1818] px-4 text-sm font-semibold text-white shadow-sm transition hover:brightness-105"
+              >
+                <PackagePlus className="h-4 w-4 shrink-0" aria-hidden />
+                Preparar envío
+              </button>
+            ) : null}
           </div>
 
           <div className="mt-4 flex flex-wrap justify-end gap-2">
@@ -350,9 +421,16 @@ function GestionSolicitudScreen({
   )
 }
 
-export function DepositoSolicitudesPage() {
+export function DepositoSolicitudesMercaderiaPanel() {
+  const navigate = useNavigate()
+  const { showToast } = useToast()
+  const [insumos, setInsumos] = useState<Insumo[]>([])
   const [solicitudes, setSolicitudes] = useState<SolicitudMercaderia[]>([])
   const [solicitudActivaId, setSolicitudActivaId] = useState<string | null>(null)
+
+  useEffect(() => {
+    return subscribeInsumos(setInsumos)
+  }, [])
 
   useEffect(() => {
     return subscribeSolicitudesMercaderia(setSolicitudes)
@@ -369,7 +447,14 @@ export function DepositoSolicitudesPage() {
     })
   }, [solicitudes])
 
-  /** Solicitud mostrada en el modal; datos siempre alineados con Firestore. */
+  const pendientesDeDespacho = useMemo(
+    () =>
+      ordenadas.filter(
+        (s) => s.estado === 'Pendiente' || s.estado === 'En Preparación',
+      ),
+    [ordenadas],
+  )
+
   const solicitudActiva = useMemo(() => {
     if (!solicitudActivaId) return null
     return ordenadas.find((x) => x.id === solicitudActivaId) ?? null
@@ -381,65 +466,63 @@ export function DepositoSolicitudesPage() {
     }
   }, [ordenadas, solicitudActivaId])
 
-  const pendientes = ordenadas.filter(
-    (s) =>
-      s.estado === 'Pendiente' ||
-      s.estado === 'En Preparación' ||
-      s.estado === 'Enviado',
-  ).length
-
-  function cerrarModal() {
-    setSolicitudActivaId(null)
+  function prepararEnvio(s: SolicitudMercaderia) {
+    const pre = construirPrefillEgreso(s, insumos)
+    if (!pre) {
+      showToast(
+        'No se pudo armar el egreso: cada ítem debe tener un insumo del catálogo (nombre genérico coincidente o ID guardado en la solicitud).',
+        'error',
+      )
+      return
+    }
+    navigate('/deposito/movimientos', {
+      replace: true,
+      state: { egresoDesdeSolicitud: pre },
+    })
   }
 
   if (solicitudActiva) {
     return (
-      <GestionSolicitudScreen solicitud={solicitudActiva} onBack={cerrarModal} />
+      <GestionSolicitudScreen
+        solicitud={solicitudActiva}
+        onBack={() => setSolicitudActivaId(null)}
+        onPrepararEnvio={prepararEnvio}
+      />
     )
   }
 
   return (
-    <div className="flex flex-1 flex-col bg-gray-50">
-      <header className="border-b border-neutral-200 bg-white px-4 py-4 shadow-sm sm:px-6">
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <h1 className="text-xl font-semibold tracking-tight text-[#CD1818]">
-              Solicitudes de mercadería
-            </h1>
-            <p className="mt-1 text-sm text-[#8997A6]">
-              Lista compacta: abrí cada pedido para ver insumos, exportar y actualizar
-              estado.
-            </p>
-          </div>
-          {pendientes > 0 ? (
-            <span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-[#171717] ring-1 ring-gray-200">
-              {pendientes} activa{pendientes === 1 ? '' : 's'}
-            </span>
-          ) : null}
-        </div>
-      </header>
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+      <div className="shrink-0 border-b border-neutral-100 bg-white px-4 py-3 sm:px-6">
+        <p className="text-sm text-[#8997A6]">
+          Pedidos en estado <strong className="text-[#171717]">Pendiente</strong> o{' '}
+          <strong className="text-[#171717]">En preparación</strong>. Usá «Preparar envío» para
+          abrir el egreso con ítems precargados; elegís los lotes en el formulario.
+        </p>
+      </div>
 
-      <div className="flex-1 px-4 py-6 sm:px-6 lg:px-8">
-        {ordenadas.length === 0 ? (
+      <div className="min-h-0 flex-1 overflow-auto px-4 py-6 sm:px-6 lg:px-8">
+        {pendientesDeDespacho.length === 0 ? (
           <div className="mx-auto max-w-lg rounded-xl border border-dashed border-gray-300 bg-white p-10 text-center text-sm text-[#8997A6] shadow-sm">
-            No hay solicitudes registradas.
+            No hay solicitudes pendientes de despacho.
           </div>
         ) : (
           <div className="mx-auto max-w-6xl overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[800px] border-collapse text-left text-sm">
+              <table className="w-full min-w-[920px] border-collapse text-left text-sm">
                 <thead className="sticky top-0 z-10 shadow-sm">
                   <tr className="border-b border-gray-200 bg-gray-50 text-xs uppercase tracking-wide text-[#8997A6]">
                     <th className="px-4 py-3">ID / Creación</th>
+                    <th className="px-4 py-3">Destino</th>
                     <th className="px-4 py-3">Entrega esperada</th>
                     <th className="px-4 py-3">Prioridad</th>
                     <th className="px-4 py-3">Estado</th>
                     <th className="px-4 py-3">Insumos</th>
-                    <th className="min-w-[160px] px-4 py-3 text-right">Acción</th>
+                    <th className="min-w-[200px] px-4 py-3 text-right">Acciones</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-neutral-100">
-                  {ordenadas.map((s) => (
+                  {pendientesDeDespacho.map((s) => (
                     <tr
                       key={s.id}
                       className="bg-white hover:bg-neutral-50/80"
@@ -452,6 +535,9 @@ export function DepositoSolicitudesPage() {
                         <p className="mt-1 whitespace-nowrap text-[#171717]">
                           {formatFechaCreacion(s.fechaCreacion)}
                         </p>
+                      </td>
+                      <td className="px-4 py-3 align-top text-[#171717]">
+                        {etiquetaDestinoSolicitud(s)}
                       </td>
                       <td className="px-4 py-3 align-top text-[#171717]">
                         {s.fechaEntregaEsperada || '—'}
@@ -487,13 +573,23 @@ export function DepositoSolicitudesPage() {
                         {s.items.length} {s.items.length === 1 ? 'insumo' : 'insumos'}
                       </td>
                       <td className="px-4 py-3 align-top text-right">
-                        <button
-                          type="button"
-                          onClick={() => setSolicitudActivaId(s.id)}
-                          className="inline-flex min-h-10 w-full items-center justify-center rounded-xl bg-[#CD1818] px-4 text-sm font-semibold text-white shadow-sm transition hover:brightness-105 sm:w-auto"
-                        >
-                          Gestionar pedido
-                        </button>
+                        <div className="flex flex-col items-stretch justify-end gap-2 sm:flex-row sm:items-center sm:justify-end">
+                          <button
+                            type="button"
+                            onClick={() => prepararEnvio(s)}
+                            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-[#CD1818] px-3 text-sm font-semibold text-white shadow-sm transition hover:brightness-105"
+                          >
+                            <PackagePlus className="h-4 w-4 shrink-0" aria-hidden />
+                            Preparar envío
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setSolicitudActivaId(s.id)}
+                            className="inline-flex min-h-10 items-center justify-center rounded-xl border border-gray-200 bg-white px-3 text-sm font-semibold text-[#171717] shadow-sm transition hover:bg-neutral-50"
+                          >
+                            Gestionar pedido
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -503,7 +599,6 @@ export function DepositoSolicitudesPage() {
           </div>
         )}
       </div>
-
     </div>
   )
 }

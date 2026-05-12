@@ -18,6 +18,7 @@ import {
 } from 'firebase/firestore'
 import { COLLECTION_INSUMOS, computeCostoPorUnidadBase } from './insumos'
 import { getDb } from './firebase'
+import { COLLECTION_SOLICITUDES } from './solicitudesMercaderia'
 
 export const COLLECTION_MOVIMIENTOS_INVENTARIO = 'movimientos_inventario'
 
@@ -313,6 +314,8 @@ export interface MovimientoEgreso extends MovimientoBase {
   ubicacionDestino?: string
   /** Cuando el campamento confirma recepción del traslado. */
   recibidoEn?: Date | null
+  /** Vínculo con `solicitudes_mercaderia` si el egreso cierra un pedido. */
+  solicitudId?: string
 }
 
 export interface MovimientoAjuste extends MovimientoBase {
@@ -368,6 +371,8 @@ export type CrearMovimientoInput =
       ubicacionDestino?: string
       motivo?: string
       observacionesComanda?: string
+      /** Si se informa, al confirmar el egreso la solicitud pasa a «Enviado» en la misma transacción. */
+      solicitudId?: string
     }
   | {
       tipo: 'AJUSTE'
@@ -402,6 +407,19 @@ export function ubicacionDestinoDesdeDestinoEgreso(
   if (n.includes('casposo')) return UBICACION_CAMPAMENTO_CASPOSO
   if (n.includes('cocina central')) return UBICACION_COCINA_CENTRAL
   return undefined
+}
+
+/**
+ * Destino de egreso y código de ubicación destino a partir de quién solicitó mercadería.
+ */
+export function destinoEgresoYUbicacionDesdeSolicitante(
+  ubicacionSolicitanteId?: string | null,
+): { destinoEgreso: string; ubicacionDestino: string } {
+  const u = ubicacionSolicitanteId?.trim().toUpperCase() ?? ''
+  if (u === UBICACION_CAMPAMENTO_CASPOSO) {
+    return { destinoEgreso: 'Campamento Casposo', ubicacionDestino: UBICACION_CAMPAMENTO_CASPOSO }
+  }
+  return { destinoEgreso: 'Cocina Central', ubicacionDestino: UBICACION_COCINA_CENTRAL }
 }
 
 export function requiereDatosTransporte(destino: string): boolean {
@@ -605,6 +623,11 @@ function mapMovimientoDoc(
     const recibidoEnRaw = data.recibidoEn
     let recibidoEn: Date | null = null
     if (recibidoEnRaw instanceof Timestamp) recibidoEn = recibidoEnRaw.toDate()
+    const solicitudIdRaw = data.solicitudId
+    const solicitudId =
+      typeof solicitudIdRaw === 'string' && solicitudIdRaw.trim().length > 0
+        ? solicitudIdRaw.trim()
+        : undefined
     return {
       id,
       tipo: 'EGRESO',
@@ -619,6 +642,7 @@ function mapMovimientoDoc(
       ...(estadoTraslado ? { estadoTraslado } : {}),
       ...(ubicacionDestino ? { ubicacionDestino } : {}),
       ...(recibidoEn ? { recibidoEn } : {}),
+      ...(solicitudId ? { solicitudId } : {}),
     }
   }
 
@@ -903,8 +927,25 @@ export async function crearMovimiento(input: CrearMovimientoInput): Promise<stri
 
     const motivoTrim = input.motivo?.trim()
     const obsComandaTrim = input.observacionesComanda?.trim()
+    const solicitudIdTrim = input.solicitudId?.trim()
 
     await runTransaction(db, async (t) => {
+      let solicitudRef: ReturnType<typeof doc> | null = null
+      if (solicitudIdTrim) {
+        solicitudRef = doc(db, COLLECTION_SOLICITUDES, solicitudIdTrim)
+        const sSnap = await t.get(solicitudRef)
+        if (!sSnap.exists()) {
+          throw new Error('La solicitud vinculada no existe.')
+        }
+        const sd = sSnap.data() as Record<string, unknown>
+        const st = typeof sd.estado === 'string' ? sd.estado : ''
+        if (st !== 'Pendiente' && st !== 'En Preparación') {
+          throw new Error(
+            'La solicitud ya no admite despacho (solo pendientes o en preparación).',
+          )
+        }
+      }
+
       const items = await congelarCostoPorUnidadBaseEnTransaccion(
         t,
         db,
@@ -943,6 +984,7 @@ export async function crearMovimiento(input: CrearMovimientoInput): Promise<stri
         ...(obsComandaTrim ? { observacionesComanda: obsComandaTrim } : {}),
         items: items.map((it) => itemToFirestore(it, false)),
         creadoEn: serverTimestamp(),
+        ...(solicitudIdTrim ? { solicitudId: solicitudIdTrim } : {}),
         ...(esTraslado && ubicacionDestinoInferida
           ? {
               ubicacionDestino: ubicacionDestinoInferida,
@@ -950,6 +992,10 @@ export async function crearMovimiento(input: CrearMovimientoInput): Promise<stri
             }
           : {}),
       })
+
+      if (solicitudRef) {
+        t.update(solicitudRef, { estado: 'Enviado' })
+      }
 
       for (const row of filas) {
         t.set(
