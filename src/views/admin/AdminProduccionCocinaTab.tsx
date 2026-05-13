@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { useToast } from '../../context/ToastContext'
+import { ConfirmDialog } from '../../components/ui/ConfirmDialog'
 import {
   formatLabelInsumo,
   subscribeInsumos,
@@ -20,6 +21,8 @@ import {
   type MovimientoInventario,
 } from '../../lib/movimientosInventario'
 import { selectClassComanda, inputClassComanda } from '../campamento/comandasFormShared'
+
+type ProduccionCocinaInput = Parameters<typeof registrarProduccionCocina>[0]
 
 type FilaProd = {
   insumoId: string
@@ -103,7 +106,11 @@ export function AdminProduccionCocinaTab({
   const [porcionesStr, setPorcionesStr] = useState('1')
   const [insumoProductoId, setInsumoProductoId] = useState('')
   const [filas, setFilas] = useState<FilaProd[]>([])
-  const [guardando, setGuardando] = useState(false)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [confirmProduccionOpen, setConfirmProduccionOpen] = useState(false)
+  const [payloadPendiente, setPayloadPendiente] = useState<ProduccionCocinaInput | null>(
+    null,
+  )
 
   const ub = ubicacionId?.trim().toUpperCase() ?? ''
 
@@ -226,30 +233,44 @@ export function AdminProduccionCocinaTab({
 
     const loteProducto = `PROD-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`.toUpperCase()
 
-    setGuardando(true)
+    setPayloadPendiente({
+      ubicacionId: ub,
+      fecha: new Date(),
+      recetaId: recetaSeleccionada.id,
+      recetaNombre: recetaSeleccionada.nombre,
+      cantidadPorciones: porciones,
+      insumoProductoId: prodId,
+      nombreProductoSnapshot: formatLabelInsumo(insProd),
+      loteProductoTerminado: loteProducto,
+      itemsEgreso: items,
+      costoTeoricoTotal: costoTeorico,
+    })
+    setConfirmProduccionOpen(true)
+  }
+
+  async function confirmarRegistroProduccion() {
+    if (!payloadPendiente) return
+    setIsSubmitting(true)
     try {
-      await registrarProduccionCocina({
-        ubicacionId: ub,
-        fecha: new Date(),
-        recetaId: recetaSeleccionada.id,
-        recetaNombre: recetaSeleccionada.nombre,
-        cantidadPorciones: porciones,
-        insumoProductoId: prodId,
-        nombreProductoSnapshot: formatLabelInsumo(insProd),
-        loteProductoTerminado: loteProducto,
-        itemsEgreso: items,
-        costoTeoricoTotal: costoTeorico,
-      })
-      showToast('Producción registrada: egreso de insumos e ingreso de platos terminados.')
+      await registrarProduccionCocina(payloadPendiente)
+      showToast(
+        'Producción registrada: egreso de insumos e ingreso de platos terminados.',
+        'success',
+      )
       setPorcionesStr('1')
       setFilas([])
       setRecetaId('')
       setInsumoProductoId('')
+      setPayloadPendiente(null)
+      setConfirmProduccionOpen(false)
       onAfterSuccess?.()
     } catch (err) {
-      showToast(err instanceof Error ? err.message : 'No se pudo registrar la producción.', 'error')
+      showToast(
+        err instanceof Error ? err.message : 'No se pudo registrar la producción.',
+        'error',
+      )
     } finally {
-      setGuardando(false)
+      setIsSubmitting(false)
     }
   }
 
@@ -269,10 +290,34 @@ export function AdminProduccionCocinaTab({
   )
 
   return (
-    <form
-      onSubmit={(e) => void handleSubmit(e)}
-      className={`flex min-h-0 flex-1 flex-col gap-6 ${className ?? ''}`}
-    >
+    <>
+      <ConfirmDialog
+        open={confirmProduccionOpen}
+        title="Confirmar producción en cocina"
+        description={
+          payloadPendiente
+            ? `¿Registrar producción de «${payloadPendiente.recetaNombre}» por ${payloadPendiente.cantidadPorciones.toLocaleString('es-AR')} porciones? Se generará un egreso de ${payloadPendiente.itemsEgreso.length} insumo(s), un ingreso de plato terminado y un registro de auditoría. Esta acción no se puede deshacer.`
+            : ''
+        }
+        confirmLabel="Sí, registrar producción"
+        cancelLabel="Volver"
+        isWorking={isSubmitting}
+        onCancel={() => {
+          if (!isSubmitting) {
+            setConfirmProduccionOpen(false)
+            setPayloadPendiente(null)
+          }
+        }}
+        onConfirm={() => void confirmarRegistroProduccion()}
+      />
+      <form
+        onSubmit={(e) => void handleSubmit(e)}
+        className={`flex min-h-0 flex-1 flex-col gap-6 ${className ?? ''}`}
+      >
+        <fieldset
+          disabled={isSubmitting}
+          className="m-0 flex min-h-0 min-w-0 flex-1 flex-col gap-6 border-0 p-0 disabled:opacity-[0.92]"
+        >
       <div className="grid gap-4 sm:grid-cols-2">
         <label className="block text-sm font-medium text-[#171717]">
           Receta
@@ -402,12 +447,16 @@ export function AdminProduccionCocinaTab({
       <div className="mt-auto flex shrink-0 flex-wrap justify-end gap-3 border-t border-neutral-100 pt-4">
         <button
           type="submit"
-          disabled={guardando || filas.length === 0}
-          className="rounded-xl bg-[#CD1818] px-6 py-3 text-sm font-semibold text-white shadow-sm transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-45"
+          disabled={
+            isSubmitting || confirmProduccionOpen || filas.length === 0
+          }
+          className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#CD1818] px-6 py-3 text-sm font-semibold text-white shadow-sm transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-45"
         >
-          {guardando ? 'Guardando…' : 'Registrar producción'}
+          Registrar producción
         </button>
       </div>
+        </fieldset>
     </form>
+    </>
   )
 }

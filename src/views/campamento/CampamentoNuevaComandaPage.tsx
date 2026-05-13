@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
-import { ClipboardList, Plus, Trash2 } from 'lucide-react'
+import { ClipboardList, Loader2, Plus, Trash2 } from 'lucide-react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { useToast } from '../../context/ToastContext'
@@ -43,7 +43,7 @@ export function CampamentoNuevaComandaPage() {
   const [movimientos, setMovimientos] = useState<MovimientoInventario[]>([])
   const [filas, setFilas] = useState<FilaComanda[]>(() => [nuevaFila()])
   const [observaciones, setObservaciones] = useState('')
-  const [guardando, setGuardando] = useState(false)
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
   useEffect(() => {
     return subscribeInsumos(setInsumos)
@@ -171,7 +171,7 @@ export function CampamentoNuevaComandaPage() {
       return
     }
 
-    setGuardando(true)
+    setIsSubmitting(true)
     try {
       await guardarComandaConsumoDiario({
         ubicacionId: ub,
@@ -180,12 +180,14 @@ export function CampamentoNuevaComandaPage() {
         observacionesComanda: observaciones.trim() || undefined,
       })
       showToast('Comanda guardada. El stock local se actualizó.', 'success')
+      setFilas([nuevaFila()])
+      setObservaciones('')
       navigate('/campamento/comandas', { replace: true })
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'No se pudo guardar la comanda.'
       showToast(msg, 'error')
     } finally {
-      setGuardando(false)
+      setIsSubmitting(false)
     }
   }
 
@@ -205,7 +207,8 @@ export function CampamentoNuevaComandaPage() {
       <header className="shrink-0 border-b border-gray-200 bg-white px-5 py-4 shadow-sm sm:px-8">
         <Link
           to="/campamento/comandas"
-          className="inline-flex min-h-11 items-center gap-2 rounded-xl px-3 text-sm font-semibold text-[#CD1818] transition hover:bg-gray-100"
+          aria-disabled={isSubmitting}
+          className={`inline-flex min-h-11 items-center gap-2 rounded-xl px-3 text-sm font-semibold text-[#CD1818] transition hover:bg-gray-100 ${isSubmitting ? 'pointer-events-none opacity-45' : ''}`}
         >
           <span aria-hidden>←</span>
           Volver al historial
@@ -234,6 +237,10 @@ export function CampamentoNuevaComandaPage() {
           onSubmit={(ev) => void handleGuardar(ev)}
           className="w-full max-w-5xl rounded-2xl border border-gray-200 bg-white p-6 shadow-sm sm:p-8 lg:p-10"
         >
+          <fieldset
+            disabled={isSubmitting}
+            className="m-0 min-w-0 border-0 p-0 disabled:opacity-[0.92]"
+          >
           <label className="block">
             <span className="text-xs font-medium uppercase tracking-wide text-[#8997A6]">
               Observaciones{' '}
@@ -242,6 +249,7 @@ export function CampamentoNuevaComandaPage() {
             <textarea
               value={observaciones}
               onChange={(e) => setObservaciones(e.target.value)}
+              disabled={isSubmitting}
               rows={2}
               placeholder='Ej. "Cena turno noche", "Viandas mineros"'
               className="mt-2 w-full rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm text-[#171717] outline-none transition focus:border-[#CD1818]/30 focus:ring-2 focus:ring-[#CD1818]/10"
@@ -410,17 +418,25 @@ export function CampamentoNuevaComandaPage() {
             <button
               type="button"
               onClick={agregarFila}
-              className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 text-sm font-semibold text-[#CD1818] shadow-sm transition hover:bg-gray-50"
+              disabled={isSubmitting}
+              className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 text-sm font-semibold text-[#CD1818] shadow-sm transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-45"
             >
               <Plus className="h-4 w-4" strokeWidth={2} aria-hidden />
               Agregar fila
             </button>
             <button
               type="submit"
-              disabled={guardando || insumosConStock.length === 0}
-              className="inline-flex min-h-11 items-center justify-center rounded-xl bg-[#CD1818] px-8 text-sm font-semibold text-white shadow-sm transition hover:brightness-110 disabled:opacity-45"
+              disabled={isSubmitting || insumosConStock.length === 0}
+              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#CD1818] px-8 text-sm font-semibold text-white shadow-sm transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-45"
             >
-              {guardando ? 'Guardando…' : 'Guardar comanda'}
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
+                  Guardando…
+                </>
+              ) : (
+                'Guardar comanda'
+              )}
             </button>
           </div>
 
@@ -430,6 +446,7 @@ export function CampamentoNuevaComandaPage() {
               cargar comandas.
             </p>
           ) : null}
+          </fieldset>
         </form>
       </div>
     </div>

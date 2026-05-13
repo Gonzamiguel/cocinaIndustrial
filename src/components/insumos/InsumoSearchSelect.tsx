@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { Insumo } from '../../lib/insumos'
 import { formatLabelInsumo } from '../../lib/insumos'
 
@@ -16,6 +16,11 @@ type Props = {
   compact?: boolean
   /** Oculta la etiqueta arriba del campo en md+ (cuando hay cabecera de tabla aparte) */
   hideLabelOnDesktop?: boolean
+  /**
+   * Tras elegir un insumo (clic o Enter), se invoca en el siguiente microtask
+   * para enfocar p. ej. el input de cantidad de la misma fila.
+   */
+  onAfterSelect?: () => void
 }
 
 export function InsumoSearchSelect({
@@ -28,10 +33,14 @@ export function InsumoSearchSelect({
   placeholder = 'Buscar por nombre, marca o presentación…',
   compact = false,
   hideLabelOnDesktop = false,
+  onAfterSelect,
 }: Props) {
+  const listboxId = useId()
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
+  const [activeIndex, setActiveIndex] = useState(0)
   const wrapRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
 
   const selected = selectedId
     ? insumos.find((i) => i.id === selectedId)
@@ -53,6 +62,11 @@ export function InsumoSearchSelect({
 
   useEffect(() => {
     if (!open) return
+    setActiveIndex((i) => Math.min(i, Math.max(0, filtered.length - 1)))
+  }, [open, filtered.length])
+
+  useEffect(() => {
+    if (!open) return
     function handlePointer(event: MouseEvent) {
       const el = wrapRef.current
       if (el && !el.contains(event.target as Node)) {
@@ -62,6 +76,16 @@ export function InsumoSearchSelect({
     document.addEventListener('mousedown', handlePointer)
     return () => document.removeEventListener('mousedown', handlePointer)
   }, [open])
+
+  function commitSelection(insumo: Insumo) {
+    onSelect(insumo)
+    setQuery('')
+    setOpen(false)
+    setActiveIndex(0)
+    queueMicrotask(() => {
+      onAfterSelect?.()
+    })
+  }
 
   const labelClass = `text-xs font-medium text-[#8997A6] ${
     hideLabelOnDesktop ? 'md:hidden' : ''
@@ -113,25 +137,63 @@ export function InsumoSearchSelect({
       ) : (
         <>
           <input
+            ref={inputRef}
             type="text"
             value={open ? query : displayText}
             onChange={(e) => {
               setQuery(e.target.value)
               if (!open) setOpen(true)
+              setActiveIndex(0)
             }}
             onFocus={() => {
               setOpen(true)
               setQuery(displayText)
             }}
+            onKeyDown={(e) => {
+              if (!open && (e.key === 'ArrowDown' || e.key === 'Enter')) {
+                setOpen(true)
+                setQuery(displayText)
+                return
+              }
+              if (!open) return
+
+              if (e.key === 'Escape') {
+                e.preventDefault()
+                setOpen(false)
+                setQuery('')
+                return
+              }
+
+              if (e.key === 'ArrowDown') {
+                e.preventDefault()
+                if (filtered.length === 0) return
+                setActiveIndex((i) => (i + 1) % filtered.length)
+                return
+              }
+
+              if (e.key === 'ArrowUp') {
+                e.preventDefault()
+                if (filtered.length === 0) return
+                setActiveIndex((i) => (i - 1 + filtered.length) % filtered.length)
+                return
+              }
+
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                const pick = filtered[activeIndex]
+                if (pick) commitSelection(pick)
+                return
+              }
+            }}
             placeholder={placeholder}
             className={inputClass}
             aria-expanded={open}
-            aria-controls="insumo-search-listbox"
+            aria-controls={listboxId}
             aria-autocomplete="list"
           />
           {open ? (
             <ul
-              id="insumo-search-listbox"
+              id={listboxId}
               role="listbox"
               className="absolute z-50 mt-1 max-h-56 w-full overflow-auto rounded-xl border border-gray-200 bg-white py-1 shadow-lg"
             >
@@ -140,17 +202,18 @@ export function InsumoSearchSelect({
                   No hay coincidencias.
                 </li>
               ) : (
-                filtered.map((i) => (
-                  <li key={i.id} role="option">
+                filtered.map((i, idx) => (
+                  <li key={i.id} role="presentation">
                     <button
                       type="button"
-                      className="w-full px-4 py-2.5 text-left text-sm text-[#171717] transition hover:bg-gray-50"
+                      role="option"
+                      aria-selected={idx === activeIndex}
+                      className={`w-full px-4 py-2.5 text-left text-sm transition hover:bg-gray-50 ${
+                        idx === activeIndex ? 'bg-[#CD1818]/8 text-[#171717]' : 'text-[#171717]'
+                      }`}
+                      onMouseEnter={() => setActiveIndex(idx)}
                       onMouseDown={(e) => e.preventDefault()}
-                      onClick={() => {
-                        onSelect(i)
-                        setQuery('')
-                        setOpen(false)
-                      }}
+                      onClick={() => commitSelection(i)}
                     >
                       {formatLabelInsumo(i)}
                     </button>

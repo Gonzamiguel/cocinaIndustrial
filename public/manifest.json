@@ -1,0 +1,19 @@
+{
+  "name": "Comedor industrial — Campamento Casposo",
+  "short_name": "Comedor",
+  "description": "Pedidos, inventario, comandas y producción con soporte offline.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#fafafa",
+  "theme_color": "#BE1818",
+  "lang": "es",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

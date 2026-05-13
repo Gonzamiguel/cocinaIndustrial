@@ -2,6 +2,7 @@ import type { SVGProps } from 'react'
 import { Factory } from 'lucide-react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
+import { ConnectionStatus } from '../layout/ConnectionStatus'
 
 type IconProps = SVGProps<SVGSVGElement>
 
@@ -109,6 +110,7 @@ export function AnalistaSidebar() {
         <p className="mt-1.5 text-lg font-semibold tracking-tight text-[#CD1818]">
           Comedor industrial
         </p>
+        <ConnectionStatus />
       </div>
 
       <nav

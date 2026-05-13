@@ -2,6 +2,7 @@ import { ClipboardList, Database, PackageCheck, PackagePlus } from 'lucide-react
 import type { SVGProps } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
+import { ConnectionStatus } from '../layout/ConnectionStatus'
 
 type IconProps = SVGProps<SVGSVGElement>
 
@@ -68,6 +69,7 @@ export function CampamentoSidebar() {
             Sucursal: {ubicacionId}
           </p>
         ) : null}
+        <ConnectionStatus />
       </div>
 
       <nav

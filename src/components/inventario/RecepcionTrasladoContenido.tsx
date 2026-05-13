@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Database, X } from 'lucide-react'
+import { Database, Loader2, X } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { useToast } from '../../context/ToastContext'
+import { ConfirmDialog } from '../ui/ConfirmDialog'
 import { exportarHojaControlRecepcionPdf } from '../../lib/campamentoRecepcionPdf'
 import { subscribeInsumos, type Insumo } from '../../lib/insumos'
 import {
@@ -57,6 +58,7 @@ export function RecepcionTrasladoContenido({
   const [declaracionConformidad, setDeclaracionConformidad] = useState(false)
   const [soloDiferencias, setSoloDiferencias] = useState(false)
   const [guardando, setGuardando] = useState(false)
+  const [confirmRecepcionAbierta, setConfirmRecepcionAbierta] = useState(false)
 
   useEffect(() => subscribeInsumos(setInsumos), [])
 
@@ -88,6 +90,7 @@ export function RecepcionTrasladoContenido({
     setHojaPdfDescargada(false)
     setDeclaracionConformidad(false)
     setSoloDiferencias(false)
+    setConfirmRecepcionAbierta(false)
   }, [])
 
   useEffect(() => {
@@ -169,7 +172,8 @@ export function RecepcionTrasladoContenido({
         ubicacionRecepcionId: ub,
         itemsRecibidos,
       })
-      showToast('Ingreso a stock local registrado correctamente.')
+      showToast('Ingreso a stock local registrado correctamente.', 'success')
+      setConfirmRecepcionAbierta(false)
       cerrarPanel()
     } catch (err) {
       showToast(
@@ -206,6 +210,22 @@ export function RecepcionTrasladoContenido({
 
   return (
     <>
+      <ConfirmDialog
+        open={confirmRecepcionAbierta}
+        title="Confirmar recepción del traslado"
+        description={
+          egresoSeleccionado
+            ? `¿Estás seguro de confirmar la recepción del remito ${egresoSeleccionado.numeroDocumento}? Esta acción actualizará tu stock local en ${tituloUbicacion} y no se puede deshacer.`
+            : ''
+        }
+        confirmLabel="Sí, confirmar recepción"
+        cancelLabel="Cancelar"
+        isWorking={guardando}
+        onCancel={() => {
+          if (!guardando) setConfirmRecepcionAbierta(false)
+        }}
+        onConfirm={() => void handleConfirmarIngreso()}
+      />
       {!embedded && inventarioHref ? (
         <div className="mb-4 flex justify-end">
           <Link
@@ -502,10 +522,19 @@ export function RecepcionTrasladoContenido({
               <button
                 type="button"
                 disabled={guardando || !puedeConfirmarIngreso}
-                onClick={() => void handleConfirmarIngreso()}
-                className="rounded-lg bg-[#CD1818] px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-45"
+                onClick={() => {
+                  if (puedeConfirmarIngreso) setConfirmRecepcionAbierta(true)
+                }}
+                className="inline-flex items-center justify-center gap-2 rounded-lg bg-[#CD1818] px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-45"
               >
-                {guardando ? 'Guardando…' : 'Confirmar ingreso a stock'}
+                {guardando ? (
+                  <>
+                    <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
+                    Guardando…
+                  </>
+                ) : (
+                  'Confirmar ingreso a stock'
+                )}
               </button>
             </div>
           </div>

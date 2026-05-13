@@ -1,6 +1,7 @@
 import {
   collection,
   doc,
+  getDoc,
   getDocs,
   increment,
   limit,
@@ -12,6 +13,8 @@ import {
   Timestamp,
   where,
   writeBatch,
+  type DocumentReference,
+  type DocumentSnapshot,
   type QueryConstraint,
   type Transaction,
   type Unsubscribe,
@@ -698,8 +701,8 @@ function itemToFirestore(it: ItemMovimientoInventario, incluirPrecio: boolean) {
   }
 }
 
-async function congelarCostoPorUnidadBaseEnTransaccion(
-  transaction: Transaction,
+async function congelarCostoPorUnidadBaseConLecturas(
+  obtener: (ref: DocumentReference) => Promise<DocumentSnapshot>,
   db: ReturnType<typeof getDb>,
   items: ItemMovimientoInventario[],
 ): Promise<ItemMovimientoInventario[]> {
@@ -716,7 +719,7 @@ async function congelarCostoPorUnidadBaseEnTransaccion(
   if (faltantes.length === 0) return items
 
   const snaps = await Promise.all(
-    faltantes.map((id) => transaction.get(doc(db, COLLECTION_INSUMOS, id))),
+    faltantes.map((id) => obtener(doc(db, COLLECTION_INSUMOS, id))),
   )
   const costoPorInsumoId = new Map<string, number>()
 
@@ -742,6 +745,18 @@ async function congelarCostoPorUnidadBaseEnTransaccion(
       ? { ...item, costoPorUnidadBaseSnapshot: snapshot }
       : item
   })
+}
+
+async function congelarCostoPorUnidadBaseEnTransaccion(
+  transaction: Transaction,
+  db: ReturnType<typeof getDb>,
+  items: ItemMovimientoInventario[],
+): Promise<ItemMovimientoInventario[]> {
+  return congelarCostoPorUnidadBaseConLecturas(
+    (ref) => transaction.get(ref),
+    db,
+    items,
+  )
 }
 
 function agregarNetDeltaAjustePorSaldo(
@@ -928,6 +943,101 @@ export async function crearMovimiento(input: CrearMovimientoInput): Promise<stri
     const motivoTrim = input.motivo?.trim()
     const obsComandaTrim = input.observacionesComanda?.trim()
     const solicitudIdTrim = input.solicitudId?.trim()
+
+    /** Comandas / egresos de producción en cocina: sin red usamos batch (cola local) en lugar de transacción. */
+    const usarEgresoEnColaLocal =
+      typeof navigator !== 'undefined' &&
+      !navigator.onLine &&
+      (esConsumoDiarioCampamento || esProduccionCocina)
+
+    if (usarEgresoEnColaLocal) {
+      let solicitudRefOffline: ReturnType<typeof doc> | null = null
+      if (solicitudIdTrim) {
+        solicitudRefOffline = doc(db, COLLECTION_SOLICITUDES, solicitudIdTrim)
+        const sSnap = await getDoc(solicitudRefOffline)
+        if (!sSnap.exists()) {
+          throw new Error(
+            'Sin conexión: la solicitud no está en la caché local. Conectate una vez con WiFi antes de despachar contra esa solicitud.',
+          )
+        }
+        const sd = sSnap.data() as Record<string, unknown>
+        const st = typeof sd.estado === 'string' ? sd.estado : ''
+        if (st !== 'Pendiente' && st !== 'En Preparación') {
+          throw new Error(
+            'La solicitud ya no admite despacho (solo pendientes o en preparación).',
+          )
+        }
+      }
+
+      const itemsOffline = await congelarCostoPorUnidadBaseConLecturas(
+        (ref) => getDoc(ref),
+        db,
+        baseItems,
+      )
+      const aggOffline = agregarItemsEgresoPorSaldo(db, ubicacionId, itemsOffline)
+      const filasOffline = [...aggOffline.values()]
+      const snapsOffline = await Promise.all(
+        filasOffline.map((row) => getDoc(row.ref)),
+      )
+
+      for (let i = 0; i < filasOffline.length; i++) {
+        const row = filasOffline[i]
+        const snap = snapsOffline[i]
+        const disponible = snap.exists()
+          ? clampNonNegative(Number(snap.data()?.cantidad ?? 0))
+          : 0
+        if (disponible + 1e-9 < row.cantidad) {
+          const sinSaldo =
+            !snap.exists() || disponible === 0
+              ? ' Abrí el inventario con conexión al menos una vez para descargar saldos en esta máquina.'
+              : ''
+          throw new Error(
+            `Stock insuficiente o sin datos locales para «${row.nombreSnapshot}» (lote ${row.loteLabel}). Disponible en caché: ${disponible.toLocaleString('es-AR', { maximumFractionDigits: 4 })}, solicitado: ${row.cantidad.toLocaleString('es-AR', { maximumFractionDigits: 4 })}.${sinSaldo}`,
+          )
+        }
+      }
+
+      const batchEgreso = writeBatch(db)
+      batchEgreso.set(movRef, {
+        tipo: 'EGRESO' as const,
+        fecha: fechaTs,
+        destino,
+        numeroDocumento,
+        ubicacionId,
+        ...(transporte ? { transporte } : {}),
+        ...(motivoTrim ? { motivo: motivoTrim } : {}),
+        ...(obsComandaTrim ? { observacionesComanda: obsComandaTrim } : {}),
+        items: itemsOffline.map((it) => itemToFirestore(it, false)),
+        creadoEn: serverTimestamp(),
+        ...(solicitudIdTrim ? { solicitudId: solicitudIdTrim } : {}),
+        ...(esTraslado && ubicacionDestinoInferida
+          ? {
+              ubicacionDestino: ubicacionDestinoInferida,
+              estadoTraslado: 'EN_TRANSITO' as const,
+            }
+          : {}),
+      })
+
+      if (solicitudRefOffline) {
+        batchEgreso.update(solicitudRefOffline, { estado: 'Enviado' })
+      }
+
+      for (const row of filasOffline) {
+        batchEgreso.set(
+          row.ref,
+          {
+            ubicacionId,
+            insumoId: row.insumoId,
+            loteKey: row.loteKey,
+            cantidad: increment(-row.cantidad),
+            actualizadoEn: serverTimestamp(),
+          },
+          { merge: true },
+        )
+      }
+      await batchEgreso.commit()
+      return movRef.id
+    }
 
     await runTransaction(db, async (t) => {
       let solicitudRef: ReturnType<typeof doc> | null = null
@@ -1641,6 +1751,139 @@ export async function registrarProduccionCocina(input: {
   const rnd = Math.random().toString(36).slice(2, 7).toUpperCase()
   const numeroEgreso = `PRD-EGR-${Date.now()}-${rnd}`
   const numeroIngreso = `PRD-ING-${Date.now()}-${rnd}`
+
+  const produccionOffline =
+    typeof navigator !== 'undefined' && !navigator.onLine
+
+  if (produccionOffline) {
+    const itemsEgreso = await congelarCostoPorUnidadBaseConLecturas(
+      (ref) => getDoc(ref),
+      db,
+      baseEgreso,
+    )
+    const agg = agregarItemsEgresoPorSaldo(db, ub, itemsEgreso)
+    const filas = [...agg.values()]
+    const snaps = await Promise.all(filas.map((row) => getDoc(row.ref)))
+
+    for (let i = 0; i < filas.length; i++) {
+      const row = filas[i]
+      const snap = snaps[i]
+      const disponible = snap.exists()
+        ? clampNonNegative(Number(snap.data()?.cantidad ?? 0))
+        : 0
+      if (disponible + 1e-9 < row.cantidad) {
+        throw new Error(
+          `Stock insuficiente o sin datos locales para «${row.nombreSnapshot}» (lote ${row.loteLabel}). Disponible en caché: ${disponible.toLocaleString('es-AR', { maximumFractionDigits: 4 })}, solicitado: ${row.cantidad.toLocaleString('es-AR', { maximumFractionDigits: 4 })}.`,
+        )
+      }
+    }
+
+    const costoReal = costoTotalItemsMovimiento(itemsEgreso)
+    const costoTeorico = clampNonNegative(Number(input.costoTeoricoTotal))
+    const desvioPorcentaje =
+      costoTeorico > 1e-9
+        ? ((costoReal - costoTeorico) / costoTeorico) * 100
+        : costoReal > 0
+          ? 100
+          : 0
+
+    const insumoProdSnap = await getDoc(doc(db, COLLECTION_INSUMOS, insumoProdId))
+    if (!insumoProdSnap.exists()) {
+      throw new Error(
+        'Sin conexión: el insumo de producto terminado no está en la caché local. Conectate una vez antes de registrar producción offline.',
+      )
+    }
+    const insRaw = insumoProdSnap.data() as Record<string, unknown>
+    const costoUnitProd = clampNonNegative(Number(insRaw.costoPorUnidadBase))
+
+    const itemProducto: ItemMovimientoInventario = {
+      insumoId: insumoProdId,
+      nombreSnapshot: nombreProd,
+      cantidad: nPorciones,
+      lote: loteProd,
+      controlCalidadOk: true,
+      costoPorUnidadBaseSnapshot: costoUnitProd,
+    }
+    const itemsIngreso = normalizarItems([itemProducto], 'INGRESO')
+    if (itemsIngreso.length === 0) {
+      throw new Error('No se pudo normalizar el ingreso de producto terminado.')
+    }
+
+    const batchProd = writeBatch(db)
+    batchProd.set(egresoRef, {
+      tipo: 'EGRESO' as const,
+      fecha: fechaTs,
+      destino: DESTINO_EGRESO_PRODUCCION_COCINA,
+      numeroDocumento: numeroEgreso,
+      ubicacionId: ub,
+      motivo: MOTIVO_EGRESO_PRODUCCION_COCINA,
+      observacionesComanda: `Receta: ${input.recetaNombre.trim()} · ${input.recetaId}`,
+      items: itemsEgreso.map((it) => itemToFirestore(it, false)),
+      creadoEn: serverTimestamp(),
+    })
+
+    for (const row of filas) {
+      batchProd.set(
+        row.ref,
+        {
+          ubicacionId: ub,
+          insumoId: row.insumoId,
+          loteKey: row.loteKey,
+          cantidad: increment(-row.cantidad),
+          actualizadoEn: serverTimestamp(),
+        },
+        { merge: true },
+      )
+    }
+
+    batchProd.set(ingresoRef, {
+      tipo: 'INGRESO' as const,
+      fecha: fechaTs,
+      proveedor: 'Producción cocina central',
+      tipoDocumento: 'Remito' as const,
+      numeroDocumento: numeroIngreso,
+      ubicacionId: ub,
+      items: itemsIngreso.map((it) => itemToFirestore(it, true)),
+      creadoEn: serverTimestamp(),
+    })
+
+    for (const it of itemsIngreso) {
+      const qty = Math.abs(Number(it.cantidad))
+      if (qty <= 0) continue
+      const lk = normalizarLoteKey(it.lote)
+      const sref = refSaldoLote(db, ub, it.insumoId, lk)
+      batchProd.set(
+        sref,
+        {
+          ubicacionId: ub,
+          insumoId: it.insumoId,
+          loteKey: lk,
+          cantidad: increment(qty),
+          actualizadoEn: serverTimestamp(),
+        },
+        { merge: true },
+      )
+    }
+
+    batchProd.set(prodRef, {
+      fecha: fechaTs,
+      ubicacionId: ub,
+      recetaId: input.recetaId.trim(),
+      recetaNombre: input.recetaNombre.trim(),
+      cantidadPorciones: nPorciones,
+      insumoProductoId: insumoProdId,
+      nombreProducto: nombreProd,
+      costoTeorico,
+      costoReal,
+      desvioPorcentaje,
+      egresoId: egresoRef.id,
+      ingresoId: ingresoRef.id,
+      creadoEn: serverTimestamp(),
+    })
+
+    await batchProd.commit()
+    return { egresoId: egresoRef.id, ingresoId: ingresoRef.id, registroId: prodRef.id }
+  }
 
   await runTransaction(db, async (t) => {
     const itemsEgreso = await congelarCostoPorUnidadBaseEnTransaccion(t, db, baseEgreso)

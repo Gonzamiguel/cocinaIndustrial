@@ -21,3 +21,60 @@ body {
 #root {
   @apply min-h-dvh bg-brand-surface;
 }
+
+/*
+ * Etiquetas QR (ModalEtiquetasQR): `body.is-printing` se activa solo durante la impresión.
+ * No usar `visibility: hidden` en ancestros del contenido a imprimir: en varios navegadores
+ * el PDF sale en blanco aunque los hijos tengan `visibility: visible`.
+ */
+@media print {
+  body.is-printing #root {
+    display: none !important;
+  }
+
+  body.is-printing .no-print {
+    display: none !important;
+  }
+
+  body.is-printing #qr-etiquetas-portal-root {
+    position: static !important;
+    inset: auto !important;
+    display: block !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    width: 100% !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    background: transparent !important;
+  }
+
+  body.is-printing #qr-etiquetas-portal-root .qr-etiquetas-dialog {
+    position: static !important;
+    max-height: none !important;
+    height: auto !important;
+    width: 100% !important;
+    overflow: visible !important;
+    border: none !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+    margin: 0 !important;
+  }
+
+  body.is-printing .qr-etiquetas-print-root {
+    position: relative !important;
+    left: auto !important;
+    top: auto !important;
+    width: 100% !important;
+    max-height: none !important;
+    overflow: visible !important;
+    border: none !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  body.is-printing .qr-etiqueta-tile {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+}

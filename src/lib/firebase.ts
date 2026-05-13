@@ -17,7 +17,12 @@
 import { initializeApp, type FirebaseApp } from 'firebase/app'
 import { getAnalytics, type Analytics } from 'firebase/analytics'
 import { getAuth, type Auth } from 'firebase/auth'
-import { getFirestore, type Firestore } from 'firebase/firestore'
+import {
+  enableIndexedDbPersistence,
+  getFirestore,
+  type Firestore,
+  type FirestoreError,
+} from 'firebase/firestore'
 
 const firebaseConfig = {
   apiKey: 'AIzaSyC9jbTpOufQ43STX4wCq-AraTpgEQKTZBc',
@@ -35,8 +40,28 @@ const app: FirebaseApp = initializeApp(firebaseConfig)
 export const analytics: Analytics | undefined =
   typeof window !== 'undefined' ? getAnalytics(app) : undefined
 
-let db: Firestore | undefined
 let auth: Auth | undefined
+
+/** Instancia única; la persistencia debe activarse antes de cualquier otra operación. */
+const db: Firestore = getFirestore(app)
+
+if (typeof window !== 'undefined') {
+  void enableIndexedDbPersistence(db).catch((err: unknown) => {
+    const code = (err as FirestoreError)?.code
+    if (code === 'failed-precondition') {
+      console.warn(
+        '[Firestore] Persistencia offline: otra pestaña ya usa la base local. ' +
+          'Usá una sola pestaña o cerrá las demás para habilitar caché en esta.',
+      )
+    } else if (code === 'unimplemented') {
+      console.warn(
+        '[Firestore] Este navegador no soporta persistencia IndexedDB; la app funciona sin caché local.',
+      )
+    } else {
+      console.warn('[Firestore] No se pudo activar persistencia IndexedDB:', err)
+    }
+  })
+}
 
 export function getFirebaseApp(): FirebaseApp {
   return app
@@ -50,8 +75,5 @@ export function getAuthApp(): Auth {
 }
 
 export function getDb(): Firestore {
-  if (!db) {
-    db = getFirestore(app)
-  }
   return db
 }

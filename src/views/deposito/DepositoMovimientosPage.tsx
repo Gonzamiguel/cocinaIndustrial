@@ -1,7 +1,13 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Loader2 } from 'lucide-react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { InsumoSearchSelect } from '../../components/insumos/InsumoSearchSelect'
+import {
+  ModalEtiquetasQR,
+  type EtiquetaIngresoFila,
+} from '../../components/deposito/ModalEtiquetasQR'
 import { DepositoSolicitudesMercaderiaPanel } from '../../components/deposito/DepositoSolicitudesMercaderiaPanel'
+import { useQRScanner } from '../../hooks/useQRScanner'
 import { useToast } from '../../context/ToastContext'
 import type { EgresoPrefillDesdeSolicitud } from '../../lib/depositoEgresoPrefill'
 import {
@@ -341,7 +347,15 @@ export function DepositoMovimientosPage() {
   const [fechaDesde, setFechaDesde] = useState('')
   const [fechaHasta, setFechaHasta] = useState('')
   const [isCreating, setIsCreating] = useState(false)
-  const [enviando, setEnviando] = useState(false)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const cantidadInputRefs = useRef<Record<string, HTMLInputElement | null>>({})
+
+  const registerCantidadRef = useCallback((key: string) => {
+    return (el: HTMLInputElement | null) => {
+      if (el) cantidadInputRefs.current[key] = el
+      else delete cantidadInputRefs.current[key]
+    }
+  }, [])
 
   const [tipoMovimiento, setTipoMovimiento] =
     useState<TipoMovimientoInventario>('INGRESO')
@@ -371,6 +385,13 @@ export function DepositoMovimientosPage() {
   const [egresoDestinoBloqueado, setEgresoDestinoBloqueado] = useState(false)
   const [egresoUbicacionDestinoExplicita, setEgresoUbicacionDestinoExplicita] =
     useState<string | undefined>(undefined)
+  const [ingresoEtiquetas, setIngresoEtiquetas] = useState<{
+    movimientoId: string
+    numeroDocumento: string
+    filas: EtiquetaIngresoFila[]
+  } | null>(null)
+  const [copiasEtiquetas, setCopiasEtiquetas] = useState<number[]>([])
+  const pendingQrFilaKeyRef = useRef<string | null>(null)
 
   useEffect(() => {
     return subscribeInsumos(setInsumos)
@@ -503,6 +524,59 @@ export function DepositoMovimientosPage() {
     return map
   }, [movimientosCentrales, filas, tipoMovimiento])
 
+  const handleQrEgresoScan = useCallback(
+    (insumoIdRaw: string, loteStr: string) => {
+      if (!isCreating || tipoMovimiento !== 'EGRESO') return
+      const id = insumoIdRaw.trim()
+      if (!id) return
+      const ins = insumosById.get(id)
+      if (!ins) {
+        showToast('El insumo del código QR no está en el catálogo.', 'error')
+        return
+      }
+      setFilas((prev) => {
+        const lotes = lotesDisponiblesParaEgreso(movimientosCentrales, id)
+        const keySel = normalizarLoteKey(loteStr)
+        const bucket = lotes.find((x) => x.loteKey === keySel)
+        const reserved = stockReservadoOtrasFilasEgreso(prev, prev.length, id, keySel)
+        const stockDisp = bucket ? bucket.stock - reserved : 0
+        if (!bucket || stockDisp <= 1e-9) {
+          showToast('Este lote no tiene stock disponible.', 'error')
+          return prev
+        }
+        const row: FilaDraft = {
+          ...nuevaFila(),
+          insumoId: id,
+          nombreSnapshot: formatLabelInsumo(ins),
+          lote: bucket.lotePersistido,
+          fechaVencimiento: bucket.fechaVencimiento?.trim() ?? '',
+          egresoLoteDefinido: true,
+          cantidad: '',
+        }
+        pendingQrFilaKeyRef.current = row.key
+        return [...prev, row]
+      })
+    },
+    [isCreating, tipoMovimiento, insumosById, movimientosCentrales, showToast],
+  )
+
+  useLayoutEffect(() => {
+    const k = pendingQrFilaKeyRef.current
+    if (!k) return
+    pendingQrFilaKeyRef.current = null
+    queueMicrotask(() => {
+      cantidadInputRefs.current[k]?.focus()
+    })
+  }, [filas])
+
+  useQRScanner({
+    enabled:
+      isCreating &&
+      tipoMovimiento === 'EGRESO' &&
+      ingresoEtiquetas === null,
+    onScan: handleQrEgresoScan,
+  })
+
   const mostrarPrecio = tipoMovimiento === 'INGRESO'
   const requiereTransporte = useMemo(
     () =>
@@ -590,6 +664,22 @@ export function DepositoMovimientosPage() {
     setEgresoDestinoBloqueado(false)
     setEgresoUbicacionDestinoExplicita(undefined)
     prefillConsumidoRef.current = false
+  }
+
+  function cerrarModalEtiquetasYContinuar() {
+    setIngresoEtiquetas(null)
+    setCopiasEtiquetas([])
+    resetFormulario()
+    setIsCreating(false)
+  }
+
+  function handleChangeCopiasEtiqueta(index: number, value: number) {
+    const n = Math.max(1, Math.min(99, Math.floor(Number.isFinite(value) ? value : 1)))
+    setCopiasEtiquetas((prev) => {
+      const next = [...prev]
+      next[index] = n
+      return next
+    })
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -688,12 +778,12 @@ export function DepositoMovimientosPage() {
       return
     }
 
-    setEnviando(true)
+    setIsSubmitting(true)
     try {
       const fecha = parseFechaLocal(fechaOperacion)
 
       if (tipoMovimiento === 'INGRESO') {
-        await crearMovimiento({
+        const ingresoId = await crearMovimiento({
           tipo: 'INGRESO',
           fecha,
           proveedor: proveedor.trim(),
@@ -702,6 +792,22 @@ export function DepositoMovimientosPage() {
           items: payloadItems,
         })
         setRemitoReciente(null)
+        const filasEq: EtiquetaIngresoFila[] = payloadItems.map((it) => ({
+          insumoId: it.insumoId,
+          nombreInsumo: it.nombreSnapshot,
+          lote: (it.lote ?? '').trim(),
+          fechaVencimiento: (it.fechaVencimiento ?? '').trim(),
+        }))
+        setCopiasEtiquetas(filasEq.map(() => 1))
+        setIngresoEtiquetas({
+          movimientoId: ingresoId,
+          numeroDocumento: numeroDocumento.trim(),
+          filas: filasEq,
+        })
+        showToast(
+          'Ingreso registrado. Podés imprimir etiquetas QR para cada lote.',
+          'success',
+        )
       } else if (tipoMovimiento === 'EGRESO') {
         const transporte = requiereTransporte
           ? {
@@ -750,22 +856,24 @@ export function DepositoMovimientosPage() {
         setRemitoReciente(null)
       }
 
-      if (tipoMovimiento === 'EGRESO' && egresoSolicitudId) {
-        showToast(
-          `Egreso generado y solicitud ${egresoSolicitudId} marcada como enviada.`,
-        )
-      } else {
-        showToast('Movimiento registrado correctamente.')
+      if (tipoMovimiento !== 'INGRESO') {
+        if (tipoMovimiento === 'EGRESO' && egresoSolicitudId) {
+          showToast(
+            `Egreso generado y solicitud ${egresoSolicitudId} marcada como enviada.`,
+          )
+        } else {
+          showToast('Movimiento registrado correctamente.', 'success')
+        }
+        resetFormulario()
+        setIsCreating(false)
       }
-      resetFormulario()
-      setIsCreating(false)
     } catch (err) {
       showToast(
         err instanceof Error ? err.message : 'No se pudo registrar el movimiento.',
         'error',
       )
     } finally {
-      setEnviando(false)
+      setIsSubmitting(false)
     }
   }
 
@@ -1182,11 +1290,12 @@ export function DepositoMovimientosPage() {
       <div className="shrink-0 border-b border-neutral-200 bg-white px-4 py-4 shadow-sm sm:px-6 lg:px-8 xl:px-10">
         <button
           type="button"
+          disabled={isSubmitting}
           onClick={() => {
             resetFormulario()
             setIsCreating(false)
           }}
-          className="inline-flex min-h-11 items-center gap-2 rounded-xl px-3 text-sm font-semibold text-[#CD1818] transition hover:bg-gray-100"
+          className="inline-flex min-h-11 items-center gap-2 rounded-xl px-3 text-sm font-semibold text-[#CD1818] transition hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-45"
         >
           <span aria-hidden>←</span>
           Volver al historial
@@ -1207,14 +1316,14 @@ export function DepositoMovimientosPage() {
             type="button"
             role="tab"
             aria-selected={false}
-            disabled={Boolean(egresoSolicitudId)}
+            disabled={Boolean(egresoSolicitudId) || isSubmitting}
             title={
               egresoSolicitudId
                 ? 'Completá o cancelá el egreso vinculado a la solicitud antes de cambiar de sección'
                 : undefined
             }
             onClick={() => {
-              if (!egresoSolicitudId) {
+              if (!egresoSolicitudId && !isSubmitting) {
                 resetFormulario()
                 setIsCreating(false)
                 setDepositoVistaTab('solicitudes')
@@ -1245,6 +1354,10 @@ export function DepositoMovimientosPage() {
         onSubmit={handleSubmit}
         className="flex min-h-0 flex-1 flex-col"
       >
+        <fieldset
+          disabled={isSubmitting}
+          className="m-0 flex min-h-0 min-w-0 flex-1 flex-col border-0 p-0 disabled:opacity-[0.92]"
+        >
         <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-32 pt-6 sm:px-6 sm:pb-36 lg:px-8 xl:px-10">
           <div className="w-full space-y-8">
             <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm sm:p-7">
@@ -1457,7 +1570,9 @@ export function DepositoMovimientosPage() {
                 {tipoMovimiento === 'EGRESO' ? (
                   <>
                     Insumo, cantidad, lote y temperatura; la fecha de
-                    vencimiento queda registrada al elegir el lote (FEFO).
+                    vencimiento queda registrada al elegir el lote (FEFO). Con un
+                    lector USB podés escanear la etiqueta QR del ingreso para
+                    agregar una fila con insumo y lote ya cargados.
                   </>
                 ) : (
                   <>
@@ -1590,6 +1705,11 @@ export function DepositoMovimientosPage() {
                                 nombreSnapshot: formatLabelInsumo(sel),
                               })
                             }
+                            onAfterSelect={() =>
+                              queueMicrotask(() =>
+                                cantidadInputRefs.current[fila.key]?.focus(),
+                              )
+                            }
                             onClear={() =>
                               actualizarFila(i, {
                                 insumoId: null,
@@ -1625,6 +1745,7 @@ export function DepositoMovimientosPage() {
                               inputMode="decimal"
                               min={0}
                               step="any"
+                              ref={registerCantidadRef(fila.key)}
                               value={fila.cantidad}
                               onChange={(e) =>
                                 actualizarFila(i, { cantidad: e.target.value })
@@ -1762,6 +1883,11 @@ export function DepositoMovimientosPage() {
                                 : {}),
                             })
                           }
+                          onAfterSelect={() =>
+                            queueMicrotask(() =>
+                              cantidadInputRefs.current[fila.key]?.focus(),
+                            )
+                          }
                           onClear={() =>
                             actualizarFila(i, {
                               insumoId: null,
@@ -1812,6 +1938,7 @@ export function DepositoMovimientosPage() {
                               : undefined
                           }
                           step="any"
+                          ref={registerCantidadRef(fila.key)}
                           value={fila.cantidad}
                           onChange={(e) =>
                             actualizarFila(i, { cantidad: e.target.value })
@@ -2000,14 +2127,34 @@ export function DepositoMovimientosPage() {
             </p>
             <button
               type="submit"
-              disabled={enviando || !formularioListoParaEnviar}
-              className="inline-flex min-h-12 shrink-0 items-center rounded-xl bg-[#CD1818] px-7 py-3 text-sm font-semibold text-white shadow-sm transition hover:brightness-105 disabled:opacity-45"
+              disabled={isSubmitting || !formularioListoParaEnviar}
+              className="inline-flex min-h-12 shrink-0 items-center justify-center gap-2 rounded-xl bg-[#CD1818] px-7 py-3 text-sm font-semibold text-white shadow-sm transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-45"
             >
-              {enviando ? 'Guardando…' : 'Confirmar movimiento'}
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
+                  Guardando…
+                </>
+              ) : (
+                'Confirmar movimiento'
+              )}
             </button>
           </div>
         </div>
+        </fieldset>
       </form>
+
+      {ingresoEtiquetas ? (
+        <ModalEtiquetasQR
+          open
+          onClose={cerrarModalEtiquetasYContinuar}
+          movimientoId={ingresoEtiquetas.movimientoId}
+          numeroDocumento={ingresoEtiquetas.numeroDocumento}
+          filas={ingresoEtiquetas.filas}
+          copiasPorFila={copiasEtiquetas}
+          onChangeCopias={handleChangeCopiasEtiqueta}
+        />
+      ) : null}
     </div>
   )
 }
