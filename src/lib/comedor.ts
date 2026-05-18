@@ -173,10 +173,10 @@ export function subscribeContadorComedorHoy(onChange: (total: number) => void): 
   )
 }
 
-const LIMITE_REGISTROS_REPORTE = 15_000
-
 /**
- * Suscripción por rango de `diaOperativo` (YYYY-MM-DD). Filtros de empresa/servicio en cliente.
+ * Suscripción por rango de `diaOperativo` (YYYY-MM-DD, día operativo local).
+ * Sin `limit()`: el volumen queda acotado por el rango Desde/Hasta del reporte.
+ * Filtros de empresa/servicio se aplican en cliente.
  */
 export function subscribeRegistrosComedorPorRango(
   desde: string,
@@ -193,7 +193,6 @@ export function subscribeRegistrosComedorPorRango(
     where('diaOperativo', '>=', desde),
     where('diaOperativo', '<=', hasta),
     orderBy('diaOperativo', 'desc'),
-    limit(LIMITE_REGISTROS_REPORTE),
   )
   return onSnapshot(
     q,

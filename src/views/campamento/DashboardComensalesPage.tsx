@@ -199,8 +199,9 @@ export function DashboardComensalesPage() {
               Control de comensales
             </h1>
             <p className="mt-1 text-sm text-neutral-500">
-              Auditoría de accesos al comedor según registros de la terminal. Filtrá por período,
-              empresa y servicio.
+              Auditoría de accesos al comedor según registros de la terminal. Filtrá por período
+              (día operativo), empresa y servicio. Usá rangos acotados, por ejemplo un mes, para
+              cargar más rápido.
             </p>
           </div>
 
@@ -334,7 +335,7 @@ export function DashboardComensalesPage() {
                   ) : cargando ? (
                     <tr>
                       <td colSpan={6} className="px-4 py-10 text-center text-neutral-500">
-                        Cargando registros…
+                        Cargando registros del período…
                       </td>
                     </tr>
                   ) : filasPagina.length === 0 ? (
