@@ -20,6 +20,7 @@ export type UserRole =
   | 'admin_cocina'
   | 'admin_deposito'
   | 'admin_campamento'
+  | 'hoteleria_casposo'
   | 'analista'
 
 const USUARIOS_COLLECTION = 'usuarios'
@@ -29,6 +30,7 @@ function parseRol(raw: unknown): UserRole | null {
     raw === 'admin_cocina' ||
     raw === 'admin_deposito' ||
     raw === 'admin_campamento' ||
+    raw === 'hoteleria_casposo' ||
     raw === 'analista'
   ) {
     return raw
@@ -86,7 +88,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const r = parseRol(data.rol)
         setRol(r)
         const ubic = parseUbicacionId(data.ubicacionId)
-        if (r === 'admin_campamento') {
+        if (r === 'admin_campamento' || r === 'hoteleria_casposo') {
           setUbicacionId(ubic ?? UBICACION_CAMPAMENTO_CASPOSO)
         } else if (r === 'admin_cocina') {
           setUbicacionId(ubic ?? UBICACION_COCINA_CENTRAL)

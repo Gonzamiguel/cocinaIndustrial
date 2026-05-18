@@ -40,6 +40,14 @@
         { "fieldPath": "motivo", "order": "ASCENDING" },
         { "fieldPath": "fecha", "order": "DESCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "camas",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "estado", "order": "ASCENDING" },
+        { "fieldPath": "personaId", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

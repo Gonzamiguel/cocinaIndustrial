@@ -4,6 +4,7 @@ import { LayoutAdmin } from './layouts/LayoutAdmin'
 import { LayoutAnalista } from './layouts/LayoutAnalista'
 import { LayoutCampamento } from './layouts/LayoutCampamento'
 import { LayoutDeposito } from './layouts/LayoutDeposito'
+import { LayoutHoteleria } from './layouts/LayoutHoteleria'
 import { AdminMenuPage } from './views/admin/AdminMenuPage'
 import { AdminPedidosPage } from './views/admin/AdminPedidosPage'
 import { AdminRecetarioPage } from './views/admin/AdminRecetarioPage'
@@ -28,6 +29,10 @@ import { CampamentoNuevaComandaPage } from './views/campamento/CampamentoNuevaCo
 import { CampamentoInventarioPage } from './views/campamento/CampamentoInventarioPage'
 import { CampamentoRecepcionPage } from './views/campamento/CampamentoRecepcionPage'
 import { CampamentoSolicitudPage } from './views/campamento/CampamentoSolicitudPage'
+import { ConfiguracionHoteleriaPage } from './views/hoteleria/ConfiguracionHoteleriaPage'
+import { MapaCamasPage } from './views/hoteleria/MapaCamasPage'
+import { PadronPage } from './views/hoteleria/PadronPage'
+import { PernoctesPage } from './views/hoteleria/PernoctesPage'
 
 export default function App() {
   return (
@@ -107,6 +112,21 @@ export default function App() {
         <Route path="inventario" element={<CampamentoInventarioPage />} />
         <Route path="comandas/nueva" element={<CampamentoNuevaComandaPage />} />
         <Route path="comandas" element={<CampamentoComandasPage />} />
+      </Route>
+
+      <Route
+        path="/hoteleria"
+        element={
+          <ProtectedRoute rolesPermitidos={['hoteleria_casposo']}>
+            <LayoutHoteleria />
+          </ProtectedRoute>
+        }
+      >
+        <Route index element={<Navigate to="/hoteleria/mapa" replace />} />
+        <Route path="mapa" element={<MapaCamasPage />} />
+        <Route path="padron" element={<PadronPage />} />
+        <Route path="pernoctes" element={<PernoctesPage />} />
+        <Route path="configuracion" element={<ConfiguracionHoteleriaPage />} />
       </Route>
 
       <Route

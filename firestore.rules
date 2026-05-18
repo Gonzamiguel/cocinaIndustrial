@@ -42,6 +42,11 @@ service cloud.firestore {
       return hasRole('analista');
     }
 
+    /** Hotelería / campamento: mismo literal que en `AuthContext` y en el documento `usuarios/{uid}`. */
+    function isHoteleriaCasposo() {
+      return hasRole('hoteleria_casposo');
+    }
+
     /** Staff con documento en `usuarios` (excluye solo anónimos sin rol). */
     function staffLeerInsumos() {
       return isAdminDeposito() || isAnalista() || isAdminCampamento() || isAdminCocina();
@@ -193,6 +198,27 @@ service cloud.firestore {
         ])
         && request.resource.data.ubicacionId == cocinaUbicacionUsuario();
       allow update, delete: if false;
+    }
+
+    match /padron_personas/{id} {
+      allow read: if signedIn() && isHoteleriaCasposo();
+      allow create, update, delete: if signedIn() && isHoteleriaCasposo();
+    }
+
+    match /camas/{id} {
+      allow read: if signedIn() && isHoteleriaCasposo();
+      allow create, update, delete: if signedIn() && isHoteleriaCasposo();
+    }
+
+    match /historial_limpiezas/{id} {
+      allow read: if signedIn() && isHoteleriaCasposo();
+      allow create: if signedIn() && isHoteleriaCasposo();
+      allow update, delete: if false;
+    }
+
+    match /historial_pernoctes/{id} {
+      allow read: if signedIn() && isHoteleriaCasposo();
+      allow create, update, delete: if signedIn() && isHoteleriaCasposo();
     }
 
     match /{document=**} {

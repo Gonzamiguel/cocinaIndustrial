@@ -25,6 +25,7 @@ function parseRol(raw: unknown): UserRole | null {
     raw === 'admin_cocina' ||
     raw === 'admin_deposito' ||
     raw === 'admin_campamento' ||
+    raw === 'hoteleria_casposo' ||
     raw === 'analista'
   ) {
     return raw
@@ -58,7 +59,9 @@ export function LoginPage() {
             ? '/deposito/movimientos'
             : rol === 'admin_campamento'
               ? '/campamento/recepcion'
-              : '/analista/dashboard',
+              : rol === 'hoteleria_casposo'
+                ? '/hoteleria/mapa'
+                : '/analista/dashboard',
         { replace: true },
       )
     }
@@ -134,6 +137,15 @@ export function LoginPage() {
         navigate(from, { replace: true })
         return
       }
+      if (from === '/hoteleria' || from?.startsWith('/hoteleria/')) {
+        if (rolLeído !== 'hoteleria_casposo') {
+          await signOut(auth)
+          setError('No tenés permiso para acceder a esa sección.')
+          return
+        }
+        navigate(from, { replace: true })
+        return
+      }
 
       if (rolLeído === 'admin_cocina') {
         navigate('/admin/pedidos', { replace: true })
@@ -141,6 +153,8 @@ export function LoginPage() {
         navigate('/deposito/movimientos', { replace: true })
       } else if (rolLeído === 'admin_campamento') {
         navigate('/campamento/recepcion', { replace: true })
+      } else if (rolLeído === 'hoteleria_casposo') {
+        navigate('/hoteleria/mapa', { replace: true })
       } else {
         navigate('/analista/dashboard', { replace: true })
       }
