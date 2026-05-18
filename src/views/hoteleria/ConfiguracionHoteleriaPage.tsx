@@ -136,7 +136,7 @@ export function ConfiguracionHoteleriaPage() {
     'min-h-10 flex-1 rounded-lg px-3 text-sm font-medium transition sm:flex-none sm:px-5'
 
   return (
-    <div className="flex min-h-full w-full flex-col bg-neutral-100">
+    <div className="flex min-h-full w-full flex-col bg-neutral-50">
       <div className="mx-auto flex w-full max-w-[1600px] flex-1 flex-col px-4 py-4 sm:px-6 lg:px-8">
         <div className="mb-4 flex flex-wrap gap-2 rounded-2xl border border-neutral-200 bg-white p-1.5 shadow-sm">
           <button
@@ -144,7 +144,7 @@ export function ConfiguracionHoteleriaPage() {
             onClick={() => setTab('masivo')}
             className={`${tabBtn} ${
               tab === 'masivo'
-                ? 'bg-orange-600 text-white shadow-sm'
+                ? 'bg-[#CD1818] text-white shadow-sm'
                 : 'text-neutral-600 hover:bg-neutral-50'
             }`}
           >
@@ -155,7 +155,7 @@ export function ConfiguracionHoteleriaPage() {
             onClick={() => setTab('gestion')}
             className={`${tabBtn} ${
               tab === 'gestion'
-                ? 'bg-orange-600 text-white shadow-sm'
+                ? 'bg-[#CD1818] text-white shadow-sm'
                 : 'text-neutral-600 hover:bg-neutral-50'
             }`}
           >
@@ -172,7 +172,7 @@ export function ConfiguracionHoteleriaPage() {
                   value={sector}
                   onChange={(e) => setSector(e.target.value)}
                   placeholder="Ej. Nave A"
-                  className="mt-1 w-full min-h-11 rounded-xl border border-neutral-200 px-3 text-sm outline-none focus:border-orange-400 focus:ring-2 focus:ring-orange-500/20"
+                  className="mt-1 w-full min-h-11 rounded-xl border border-neutral-200 px-3 text-sm outline-none focus:border-[#CD1818]/40 focus:ring-2 focus:ring-[#CD1818]/15"
                 />
               </label>
               <label className="block">
@@ -181,7 +181,7 @@ export function ConfiguracionHoteleriaPage() {
                   value={habitacion}
                   onChange={(e) => setHabitacion(e.target.value)}
                   placeholder="Ej. A-101"
-                  className="mt-1 w-full min-h-11 rounded-xl border border-neutral-200 px-3 text-sm outline-none focus:border-orange-400 focus:ring-2 focus:ring-orange-500/20"
+                  className="mt-1 w-full min-h-11 rounded-xl border border-neutral-200 px-3 text-sm outline-none focus:border-[#CD1818]/40 focus:ring-2 focus:ring-[#CD1818]/15"
                 />
               </label>
             </div>
@@ -194,7 +194,7 @@ export function ConfiguracionHoteleriaPage() {
                 <button
                   type="button"
                   onClick={agregarFilaDenominacion}
-                  className="text-sm font-medium text-orange-700 hover:text-orange-900"
+                  className="text-sm font-medium text-[#CD1818] hover:text-[#171717]"
                 >
                   + Agregar
                 </button>
@@ -206,7 +206,7 @@ export function ConfiguracionHoteleriaPage() {
                       value={den}
                       onChange={(e) => setDenominacionEn(i, e.target.value)}
                       placeholder={`Ej. ${i === 0 ? 'Baja 1' : 'Alta 1'}`}
-                      className="min-h-10 flex-1 rounded-xl border border-neutral-200 px-3 text-sm outline-none focus:border-orange-400 focus:ring-2 focus:ring-orange-500/20"
+                      className="min-h-10 flex-1 rounded-xl border border-neutral-200 px-3 text-sm outline-none focus:border-[#CD1818]/40 focus:ring-2 focus:ring-[#CD1818]/15"
                     />
                     <button
                       type="button"
@@ -226,7 +226,7 @@ export function ConfiguracionHoteleriaPage() {
                 type="button"
                 onClick={() => void guardarMasivo()}
                 disabled={busy}
-                className="inline-flex min-h-11 items-center justify-center rounded-xl bg-orange-600 px-6 text-sm font-semibold text-white shadow-sm transition hover:bg-orange-700 disabled:opacity-50"
+                className="inline-flex min-h-11 items-center justify-center rounded-xl bg-[#CD1818] px-6 text-sm font-semibold text-white shadow-sm transition hover:bg-[#b01414] disabled:opacity-50"
               >
                 {busy ? 'Guardando…' : 'Guardar camas'}
               </button>

@@ -132,7 +132,7 @@ export function PadronPage() {
   }
 
   return (
-    <div className="min-h-full w-full bg-neutral-100">
+    <div className="min-h-full w-full bg-neutral-50">
       <div className="mx-auto w-full max-w-[1600px] px-4 py-6 sm:px-6 lg:px-8">
         <section className="rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
@@ -143,7 +143,7 @@ export function PadronPage() {
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
                 placeholder="Ej. 30123456 o García"
-                className="mt-1.5 w-full min-h-11 rounded-xl border border-neutral-200 bg-white px-3 text-sm text-neutral-900 outline-none transition focus:border-orange-400 focus:ring-2 focus:ring-orange-500/20"
+                className="mt-1.5 w-full min-h-11 rounded-xl border border-neutral-200 bg-white px-3 text-sm text-neutral-900 outline-none transition focus:border-[#CD1818]/40 focus:ring-2 focus:ring-[#CD1818]/15"
               />
             </label>
             <div className="flex shrink-0 flex-wrap gap-2">
@@ -157,7 +157,7 @@ export function PadronPage() {
               <button
                 type="button"
                 onClick={abrirModalNueva}
-                className="inline-flex min-h-11 items-center justify-center rounded-xl border border-orange-300 bg-white px-5 text-sm font-semibold text-orange-800 shadow-sm transition hover:bg-orange-50"
+                className="inline-flex min-h-11 items-center justify-center rounded-xl border border-[#CD1818]/30 bg-white px-5 text-sm font-semibold text-[#CD1818] shadow-sm transition hover:bg-[#CD1818]/5"
               >
                 Nueva persona
               </button>
@@ -165,7 +165,7 @@ export function PadronPage() {
                 type="button"
                 onClick={onPickExcel}
                 disabled={importing}
-                className="inline-flex min-h-11 items-center justify-center rounded-xl bg-orange-600 px-5 text-sm font-semibold text-white shadow-sm transition hover:bg-orange-700 disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex min-h-11 items-center justify-center rounded-xl bg-[#CD1818] px-5 text-sm font-semibold text-white shadow-sm transition hover:bg-[#b01414] disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {importing ? 'Importando…' : 'Importar Excel'}
               </button>
@@ -227,7 +227,7 @@ export function PadronPage() {
                 <input
                   value={npDni}
                   onChange={(e) => setNpDni(e.target.value)}
-                  className="mt-1 w-full min-h-10 rounded-xl border border-neutral-200 px-3 text-sm font-mono outline-none focus:border-orange-400 focus:ring-2 focus:ring-orange-500/20"
+                  className="mt-1 w-full min-h-10 rounded-xl border border-neutral-200 px-3 text-sm font-mono outline-none focus:border-[#CD1818]/40 focus:ring-2 focus:ring-[#CD1818]/15"
                   placeholder="Sin puntos"
                   autoComplete="off"
                 />
@@ -237,7 +237,7 @@ export function PadronPage() {
                 <input
                   value={npNombre}
                   onChange={(e) => setNpNombre(e.target.value)}
-                  className="mt-1 w-full min-h-10 rounded-xl border border-neutral-200 px-3 text-sm outline-none focus:border-orange-400 focus:ring-2 focus:ring-orange-500/20"
+                  className="mt-1 w-full min-h-10 rounded-xl border border-neutral-200 px-3 text-sm outline-none focus:border-[#CD1818]/40 focus:ring-2 focus:ring-[#CD1818]/15"
                 />
               </label>
               <label className="block">
@@ -245,7 +245,7 @@ export function PadronPage() {
                 <input
                   value={npApellido}
                   onChange={(e) => setNpApellido(e.target.value)}
-                  className="mt-1 w-full min-h-10 rounded-xl border border-neutral-200 px-3 text-sm outline-none focus:border-orange-400 focus:ring-2 focus:ring-orange-500/20"
+                  className="mt-1 w-full min-h-10 rounded-xl border border-neutral-200 px-3 text-sm outline-none focus:border-[#CD1818]/40 focus:ring-2 focus:ring-[#CD1818]/15"
                 />
               </label>
               <label className="block">
@@ -253,7 +253,7 @@ export function PadronPage() {
                 <input
                   value={npEmpresa}
                   onChange={(e) => setNpEmpresa(e.target.value)}
-                  className="mt-1 w-full min-h-10 rounded-xl border border-neutral-200 px-3 text-sm outline-none focus:border-orange-400 focus:ring-2 focus:ring-orange-500/20"
+                  className="mt-1 w-full min-h-10 rounded-xl border border-neutral-200 px-3 text-sm outline-none focus:border-[#CD1818]/40 focus:ring-2 focus:ring-[#CD1818]/15"
                 />
               </label>
             </div>
@@ -269,7 +269,7 @@ export function PadronPage() {
                 type="button"
                 onClick={() => void guardarNuevaPersona()}
                 disabled={guardandoPersona}
-                className="rounded-xl bg-orange-600 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-700 disabled:opacity-50"
+                className="rounded-xl bg-[#CD1818] px-4 py-2 text-sm font-semibold text-white hover:bg-[#b01414] disabled:opacity-50"
               >
                 {guardandoPersona ? 'Guardando…' : 'Guardar'}
               </button>

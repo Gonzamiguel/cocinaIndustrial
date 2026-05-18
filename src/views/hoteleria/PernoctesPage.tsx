@@ -113,7 +113,7 @@ export function PernoctesPage() {
   }
 
   return (
-    <div className="min-h-full w-full bg-neutral-100">
+    <div className="min-h-full w-full bg-neutral-50">
       <div className="mx-auto w-full max-w-[1600px] px-4 py-6 sm:px-6 lg:px-8">
         <section className="rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
@@ -127,7 +127,7 @@ export function PernoctesPage() {
                   value={desde}
                   onChange={(e) => setDesde(e.target.value)}
                   required
-                  className="mt-1 block min-h-11 min-w-[11rem] rounded-xl border border-neutral-200 px-3 text-sm outline-none focus:border-orange-400 focus:ring-2 focus:ring-orange-500/20"
+                  className="mt-1 block min-h-11 min-w-[11rem] rounded-xl border border-neutral-200 px-3 text-sm outline-none focus:border-[#CD1818]/40 focus:ring-2 focus:ring-[#CD1818]/15"
                 />
               </label>
               <label className="block">
@@ -139,7 +139,7 @@ export function PernoctesPage() {
                   value={hasta}
                   onChange={(e) => setHasta(e.target.value)}
                   required
-                  className="mt-1 block min-h-11 min-w-[11rem] rounded-xl border border-neutral-200 px-3 text-sm outline-none focus:border-orange-400 focus:ring-2 focus:ring-orange-500/20"
+                  className="mt-1 block min-h-11 min-w-[11rem] rounded-xl border border-neutral-200 px-3 text-sm outline-none focus:border-[#CD1818]/40 focus:ring-2 focus:ring-[#CD1818]/15"
                 />
               </label>
             </div>
@@ -147,7 +147,7 @@ export function PernoctesPage() {
               type="button"
               onClick={exportarExcel}
               disabled={!rangoValido || !filasDetalle.length}
-              className="inline-flex min-h-11 items-center justify-center self-start rounded-xl bg-orange-600 px-5 text-sm font-semibold text-white shadow-sm transition hover:bg-orange-700 disabled:cursor-not-allowed disabled:opacity-45"
+              className="inline-flex min-h-11 items-center justify-center self-start rounded-xl bg-[#CD1818] px-5 text-sm font-semibold text-white shadow-sm transition hover:bg-[#b01414] disabled:cursor-not-allowed disabled:opacity-45"
             >
               Exportar a Excel
             </button>

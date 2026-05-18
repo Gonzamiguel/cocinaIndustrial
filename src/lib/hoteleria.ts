@@ -266,6 +266,32 @@ export function subscribeHistorialPernoctes(
   )
 }
 
+/** Auditoría de limpiezas (SUCIA → LIBRE). Orden descendente por fecha. */
+export function subscribeHistorialLimpiezas(
+  onChange: (rows: HistorialLimpieza[]) => void,
+): Unsubscribe {
+  const db = getDb()
+  const q = query(
+    collection(db, COL_HISTORIAL_LIMPIEZAS),
+    orderBy('fechaLimpieza', 'desc'),
+    limit(8000),
+  )
+  return onSnapshotDeferred(
+    q,
+    (snap) => {
+      const rows: HistorialLimpieza[] = []
+      snap.forEach((d) =>
+        rows.push(mapHistorialLimpieza(d.id, d.data() as Record<string, unknown>)),
+      )
+      onChange(rows)
+    },
+    (err) => {
+      logErrorSuscripcion('historial_limpiezas', err as FirestoreErrorish)
+      onChange([])
+    },
+  )
+}
+
 /** Busca persona por DNI exacto (normalizado a mayúsculas, como en importaciones). */
 export async function buscarPersonaPorDni(dni: string): Promise<PadronPersona | null> {
   const d = dni.trim().toUpperCase()

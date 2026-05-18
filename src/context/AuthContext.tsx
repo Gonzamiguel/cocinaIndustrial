@@ -21,6 +21,7 @@ export type UserRole =
   | 'admin_deposito'
   | 'admin_campamento'
   | 'hoteleria_casposo'
+  | 'terminal_comedor'
   | 'analista'
 
 const USUARIOS_COLLECTION = 'usuarios'
@@ -31,6 +32,7 @@ function parseRol(raw: unknown): UserRole | null {
     raw === 'admin_deposito' ||
     raw === 'admin_campamento' ||
     raw === 'hoteleria_casposo' ||
+    raw === 'terminal_comedor' ||
     raw === 'analista'
   ) {
     return raw

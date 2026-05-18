@@ -26,6 +26,7 @@ function parseRol(raw: unknown): UserRole | null {
     raw === 'admin_deposito' ||
     raw === 'admin_campamento' ||
     raw === 'hoteleria_casposo' ||
+    raw === 'terminal_comedor' ||
     raw === 'analista'
   ) {
     return raw
@@ -61,7 +62,9 @@ export function LoginPage() {
               ? '/campamento/recepcion'
               : rol === 'hoteleria_casposo'
                 ? '/hoteleria/mapa'
-                : '/analista/dashboard',
+                : rol === 'terminal_comedor'
+                  ? '/comedor'
+                  : '/analista/dashboard',
         { replace: true },
       )
     }
@@ -146,6 +149,15 @@ export function LoginPage() {
         navigate(from, { replace: true })
         return
       }
+      if (from === '/comedor' || from?.startsWith('/comedor/')) {
+        if (rolLeído !== 'terminal_comedor') {
+          await signOut(auth)
+          setError('No tenés permiso para acceder a esa sección.')
+          return
+        }
+        navigate(from, { replace: true })
+        return
+      }
 
       if (rolLeído === 'admin_cocina') {
         navigate('/admin/pedidos', { replace: true })
@@ -155,6 +167,8 @@ export function LoginPage() {
         navigate('/campamento/recepcion', { replace: true })
       } else if (rolLeído === 'hoteleria_casposo') {
         navigate('/hoteleria/mapa', { replace: true })
+      } else if (rolLeído === 'terminal_comedor') {
+        navigate('/comedor', { replace: true })
       } else {
         navigate('/analista/dashboard', { replace: true })
       }

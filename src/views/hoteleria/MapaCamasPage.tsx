@@ -67,7 +67,7 @@ function estilosCama(estado: Cama['estado']): string {
     case 'MANTENIMIENTO':
       return 'bg-gray-100 border-gray-400 hover:brightness-[1.02]'
     default:
-      return 'bg-neutral-100 border-neutral-300'
+      return 'bg-neutral-50 border-neutral-300'
   }
 }
 
@@ -808,14 +808,14 @@ export function MapaCamasPage() {
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col bg-neutral-100">
+    <div className="flex min-h-0 flex-1 flex-col bg-neutral-50">
       <div className="mx-auto w-full max-w-[1600px] flex-1 px-3 py-3 sm:px-5 sm:py-4">
         {camas.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-neutral-300 bg-white p-12 text-center text-sm text-neutral-600">
             No hay camas cargadas. Configurá plazas en{' '}
             <Link
               to="/hoteleria/configuracion"
-              className="font-semibold text-orange-700 underline-offset-2 hover:underline"
+              className="font-semibold text-[#CD1818] underline-offset-2 hover:underline"
             >
               Configuración de campamento
             </Link>
@@ -834,8 +834,8 @@ export function MapaCamasPage() {
                   aria-checked={isMultiSelectMode}
                   aria-labelledby="label-multi"
                   onClick={() => setIsMultiSelectMode((v) => !v)}
-                  className={`relative inline-flex h-8 w-14 shrink-0 items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-offset-2 ${
-                    isMultiSelectMode ? 'bg-orange-500' : 'bg-neutral-300'
+                  className={`relative inline-flex h-8 w-14 shrink-0 items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#CD1818] focus-visible:ring-offset-2 ${
+                    isMultiSelectMode ? 'bg-[#CD1818]' : 'bg-neutral-300'
                   }`}
                 >
                   <span
@@ -865,10 +865,10 @@ export function MapaCamasPage() {
                     role="tab"
                     aria-selected={activo}
                     onClick={() => setSectorActivo(sector)}
-                    className={`shrink-0 rounded-xl px-4 py-2.5 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400 focus-visible:ring-offset-2 ${
+                    className={`shrink-0 rounded-xl px-4 py-2.5 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#CD1818]/40 focus-visible:ring-offset-2 ${
                       activo
-                        ? 'bg-orange-500 text-white shadow-sm'
-                        : 'border border-neutral-200 bg-white text-neutral-600 hover:border-orange-200 hover:bg-orange-50/60 hover:text-orange-900'
+                        ? 'bg-[#CD1818] text-white shadow-sm'
+                        : 'border border-neutral-200 bg-white text-neutral-600 hover:border-[#CD1818]/20 hover:bg-[#CD1818]/5 hover:text-[#171717]'
                     }`}
                   >
                     {sector}
@@ -908,13 +908,13 @@ export function MapaCamasPage() {
                                   onClick={() => handleClicCama(c)}
                                   className={`relative flex min-h-[5.5rem] w-[7.5rem] flex-col items-center justify-center rounded-xl border-2 px-2 py-2 text-center text-xs shadow-sm transition ${estilosCama(c.estado)} ${
                                     sel
-                                      ? 'z-[1] ring-4 ring-blue-600 ring-offset-2 ring-offset-white'
+                                      ? 'z-[1] ring-4 ring-[#CD1818] ring-offset-2 ring-offset-white'
                                       : ''
                                   }`}
                                 >
                                   {sel ? (
                                     <span
-                                      className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-blue-600 text-[10px] font-bold text-white shadow"
+                                      className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-[#CD1818] text-[10px] font-bold text-white shadow"
                                       aria-hidden
                                     >
                                       ✓
@@ -1010,14 +1010,14 @@ export function MapaCamasPage() {
                     setDniCheckIn(e.target.value)
                     setPersonaCheckIn(null)
                   }}
-                  className="min-h-10 flex-1 rounded-xl border border-neutral-200 px-3 text-sm font-mono outline-none focus:border-orange-400 focus:ring-2 focus:ring-orange-500/20"
+                  className="min-h-10 flex-1 rounded-xl border border-neutral-200 px-3 text-sm font-mono outline-none focus:border-[#CD1818]/40 focus:ring-2 focus:ring-[#CD1818]/15"
                   placeholder="Sin puntos"
                 />
                 <button
                   type="button"
                   onClick={() => void buscarDni()}
                   disabled={busy}
-                  className="shrink-0 rounded-xl bg-orange-600 px-4 text-sm font-semibold text-white hover:bg-orange-700 disabled:opacity-50"
+                  className="shrink-0 rounded-xl bg-[#CD1818] px-4 text-sm font-semibold text-white hover:bg-[#b01414] disabled:opacity-50"
                 >
                   Buscar
                 </button>
@@ -1060,7 +1060,7 @@ export function MapaCamasPage() {
                 type="button"
                 onClick={() => void confirmarCheckIn()}
                 disabled={busy}
-                className="rounded-xl bg-orange-600 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-700 disabled:opacity-50"
+                className="rounded-xl bg-[#CD1818] px-4 py-2 text-sm font-semibold text-white hover:bg-[#b01414] disabled:opacity-50"
               >
                 Confirmar check-in
               </button>
@@ -1102,21 +1102,21 @@ export function MapaCamasPage() {
               <button
                 type="button"
                 onClick={() => setModoOcupada('estadia')}
-                className={`min-w-0 flex-1 rounded-lg py-2 text-xs font-semibold sm:text-sm ${modoOcupada === 'estadia' ? 'bg-white text-orange-800 shadow-sm' : 'text-neutral-600'}`}
+                className={`min-w-0 flex-1 rounded-lg py-2 text-xs font-semibold sm:text-sm ${modoOcupada === 'estadia' ? 'bg-white text-[#CD1818] shadow-sm' : 'text-neutral-600'}`}
               >
                 Editar estadía
               </button>
               <button
                 type="button"
                 onClick={() => setModoOcupada('traslado')}
-                className={`min-w-0 flex-1 rounded-lg py-2 text-xs font-semibold sm:text-sm ${modoOcupada === 'traslado' ? 'bg-white text-orange-800 shadow-sm' : 'text-neutral-600'}`}
+                className={`min-w-0 flex-1 rounded-lg py-2 text-xs font-semibold sm:text-sm ${modoOcupada === 'traslado' ? 'bg-white text-[#CD1818] shadow-sm' : 'text-neutral-600'}`}
               >
                 Trasladar
               </button>
               <button
                 type="button"
                 onClick={() => setModoOcupada('checkout_real')}
-                className={`min-w-0 flex-1 rounded-lg py-2 text-xs font-semibold sm:text-sm ${modoOcupada === 'checkout_real' ? 'bg-white text-orange-800 shadow-sm' : 'text-neutral-600'}`}
+                className={`min-w-0 flex-1 rounded-lg py-2 text-xs font-semibold sm:text-sm ${modoOcupada === 'checkout_real' ? 'bg-white text-[#CD1818] shadow-sm' : 'text-neutral-600'}`}
               >
                 Check-out real
               </button>
@@ -1212,7 +1212,7 @@ export function MapaCamasPage() {
                   type="button"
                   onClick={() => void guardarFechaSalidaEstimadaEdicion()}
                   disabled={busy}
-                  className="rounded-xl bg-orange-600 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-700 disabled:opacity-50"
+                  className="rounded-xl bg-[#CD1818] px-4 py-2 text-sm font-semibold text-white hover:bg-[#b01414] disabled:opacity-50"
                 >
                   Guardar estimación
                 </button>
@@ -1222,7 +1222,7 @@ export function MapaCamasPage() {
                   type="button"
                   onClick={() => void confirmarTrasladoDesdeModal()}
                   disabled={busy}
-                  className="rounded-xl bg-orange-600 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-700 disabled:opacity-50"
+                  className="rounded-xl bg-[#CD1818] px-4 py-2 text-sm font-semibold text-white hover:bg-[#b01414] disabled:opacity-50"
                 >
                   Confirmar traslado
                 </button>
@@ -1258,7 +1258,7 @@ export function MapaCamasPage() {
                 type="text"
                 value={responsableLimpieza}
                 onChange={(e) => setResponsableLimpieza(e.target.value)}
-                className="mt-1 w-full min-h-10 rounded-xl border border-neutral-200 px-3 text-sm outline-none focus:border-orange-400"
+                className="mt-1 w-full min-h-10 rounded-xl border border-neutral-200 px-3 text-sm outline-none focus:border-[#CD1818]/40"
                 placeholder="Nombre y apellido o legajo"
                 autoComplete="off"
               />
@@ -1278,7 +1278,7 @@ export function MapaCamasPage() {
                 type="button"
                 onClick={() => void confirmarRegistroLimpiezaIndividual()}
                 disabled={busy}
-                className="rounded-xl bg-orange-600 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-700 disabled:opacity-50"
+                className="rounded-xl bg-[#CD1818] px-4 py-2 text-sm font-semibold text-white hover:bg-[#b01414] disabled:opacity-50"
               >
                 Confirmar limpieza
               </button>
@@ -1306,7 +1306,7 @@ export function MapaCamasPage() {
                 type="button"
                 onClick={() => void liberarMantenimiento()}
                 disabled={busy}
-                className="rounded-xl bg-orange-600 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-700 disabled:opacity-50"
+                className="rounded-xl bg-[#CD1818] px-4 py-2 text-sm font-semibold text-white hover:bg-[#b01414] disabled:opacity-50"
               >
                 Marcar disponible
               </button>
@@ -1328,7 +1328,7 @@ export function MapaCamasPage() {
                   type="button"
                   onClick={abrirModalMasivoCheckin}
                   disabled={busy}
-                  className="rounded-xl bg-orange-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-orange-700 disabled:opacity-50"
+                  className="rounded-xl bg-[#CD1818] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[#b01414] disabled:opacity-50"
                 >
                   Check-in masivo
                 </button>
@@ -1339,7 +1339,7 @@ export function MapaCamasPage() {
                     type="button"
                     onClick={abrirModalMasivoCheckout}
                     disabled={busy}
-                    className="rounded-xl bg-orange-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-orange-700 disabled:opacity-50"
+                    className="rounded-xl bg-[#CD1818] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[#b01414] disabled:opacity-50"
                   >
                     Check-out masivo
                   </button>
@@ -1347,7 +1347,7 @@ export function MapaCamasPage() {
                     type="button"
                     onClick={abrirModalMasivoTraslado}
                     disabled={busy}
-                    className="rounded-xl border border-orange-300 bg-orange-50 px-4 py-2 text-sm font-semibold text-orange-900 hover:bg-orange-100 disabled:opacity-50"
+                    className="rounded-xl border border-[#CD1818]/30 bg-[#CD1818]/5 px-4 py-2 text-sm font-semibold text-[#171717] hover:bg-[#CD1818]/10 disabled:opacity-50"
                   >
                     Trasladar seleccionadas
                   </button>
@@ -1358,7 +1358,7 @@ export function MapaCamasPage() {
                   type="button"
                   onClick={abrirModalMasivoLimpieza}
                   disabled={busy}
-                  className="rounded-xl bg-amber-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-amber-700 disabled:opacity-50"
+                  className="rounded-xl bg-[#CD1818] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[#b01414] disabled:opacity-50"
                 >
                   Marcar limpias (masivo)
                 </button>
@@ -1446,7 +1446,7 @@ export function MapaCamasPage() {
                                 setMasivoPersona((prev) => ({ ...prev, [c.id]: null }))
                                 setMasivoCheckinCamaIdsConError([])
                               }}
-                              className={`min-h-9 w-full min-w-[8rem] rounded-lg border px-2 font-mono text-xs outline-none focus:border-orange-400 ${
+                              className={`min-h-9 w-full min-w-[8rem] rounded-lg border px-2 font-mono text-xs outline-none focus:border-[#CD1818]/40 ${
                                 filaConError
                                   ? 'border-red-500 ring-2 ring-red-200'
                                   : 'border-neutral-200'
@@ -1457,7 +1457,7 @@ export function MapaCamasPage() {
                               type="button"
                               onClick={() => void buscarDniMasivoFila(c.id)}
                               disabled={busy}
-                              className="shrink-0 rounded-lg bg-orange-600 px-2 py-1.5 text-xs font-semibold text-white hover:bg-orange-700 disabled:opacity-50"
+                              className="shrink-0 rounded-lg bg-[#CD1818] px-2 py-1.5 text-xs font-semibold text-white hover:bg-[#b01414] disabled:opacity-50"
                             >
                               Buscar
                             </button>
@@ -1496,7 +1496,7 @@ export function MapaCamasPage() {
                 type="button"
                 onClick={() => void confirmarMasivoCheckin()}
                 disabled={busy}
-                className="rounded-xl bg-orange-600 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-700 disabled:opacity-50"
+                className="rounded-xl bg-[#CD1818] px-4 py-2 text-sm font-semibold text-white hover:bg-[#b01414] disabled:opacity-50"
               >
                 Confirmar check-in masivo
               </button>
@@ -1539,7 +1539,7 @@ export function MapaCamasPage() {
                 type="button"
                 onClick={() => void confirmarMasivoCheckout()}
                 disabled={busy}
-                className="rounded-xl bg-orange-600 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-700 disabled:opacity-50"
+                className="rounded-xl bg-[#CD1818] px-4 py-2 text-sm font-semibold text-white hover:bg-[#b01414] disabled:opacity-50"
               >
                 Confirmar
               </button>
@@ -1569,7 +1569,7 @@ export function MapaCamasPage() {
                 type="text"
                 value={responsableLimpieza}
                 onChange={(e) => setResponsableLimpieza(e.target.value)}
-                className="mt-1 w-full min-h-10 rounded-xl border border-neutral-200 px-3 text-sm outline-none focus:border-orange-400"
+                className="mt-1 w-full min-h-10 rounded-xl border border-neutral-200 px-3 text-sm outline-none focus:border-[#CD1818]/40"
                 placeholder="Nombre y apellido o legajo"
                 autoComplete="off"
               />
@@ -1589,7 +1589,7 @@ export function MapaCamasPage() {
                 type="button"
                 onClick={() => void confirmarRegistroLimpiezaMasivo()}
                 disabled={busy}
-                className="rounded-xl bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700 disabled:opacity-50"
+                className="rounded-xl bg-[#CD1818] px-4 py-2 text-sm font-semibold text-white hover:bg-[#b01414] disabled:opacity-50"
               >
                 Confirmar limpieza
               </button>
@@ -1683,7 +1683,7 @@ export function MapaCamasPage() {
                 type="button"
                 onClick={() => void confirmarMasivoTraslado()}
                 disabled={busy}
-                className="rounded-xl bg-orange-600 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-700 disabled:opacity-50"
+                className="rounded-xl bg-[#CD1818] px-4 py-2 text-sm font-semibold text-white hover:bg-[#b01414] disabled:opacity-50"
               >
                 Confirmar traslados
               </button>

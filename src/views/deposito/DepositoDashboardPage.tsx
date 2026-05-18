@@ -393,7 +393,7 @@ export function DepositoDashboardPage() {
                       const vencido = lote.diasRestantes < 0
                       const classFecha = vencido
                         ? 'text-[#CD1818]'
-                        : 'text-orange-600'
+                        : 'text-[#CD1818]'
 
                       return (
                         <tr key={`${lote.insumoId}-${lote.lote}-${lote.fechaVencimiento}`}>

@@ -1,3 +1,4 @@
+import { lazy, Suspense } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { ProtectedRoute } from './components/ProtectedRoute'
 import { LayoutAdmin } from './layouts/LayoutAdmin'
@@ -5,6 +6,7 @@ import { LayoutAnalista } from './layouts/LayoutAnalista'
 import { LayoutCampamento } from './layouts/LayoutCampamento'
 import { LayoutDeposito } from './layouts/LayoutDeposito'
 import { LayoutHoteleria } from './layouts/LayoutHoteleria'
+import { LayoutComedor } from './layouts/LayoutComedor'
 import { AdminMenuPage } from './views/admin/AdminMenuPage'
 import { AdminPedidosPage } from './views/admin/AdminPedidosPage'
 import { AdminRecetarioPage } from './views/admin/AdminRecetarioPage'
@@ -29,10 +31,17 @@ import { CampamentoNuevaComandaPage } from './views/campamento/CampamentoNuevaCo
 import { CampamentoInventarioPage } from './views/campamento/CampamentoInventarioPage'
 import { CampamentoRecepcionPage } from './views/campamento/CampamentoRecepcionPage'
 import { CampamentoSolicitudPage } from './views/campamento/CampamentoSolicitudPage'
+import { DashboardComensalesPage } from './views/campamento/DashboardComensalesPage'
 import { ConfiguracionHoteleriaPage } from './views/hoteleria/ConfiguracionHoteleriaPage'
 import { MapaCamasPage } from './views/hoteleria/MapaCamasPage'
 import { PadronPage } from './views/hoteleria/PadronPage'
 import { PernoctesPage } from './views/hoteleria/PernoctesPage'
+import { ReporteLimpiezaPage } from './views/hoteleria/ReporteLimpiezaPage'
+const TerminalComensalesPage = lazy(() =>
+  import('./views/comedor/TerminalComensalesPage').then((m) => ({
+    default: m.TerminalComensalesPage,
+  })),
+)
 
 export default function App() {
   return (
@@ -112,6 +121,7 @@ export default function App() {
         <Route path="inventario" element={<CampamentoInventarioPage />} />
         <Route path="comandas/nueva" element={<CampamentoNuevaComandaPage />} />
         <Route path="comandas" element={<CampamentoComandasPage />} />
+        <Route path="comensales" element={<DashboardComensalesPage />} />
       </Route>
 
       <Route
@@ -126,7 +136,32 @@ export default function App() {
         <Route path="mapa" element={<MapaCamasPage />} />
         <Route path="padron" element={<PadronPage />} />
         <Route path="pernoctes" element={<PernoctesPage />} />
+        <Route path="reporte-limpieza" element={<ReporteLimpiezaPage />} />
         <Route path="configuracion" element={<ConfiguracionHoteleriaPage />} />
+      </Route>
+
+      <Route
+        path="/comedor"
+        element={
+          <ProtectedRoute rolesPermitidos={['terminal_comedor']}>
+            <LayoutComedor />
+          </ProtectedRoute>
+        }
+      >
+        <Route
+          index
+          element={
+            <Suspense
+              fallback={
+                <div className="flex h-dvh items-center justify-center bg-neutral-900 text-neutral-400">
+                  Cargando terminal…
+                </div>
+              }
+            >
+              <TerminalComensalesPage />
+            </Suspense>
+          }
+        />
       </Route>
 
       <Route

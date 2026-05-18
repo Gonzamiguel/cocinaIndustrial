@@ -47,6 +47,16 @@ service cloud.firestore {
       return hasRole('hoteleria_casposo');
     }
 
+    /** Terminal de comensales (modo quiosco en acceso al comedor). */
+    function isTerminalComedor() {
+      return hasRole('terminal_comedor');
+    }
+
+    function servicioComedorValido(s) {
+      return s == 'DESAYUNO' || s == 'ALMUERZO' || s == 'MERIENDA' || s == 'CENA'
+        || s == 'CENA_NOCHERO' || s == 'FUERA DE HORARIO';
+    }
+
     /** Staff con documento en `usuarios` (excluye solo anónimos sin rol). */
     function staffLeerInsumos() {
       return isAdminDeposito() || isAnalista() || isAdminCampamento() || isAdminCocina();
@@ -201,8 +211,34 @@ service cloud.firestore {
     }
 
     match /padron_personas/{id} {
-      allow read: if signedIn() && isHoteleriaCasposo();
+      allow read: if signedIn() && (isHoteleriaCasposo() || isTerminalComedor());
       allow create, update, delete: if signedIn() && isHoteleriaCasposo();
+    }
+
+    match /registros_comedor/{id} {
+      allow read: if signedIn() && (isTerminalComedor() || isAdminCampamento());
+      allow create: if signedIn() && isTerminalComedor()
+        && request.resource.data.keys().hasAll([
+          'dni', 'nombre', 'apellido', 'empresa', 'servicio', 'diaOperativo', 'fechaHora', 'usuarioRegistro'
+        ])
+        && request.resource.data.dni is string
+        && request.resource.data.nombre is string
+        && request.resource.data.apellido is string
+        && request.resource.data.empresa is string
+        && request.resource.data.diaOperativo is string
+        && request.resource.data.diaOperativo.size() == 10
+        && request.resource.data.usuarioRegistro is string
+        && servicioComedorValido(request.resource.data.servicio)
+        && request.resource.data.usuarioRegistro == request.auth.uid
+        && (
+          request.resource.data.fechaHora is timestamp
+          || request.resource.data.fechaHora == request.time
+        )
+        && (
+          !request.resource.data.keys().hasAny(['contieneRefrigerio'])
+          || request.resource.data.contieneRefrigerio is bool
+        );
+      allow update, delete: if false;
     }
 
     match /camas/{id} {

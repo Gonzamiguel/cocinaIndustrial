@@ -1,6 +1,7 @@
 import type { SVGProps } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
+import { ConnectionStatus } from '../layout/ConnectionStatus'
 
 type IconProps = SVGProps<SVGSVGElement>
 
@@ -32,6 +33,16 @@ function IconChart(props: IconProps) {
   )
 }
 
+function IconBroom(props: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" {...props}>
+      <path d="M4 20h16" />
+      <path d="M6 18l8-14 4 2-8 14H6z" />
+      <path d="m14 6 2.5 1.25M10 12l1.5.75" />
+    </svg>
+  )
+}
+
 function IconSettings(props: IconProps) {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" {...props}>
@@ -52,10 +63,10 @@ function IconLogout(props: IconProps) {
 }
 
 const linkClass = ({ isActive }: { isActive: boolean }) =>
-  `group flex w-full items-center justify-between rounded-xl px-4 py-3 text-sm font-medium transition outline-none focus-visible:ring-2 focus-visible:ring-orange-500/30 focus-visible:ring-offset-2 focus-visible:ring-offset-white ${
+  `group flex w-full items-center justify-between rounded-xl px-4 py-3 text-sm font-medium transition-all duration-300 outline-none focus-visible:ring-2 focus-visible:ring-[#CD1818]/25 focus-visible:ring-offset-2 focus-visible:ring-offset-white ${
     isActive
-      ? 'bg-orange-50 text-orange-800 ring-1 ring-orange-200'
-      : 'text-neutral-700 hover:bg-neutral-50 hover:text-orange-800'
+      ? 'bg-[#CD1818]/10 text-[#CD1818] ring-1 ring-[#CD1818]/20'
+      : 'text-neutral-600 hover:bg-neutral-50 hover:text-[#CD1818]'
   }`
 
 export function HoteleriaSidebar() {
@@ -68,15 +79,17 @@ export function HoteleriaSidebar() {
   }
 
   return (
-    <aside className="flex w-full shrink-0 flex-col border-b border-neutral-200 bg-white shadow-sm md:w-64 md:border-b-0 md:border-r md:border-neutral-200 lg:w-72">
+    <aside className="relative flex shrink-0 flex-col overflow-visible border-b border-neutral-200 bg-white shadow-[0_1px_0_rgba(0,0,0,0.06)] md:w-64 md:border-b-0 md:border-r lg:w-72">
       <div className="border-b border-neutral-100 px-5 py-5">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-neutral-500">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-neutral-500">
           Hotelería y campamento
         </p>
-        <p className="mt-1 text-lg font-semibold tracking-tight text-orange-700">
+        <p className="mt-1.5 text-lg font-semibold tracking-tight text-[#CD1818]">
           Casposo
         </p>
+        <ConnectionStatus />
       </div>
+
       <nav
         className="flex flex-1 gap-1 overflow-x-auto px-2 py-4 md:flex-col md:overflow-visible md:px-3"
         aria-label="Hotelería"
@@ -84,7 +97,7 @@ export function HoteleriaSidebar() {
         <NavLink to="/hoteleria/mapa" className={linkClass}>
           <span className="flex min-w-0 items-center gap-3">
             <span
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-orange-100 text-orange-700"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#CD1818]/12 text-[#CD1818]"
               aria-hidden
             >
               <IconBed className="h-[18px] w-[18px]" />
@@ -95,7 +108,7 @@ export function HoteleriaSidebar() {
         <NavLink to="/hoteleria/padron" className={linkClass}>
           <span className="flex min-w-0 items-center gap-3">
             <span
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-orange-100 text-orange-700"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#CD1818]/12 text-[#CD1818]"
               aria-hidden
             >
               <IconUsers className="h-[18px] w-[18px]" />
@@ -106,7 +119,7 @@ export function HoteleriaSidebar() {
         <NavLink to="/hoteleria/pernoctes" className={linkClass}>
           <span className="flex min-w-0 items-center gap-3">
             <span
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-orange-100 text-orange-700"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#CD1818]/12 text-[#CD1818]"
               aria-hidden
             >
               <IconChart className="h-[18px] w-[18px]" />
@@ -114,10 +127,21 @@ export function HoteleriaSidebar() {
             <span className="truncate">Reporte de pernoctes</span>
           </span>
         </NavLink>
+        <NavLink to="/hoteleria/reporte-limpieza" className={linkClass}>
+          <span className="flex min-w-0 items-center gap-3">
+            <span
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#CD1818]/12 text-[#CD1818]"
+              aria-hidden
+            >
+              <IconBroom className="h-[18px] w-[18px]" />
+            </span>
+            <span className="truncate">Auditoría de limpieza</span>
+          </span>
+        </NavLink>
         <NavLink to="/hoteleria/configuracion" className={linkClass}>
           <span className="flex min-w-0 items-center gap-3">
             <span
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-orange-100 text-orange-700"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#CD1818]/12 text-[#CD1818]"
               aria-hidden
             >
               <IconSettings className="h-[18px] w-[18px]" />
@@ -126,11 +150,12 @@ export function HoteleriaSidebar() {
           </span>
         </NavLink>
       </nav>
-      <div className="border-t border-neutral-100 p-3">
+
+      <div className="mt-auto border-t border-neutral-100 p-3">
         <button
           type="button"
           onClick={() => void handleCerrarSesion()}
-          className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium text-neutral-600 transition hover:bg-neutral-50 hover:text-orange-800"
+          className="flex w-full items-center gap-3 rounded-xl border border-neutral-200 bg-white px-4 py-3 text-sm font-medium text-[#CD1818] transition hover:bg-[#CD1818]/5"
         >
           <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-neutral-100 text-neutral-600">
             <IconLogout className="h-[18px] w-[18px]" />

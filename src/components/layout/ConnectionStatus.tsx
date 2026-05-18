@@ -53,7 +53,7 @@ export function ConnectionStatus() {
   if (firebaseSyncing) {
     return (
       <div
-        className="mt-3 rounded-lg border border-sky-200/90 bg-sky-50 px-3 py-2 text-xs font-medium leading-snug text-sky-950"
+        className="mt-3 rounded-lg border border-neutral-200 bg-neutral-100 px-3 py-2 text-xs font-medium leading-snug text-neutral-800"
         role="status"
       >
         Conectado · sincronizando cambios pendientes con Firebase…

@@ -1,4 +1,4 @@
-import { ClipboardList, Database, PackageCheck, PackagePlus } from 'lucide-react'
+import { BarChart3, ClipboardList, Database, PackageCheck, PackagePlus } from 'lucide-react'
 import type { SVGProps } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
@@ -36,6 +36,11 @@ const navItems = [
     to: '/campamento/comandas',
     label: 'Comandas de consumo diario',
     Icon: ClipboardList,
+  },
+  {
+    to: '/campamento/comensales',
+    label: 'Control de Comensales',
+    Icon: BarChart3,
   },
 ] as const
 
