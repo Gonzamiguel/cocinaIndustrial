@@ -7,6 +7,18 @@ export type ServicioComedor =
   | 'CENA_NOCHERO'
   | 'FUERA DE HORARIO'
 
+/** Valor fijo de `usuarioRegistro` para altas manuales desde el dashboard de campamento. */
+export const USUARIO_REGISTRO_SUPERVISOR_MANUAL = 'Carga Manual Supervisor'
+
+/** Servicios que puede forzar el guardia cuando el reloj marca fuera de franja. */
+export const SERVICIOS_COMEDOR_FORZABLES: ServicioComedor[] = [
+  'DESAYUNO',
+  'ALMUERZO',
+  'MERIENDA',
+  'CENA',
+  'CENA_NOCHERO',
+]
+
 /** Registro de acceso al comedor (`registros_comedor`). */
 export interface RegistroComedor {
   id: string
@@ -21,4 +33,6 @@ export interface RegistroComedor {
   diaOperativo: string
   fechaHora: Date | null
   usuarioRegistro: string
+  /** Motivo o nota (p. ej. carga manual desde dashboard). */
+  observaciones?: string
 }

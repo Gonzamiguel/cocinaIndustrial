@@ -1,4 +1,7 @@
-import { calcularStockPorInsumo, type MovimientoInventario } from './movimientosInventario'
+import {
+  calcularStockPorInsumo,
+  type MovimientoInventario,
+} from './movimientosInventario'
 import { formatLabelInsumo, type Insumo } from './insumos'
 
 export type FilaMovimientoAnalista = {
@@ -64,6 +67,27 @@ export function detalleMovimientoAnalista(movimiento: MovimientoInventario): str
   return movimiento.motivo || '—'
 }
 
+/** Destino / receptor / comanda para trazabilidad logística en reportes. */
+export function textoDestinoTrazabilidad(movimiento: MovimientoInventario): string {
+  if (movimiento.tipo === 'INGRESO') {
+    return movimiento.proveedor?.trim() || '—'
+  }
+  if (movimiento.tipo === 'EGRESO') {
+    const partes: string[] = []
+    const dest = movimiento.destino?.trim()
+    if (dest) partes.push(dest)
+    const ub = movimiento.ubicacionDestino?.trim()
+    if (ub) partes.push(`Receptor: ${ub}`)
+    const obs = movimiento.observacionesComanda?.trim()
+    if (obs) partes.push(`Comanda/obs.: ${obs}`)
+    return partes.length ? partes.join(' · ') : '—'
+  }
+  if (movimiento.tipo === 'DECOMISO' || movimiento.tipo === 'AJUSTE') {
+    return movimiento.motivo?.trim() || '—'
+  }
+  return '—'
+}
+
 function costoUnitarioFila(
   movimiento: MovimientoInventario,
   insumo: Insumo | undefined,
@@ -99,7 +123,7 @@ export function buildFilasMovimientoAnalista(
         subrubro: insumo?.subrubro || '—',
         cantidad: Number(item.cantidad) || 0,
         unidad: insumo?.unidadBase || '—',
-        destino: detalleMovimientoAnalista(movimiento),
+        destino: textoDestinoTrazabilidad(movimiento),
         costoUnitario,
         subtotal: (Number(item.cantidad) || 0) * costoUnitario,
         chofer: movimiento.transporte?.chofer || '—',

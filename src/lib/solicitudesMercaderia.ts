@@ -208,6 +208,34 @@ export function subscribeSolicitudesMercaderia(
   )
 }
 
+/** Suscripción en tiempo real a un único documento (pantalla de detalle). */
+export function subscribeSolicitudMercaderiaPorId(
+  id: string,
+  onChange: (row: SolicitudMercaderia | null) => void,
+): Unsubscribe {
+  const sid = id.trim()
+  if (!sid) {
+    onChange(null)
+    return () => {}
+  }
+  const db = getDb()
+  const ref = doc(db, COLLECTION_SOLICITUDES, sid)
+  return onSnapshot(
+    ref,
+    (snap) => {
+      if (!snap.exists()) {
+        onChange(null)
+        return
+      }
+      onChange(mapDoc(snap.id, snap.data() as Record<string, unknown>))
+    },
+    (err) => {
+      console.error('subscribeSolicitudMercaderiaPorId', err)
+      onChange(null)
+    },
+  )
+}
+
 export async function crearSolicitudMercaderia(
   input: CrearSolicitudMercaderiaInput,
 ): Promise<void> {

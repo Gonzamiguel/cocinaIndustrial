@@ -291,32 +291,68 @@ export function InventarioUbicacionPanel({
   }
 
   function exportarInventarioLocalExcel() {
+    /** Primera hoja: una fila por lote (o una fila sin lote si no hay trazabilidad). Columnas fijas en orden. */
+    const headerPorLote = [
+      'Insumo',
+      'Marca',
+      'Fecha de vto',
+      'Lote',
+      'Cantidad',
+      'Unidad base',
+    ] as const
+    const filasPorLote: (string | number)[][] = filasFiltradas.flatMap((f) => {
+      if (f.lotes.length === 0) {
+        return [
+          [
+            f.insumo.nombreGenerico,
+            f.insumo.marca,
+            '—',
+            '—',
+            f.stockTotal,
+            f.insumo.unidadBase,
+          ],
+        ]
+      }
+      return f.lotes.map((l) => [
+        f.insumo.nombreGenerico,
+        f.insumo.marca,
+        formatFechaVencimiento(l.fechaVencimiento),
+        l.lote?.trim() ? l.lote.trim() : '—',
+        l.stock,
+        f.insumo.unidadBase,
+      ])
+    })
+    const aoaPorLote = [
+      [...headerPorLote],
+      ...(filasPorLote.length ? filasPorLote : [['—', '—', '—', '—', '—', 'Sin datos con los filtros actuales']]),
+    ]
+    const wsPorLote = XLSX.utils.aoa_to_sheet(aoaPorLote)
+    wsPorLote['!cols'] = [
+      { wch: 28 },
+      { wch: 18 },
+      { wch: 14 },
+      { wch: 16 },
+      { wch: 12 },
+      { wch: 12 },
+    ]
+
     const rowsResumen = filasFiltradas.map((f) => ({
+      Ubicacion: ub,
       Insumo: f.insumo.nombreGenerico,
       Marca: f.insumo.marca,
       Rubro: f.insumo.rubro,
       Subrubro: f.insumo.subrubro,
-      'Unidad base': f.insumo.unidadBase,
       'Stock total': f.stockTotal,
+      'Unidad base': f.insumo.unidadBase,
+      'Cantidad de lotes': f.lotes.length,
     }))
-    const rowsLotes = filasFiltradas.flatMap((f) =>
-      f.lotes.map((l) => ({
-        Insumo: f.insumo.nombreGenerico,
-        Marca: f.insumo.marca,
-        Lote: l.lote,
-        Vencimiento: l.fechaVencimiento ?? '',
-        Stock: l.stock,
-      })),
-    )
+
     const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, wsPorLote, 'Por lote')
     const wsResumen = XLSX.utils.json_to_sheet(
       rowsResumen.length ? rowsResumen : [{ Mensaje: 'Sin datos' }],
     )
     XLSX.utils.book_append_sheet(wb, wsResumen, 'Resumen')
-    const wsLotes = XLSX.utils.json_to_sheet(
-      rowsLotes.length ? rowsLotes : [{ Mensaje: 'Sin lotes' }],
-    )
-    XLSX.utils.book_append_sheet(wb, wsLotes, 'Lotes')
     const pad = (n: number) => String(n).padStart(2, '0')
     const now = new Date()
     const suf = ub ? `_${ub}` : ''
@@ -438,8 +474,8 @@ export function InventarioUbicacionPanel({
             <tr className="border-b border-neutral-200 text-xs uppercase tracking-wide text-[#8997A6]">
               <th className="w-14 px-4 py-3">Abrir</th>
               <th className="px-4 py-3">Insumo</th>
-              <th className="px-4 py-3">Unidad base</th>
               <th className="px-4 py-3 text-right">Stock total</th>
+              <th className="px-4 py-3">Unidad base</th>
             </tr>
           </thead>
 
@@ -503,16 +539,16 @@ export function InventarioUbicacionPanel({
                         </div>
                       </td>
 
-                      <td className="whitespace-nowrap px-4 py-3 text-[#171717]">
-                        {fila.insumo.unidadBase}
-                      </td>
-
                       <td
                         className={`px-4 py-3 text-right text-base font-bold tabular-nums ${
                           stockAgotado ? 'text-[#CD1818]' : 'text-[#171717]'
                         }`}
                       >
                         {formatCantidad(fila.stockTotal)}
+                      </td>
+
+                      <td className="whitespace-nowrap px-4 py-3 text-[#171717]">
+                        {fila.insumo.unidadBase}
                       </td>
                     </tr>
 

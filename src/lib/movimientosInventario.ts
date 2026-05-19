@@ -51,6 +51,12 @@ export type OpcionesSuscripcionMovimientos = {
   fechaDesde?: Date | null
   /** Fin del rango (inclusive, fin del día local). */
   fechaHasta?: Date | null
+  /**
+   * Solo aplica en `subscribeMovimientosInventarioPorUbicacion`:
+   * si es `true`, se omiten filtros por `ubicacionId` y se usa la misma consulta global que
+   * `subscribeMovimientosInventario` (p. ej. roles `analista` / `gerencia`; ver `esRolVisionGlobalLectura` en `rbac.ts`).
+   */
+  visionGlobal?: boolean
 }
 
 /** Sin fecha desde: los N movimientos más recientes (tope Firestore: {@link FIRESTORE_QUERY_LIMIT_MAX}). */
@@ -1384,6 +1390,51 @@ export function subscribeMovimientosInventario(
   )
 }
 
+/** Fila materializada de `saldo_lotes` (stock por ubicación / insumo / lote). */
+export type SaldoLoteResumen = {
+  id: string
+  ubicacionId: string
+  insumoId: string
+  loteKey: string
+  cantidad: number
+}
+
+/**
+ * Suscripción en vivo a toda la colección `saldo_lotes` (uso típico: BI / valorización).
+ * Ojo costo Firestore si el volumen de documentos crece mucho.
+ */
+export function subscribeSaldoLotes(onChange: (rows: SaldoLoteResumen[]) => void): Unsubscribe {
+  const db = getDb()
+  return onSnapshot(
+    collection(db, COLLECTION_SALDO_LOTES),
+    (snap) => {
+      const rows: SaldoLoteResumen[] = []
+      snap.forEach((d) => {
+        const data = d.data() as Record<string, unknown>
+        const cantidad = Number(data.cantidad)
+        if (!Number.isFinite(cantidad) || cantidad <= 0) return
+        const ubicacionId =
+          typeof data.ubicacionId === 'string' ? data.ubicacionId.trim().toUpperCase() : ''
+        const insumoId = typeof data.insumoId === 'string' ? data.insumoId.trim() : ''
+        const loteKey = typeof data.loteKey === 'string' ? data.loteKey.trim() : ''
+        if (!insumoId) return
+        rows.push({
+          id: d.id,
+          ubicacionId,
+          insumoId,
+          loteKey,
+          cantidad,
+        })
+      })
+      onChange(rows)
+    },
+    (err) => {
+      console.error('subscribeSaldoLotes', err)
+      onChange([])
+    },
+  )
+}
+
 /**
  * Movimientos cuya `ubicacionId` coincide con la sucursal (Kardex local).
  * Requiere índice compuesto `ubicacionId` + `fecha` en Firestore.
@@ -1393,6 +1444,10 @@ export function subscribeMovimientosInventarioPorUbicacion(
   onChange: (rows: MovimientoInventario[]) => void,
   opciones: OpcionesSuscripcionMovimientos = {},
 ): Unsubscribe {
+  if (opciones.visionGlobal) {
+    const { visionGlobal: _omit, ...rest } = opciones
+    return subscribeMovimientosInventario(onChange, rest)
+  }
   const db = getDb()
   const q = construirQueryMovimientosUbicacion(db, ubicacionId, opciones)
   return onSnapshot(

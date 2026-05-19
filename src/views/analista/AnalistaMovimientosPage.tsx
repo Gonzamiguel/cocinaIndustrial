@@ -50,7 +50,7 @@ function exportarDataset(rows: FilaMovimientoAnalista[]) {
     Subrubro: row.subrubro,
     Cantidad: row.cantidad,
     Unidad: row.unidad,
-    Destino: row.destino,
+    'Destino / receptor': row.destino,
     'Costo Unitario': row.costoUnitario,
     Subtotal: row.subtotal,
     Chofer: row.chofer,
@@ -137,17 +137,18 @@ export function AnalistaMovimientosPage() {
       <header className="shrink-0 border-b border-gray-200 bg-white px-5 py-5 shadow-sm sm:px-8 xl:px-10">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <h1 className="text-xl font-semibold tracking-tight text-[#CD1818]">
-              Reporte maestro de movimientos
+            <h1 className="text-xl font-semibold tracking-tight text-gray-900">
+              Historial y logística
             </h1>
-            <p className="mt-1 text-sm text-[#8997A6]">
-              Dataset analítico con una fila por ítem para cruces de costos, logística y consumo.
+            <p className="mt-1 text-sm text-gray-600">
+              Base analítica de `movimientos_inventario`: una fila por ítem, con destino / receptor /
+              comanda para trazabilidad de camiones y stock.
             </p>
           </div>
           <button
             type="button"
             onClick={() => exportarDataset(filasFiltradas)}
-            className="inline-flex min-h-11 items-center justify-center rounded-xl bg-[#CD1818] px-5 text-sm font-semibold text-white shadow-sm transition hover:brightness-105"
+            className="inline-flex min-h-11 items-center justify-center rounded-lg bg-red-600 px-5 text-sm font-semibold text-white shadow-sm transition hover:bg-red-700"
           >
             Exportar dataset
           </button>
@@ -155,7 +156,7 @@ export function AnalistaMovimientosPage() {
       </header>
 
       <div className="flex min-h-0 flex-1 flex-col px-5 py-5 sm:px-8 lg:px-12 xl:px-16 2xl:px-20">
-        <section className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
+        <section className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
           <div className="grid gap-4 lg:grid-cols-3 xl:grid-cols-6">
             <label className="block">
               <span className="text-xs font-medium uppercase tracking-wide text-[#8997A6]">
@@ -253,7 +254,7 @@ export function AnalistaMovimientosPage() {
           </div>
         </section>
 
-        <section className="mt-6 flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-gray-100 bg-white shadow-sm">
+        <section className="mt-6 flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
           <div className="border-b border-gray-100 px-5 py-4">
             <p className="text-xs uppercase tracking-wide text-[#8997A6]">
               {filasFiltradas.length.toLocaleString('es-AR')} filas visibles
@@ -269,7 +270,7 @@ export function AnalistaMovimientosPage() {
                   <th className="px-4 py-3">Rubro</th>
                   <th className="px-4 py-3">Cantidad</th>
                   <th className="px-4 py-3">Unidad</th>
-                  <th className="px-4 py-3">Destino</th>
+                  <th className="px-4 py-3">Destino / receptor</th>
                   <th className="px-4 py-3 text-right">Costo unitario</th>
                   <th className="px-4 py-3 text-right">Subtotal</th>
                   <th className="px-4 py-3">Chofer</th>

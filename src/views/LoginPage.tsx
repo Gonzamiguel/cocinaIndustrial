@@ -25,9 +25,11 @@ function parseRol(raw: unknown): UserRole | null {
     raw === 'admin_cocina' ||
     raw === 'admin_deposito' ||
     raw === 'admin_campamento' ||
+    raw === 'jefe_campamento' ||
     raw === 'hoteleria_casposo' ||
     raw === 'terminal_comedor' ||
-    raw === 'analista'
+    raw === 'analista' ||
+    raw === 'gerencia'
   ) {
     return raw
   }
@@ -58,7 +60,7 @@ export function LoginPage() {
           ? '/admin/pedidos'
           : rol === 'admin_deposito'
             ? '/deposito/movimientos'
-            : rol === 'admin_campamento'
+            : rol === 'admin_campamento' || rol === 'jefe_campamento'
               ? '/campamento/recepcion'
               : rol === 'hoteleria_casposo'
                 ? '/hoteleria/mapa'
@@ -123,7 +125,7 @@ export function LoginPage() {
         return
       }
       if (from === '/analista' || from?.startsWith('/analista/')) {
-        if (rolLeído !== 'analista') {
+        if (rolLeído !== 'analista' && rolLeído !== 'gerencia') {
           await signOut(auth)
           setError('No tenés permiso para acceder a esa sección.')
           return
@@ -132,7 +134,7 @@ export function LoginPage() {
         return
       }
       if (from === '/campamento' || from?.startsWith('/campamento/')) {
-        if (rolLeído !== 'admin_campamento') {
+        if (rolLeído !== 'admin_campamento' && rolLeído !== 'jefe_campamento') {
           await signOut(auth)
           setError('No tenés permiso para acceder a esa sección.')
           return
@@ -141,7 +143,7 @@ export function LoginPage() {
         return
       }
       if (from === '/hoteleria' || from?.startsWith('/hoteleria/')) {
-        if (rolLeído !== 'hoteleria_casposo') {
+        if (rolLeído !== 'hoteleria_casposo' && rolLeído !== 'jefe_campamento') {
           await signOut(auth)
           setError('No tenés permiso para acceder a esa sección.')
           return
@@ -163,7 +165,7 @@ export function LoginPage() {
         navigate('/admin/pedidos', { replace: true })
       } else if (rolLeído === 'admin_deposito') {
         navigate('/deposito/movimientos', { replace: true })
-      } else if (rolLeído === 'admin_campamento') {
+      } else if (rolLeído === 'admin_campamento' || rolLeído === 'jefe_campamento') {
         navigate('/campamento/recepcion', { replace: true })
       } else if (rolLeído === 'hoteleria_casposo') {
         navigate('/hoteleria/mapa', { replace: true })

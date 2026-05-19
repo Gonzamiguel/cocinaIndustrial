@@ -1,10 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react'
 import {
   subscribeInsumos,
   type Insumo,
 } from '../../lib/insumos'
+import { Eye, FileDown } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import { exportarSolicitudMercaderiaResumenPdf } from '../../lib/mercaderiaPdf'
 import {
-  confirmarRecepcionMercaderia,
   crearSolicitudMercaderia,
   estiloBadgeEstadoSolicitud,
   subscribeSolicitudesMercaderia,
@@ -51,6 +53,34 @@ function formatFechaCreacion(d: Date | null): string {
     minute: '2-digit',
   })
 }
+
+/** Filtro por fecha de creación (columna «Creación»), inclusive. */
+function startOfDayLocal(yyyyMmDd: string): number | null {
+  const t = yyyyMmDd.trim()
+  if (!t) return null
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(t)
+  if (!m) return null
+  const y = Number(m[1])
+  const mo = Number(m[2])
+  const d = Number(m[3])
+  if (!Number.isFinite(y) || !Number.isFinite(mo) || !Number.isFinite(d)) return null
+  return new Date(y, mo - 1, d, 0, 0, 0, 0).getTime()
+}
+
+function endOfDayLocal(yyyyMmDd: string): number | null {
+  const t = yyyyMmDd.trim()
+  if (!t) return null
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(t)
+  if (!m) return null
+  const y = Number(m[1])
+  const mo = Number(m[2])
+  const d = Number(m[3])
+  if (!Number.isFinite(y) || !Number.isFinite(mo) || !Number.isFinite(d)) return null
+  return new Date(y, mo - 1, d, 23, 59, 59, 999).getTime()
+}
+
+const inputFechaFiltroClass =
+  'min-h-9 rounded-lg border border-neutral-200 bg-white px-2 py-1.5 text-sm text-[#171717] shadow-sm outline-none transition focus:border-[#CD1818]/30 focus:ring-2 focus:ring-[#CD1818]/10'
 
 const PRIORIDADES: PrioridadSolicitud[] = ['Normal', 'Alta', 'Urgente']
 
@@ -201,10 +231,21 @@ function InsumoGenericoSearchSelect({
 export type AdminSolicitudMercaderiaPageProps = {
   /** En pestañas: sin encabezados duplicados ni contenedores extra. */
   variant?: 'standalone' | 'embedded'
+  /**
+   * Con `variant="embedded"`, el padre puede renderizar el botón «Nueva solicitud» y enlazarlo aquí.
+   * Si se define, no se muestra la barra duplicada del botón dentro de este componente.
+   */
+  nuevaSolicitudRef?: MutableRefObject<(() => void) | null>
+  /**
+   * Ruta base para ver el detalle en página completa (sin barra final). Ej. `/admin/mercaderia/solicitud`.
+   */
+  solicitudDetalleBasePath?: string
 }
 
 export function AdminSolicitudMercaderiaPage({
   variant = 'standalone',
+  nuevaSolicitudRef,
+  solicitudDetalleBasePath = '/admin/mercaderia/solicitud',
 }: AdminSolicitudMercaderiaPageProps) {
   const { ubicacionId } = useAuth()
   const { showToast } = useToast()
@@ -216,9 +257,8 @@ export function AdminSolicitudMercaderiaPage({
   const [fechaEntrega, setFechaEntrega] = useState('')
   const [prioridad, setPrioridad] = useState<PrioridadSolicitud>('Normal')
   const [filas, setFilas] = useState<FilaDraft[]>(() => [nuevaFila()])
-  const [detalleModalId, setDetalleModalId] = useState<string | null>(null)
-  const [obsRecepcionDraft, setObsRecepcionDraft] = useState('')
-  const [confirmandoRecepcion, setConfirmandoRecepcion] = useState(false)
+  const [fechaFiltroDesde, setFechaFiltroDesde] = useState('')
+  const [fechaFiltroHasta, setFechaFiltroHasta] = useState('')
 
   useEffect(() => {
     return subscribeSolicitudesMercaderia(setLista)
@@ -250,17 +290,12 @@ export function AdminSolicitudMercaderiaPage({
   }, [insumos])
 
   useEffect(() => {
-    setObsRecepcionDraft('')
-  }, [detalleModalId])
-
-  useEffect(() => {
-    if (!detalleModalId) return
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') setDetalleModalId(null)
+    if (variant !== 'embedded' || !nuevaSolicitudRef) return
+    nuevaSolicitudRef.current = () => setIsCreating(true)
+    return () => {
+      nuevaSolicitudRef.current = null
     }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [detalleModalId])
+  }, [variant, nuevaSolicitudRef])
 
   const solicitudesOrdenadas = useMemo(() => {
     return [...lista].sort((a, b) => {
@@ -270,10 +305,23 @@ export function AdminSolicitudMercaderiaPage({
     })
   }, [lista])
 
-  const solicitudEnDetalle = useMemo(() => {
-    if (!detalleModalId) return null
-    return solicitudesOrdenadas.find((x) => x.id === detalleModalId) ?? null
-  }, [detalleModalId, solicitudesOrdenadas])
+  const filtroFechaActivo = Boolean(
+    fechaFiltroDesde.trim().length > 0 || fechaFiltroHasta.trim().length > 0,
+  )
+
+  const solicitudesFiltradas = useMemo(() => {
+    const desdeT = startOfDayLocal(fechaFiltroDesde)
+    const hastaT = endOfDayLocal(fechaFiltroHasta)
+    if (desdeT == null && hastaT == null) return solicitudesOrdenadas
+
+    return solicitudesOrdenadas.filter((s) => {
+      const t = s.fechaCreacion?.getTime()
+      if (t == null) return false
+      if (desdeT != null && t < desdeT) return false
+      if (hastaT != null && t > hastaT) return false
+      return true
+    })
+  }, [solicitudesOrdenadas, fechaFiltroDesde, fechaFiltroHasta])
 
   function actualizarFila(i: number, parcial: Partial<FilaDraft>) {
     setFilas((prev) =>
@@ -287,26 +335,6 @@ export function AdminSolicitudMercaderiaPage({
 
   function quitarFila(i: number) {
     setFilas((prev) => (prev.length <= 1 ? prev : prev.filter((_, j) => j !== i)))
-  }
-
-  async function handleConfirmarRecepcion() {
-    if (!solicitudEnDetalle) return
-    setConfirmandoRecepcion(true)
-    try {
-      await confirmarRecepcionMercaderia(
-        solicitudEnDetalle.id,
-        obsRecepcionDraft,
-      )
-      showToast('Recepción confirmada. El pedido quedó como Recibido.')
-      setDetalleModalId(null)
-    } catch (err) {
-      showToast(
-        err instanceof Error ? err.message : 'No se pudo confirmar la recepción.',
-        'error',
-      )
-    } finally {
-      setConfirmandoRecepcion(false)
-    }
   }
 
   async function handleEnviar(e: React.FormEvent) {
@@ -373,6 +401,7 @@ export function AdminSolicitudMercaderiaPage({
   /** Vista historial: tabla a pantalla completa en el área de contenido */
   if (!isCreating) {
     const embedded = variant === 'embedded'
+    const toolbarExterno = Boolean(embedded && nuevaSolicitudRef)
     return (
       <div
         className={
@@ -381,7 +410,7 @@ export function AdminSolicitudMercaderiaPage({
             : 'flex min-h-full flex-1 flex-col bg-neutral-50'
         }
       >
-        {embedded ? (
+        {embedded && !toolbarExterno ? (
           <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
             <button
               type="button"
@@ -392,7 +421,7 @@ export function AdminSolicitudMercaderiaPage({
               Nueva solicitud
             </button>
           </div>
-        ) : (
+        ) : !embedded ? (
           <header className="shrink-0 border-b border-neutral-200 bg-white px-5 py-5 shadow-sm sm:px-8 xl:px-10">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div className="min-w-0">
@@ -413,7 +442,7 @@ export function AdminSolicitudMercaderiaPage({
               </button>
             </div>
           </header>
-        )}
+        ) : null}
 
         <div
           className={
@@ -425,27 +454,67 @@ export function AdminSolicitudMercaderiaPage({
           <div
             className={
               embedded
-                ? 'flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-neutral-200 bg-white'
+                ? 'flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-sm'
                 : 'flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm'
             }
           >
-            {embedded ? (
+            {embedded && !toolbarExterno ? (
               <div className="shrink-0 border-b border-neutral-100 px-3 py-2 text-xs text-[#8997A6]">
-                {solicitudesOrdenadas.length} registro
-                {solicitudesOrdenadas.length === 1 ? '' : 's'} · actualización en vivo
+                {solicitudesFiltradas.length} registro
+                {solicitudesFiltradas.length === 1 ? '' : 's'}
+                {filtroFechaActivo &&
+                solicitudesFiltradas.length !== solicitudesOrdenadas.length
+                  ? ` (de ${solicitudesOrdenadas.length})`
+                  : ''}
+                {filtroFechaActivo ? ' · filtro por fecha' : ''} · actualización en vivo
               </div>
-            ) : (
+            ) : !embedded ? (
               <div className="shrink-0 border-b border-neutral-100 px-5 py-4 sm:px-6">
                 <h2 className="text-sm font-semibold uppercase tracking-wide text-[#CD1818]">
                   Historial de solicitudes
                 </h2>
                 <p className="mt-0.5 text-xs text-[#8997A6]">
                   Actualización en vivo cuando el depósito cambia el estado u observaciones.
+                  Podés acotar por fecha de creación con «Desde» y «Hasta».
                 </p>
               </div>
-            )}
+            ) : null}
+            <div className="shrink-0 flex flex-wrap items-end gap-3 border-b border-neutral-100 bg-neutral-50/70 px-3 py-3 sm:px-5">
+              <label className="flex min-w-[9.5rem] flex-col gap-1">
+                <span className="text-xs font-medium text-[#8997A6]">Desde</span>
+                <input
+                  type="date"
+                  value={fechaFiltroDesde}
+                  onChange={(e) => setFechaFiltroDesde(e.target.value)}
+                  className={inputFechaFiltroClass}
+                />
+              </label>
+              <label className="flex min-w-[9.5rem] flex-col gap-1">
+                <span className="text-xs font-medium text-[#8997A6]">Hasta</span>
+                <input
+                  type="date"
+                  value={fechaFiltroHasta}
+                  onChange={(e) => setFechaFiltroHasta(e.target.value)}
+                  className={inputFechaFiltroClass}
+                />
+              </label>
+              {filtroFechaActivo ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFechaFiltroDesde('')
+                    setFechaFiltroHasta('')
+                  }}
+                  className="mb-0.5 inline-flex min-h-9 items-center justify-center rounded-lg border border-neutral-200 bg-white px-3 text-xs font-semibold text-[#8997A6] transition hover:border-[#CD1818]/30 hover:text-[#CD1818]"
+                >
+                  Quitar filtro
+                </button>
+              ) : null}
+            </div>
             <div className="min-h-0 flex-1 overflow-auto">
-              <table className="w-full min-w-[720px] border-collapse text-left text-sm">
+              <table
+                className={`w-full border-collapse text-left text-sm ${embedded ? 'min-w-[1200px]' : 'min-w-[720px]'}`}
+              >
                 <thead className="sticky top-0 z-10 shadow-sm">
                   <tr className="border-b border-gray-200 bg-gray-50 text-xs uppercase tracking-wide text-[#8997A6]">
                     <th className="px-4 py-3">Creación</th>
@@ -466,8 +535,18 @@ export function AdminSolicitudMercaderiaPage({
                         Todavía no hay solicitudes. Creá una con «Nueva solicitud».
                       </td>
                     </tr>
+                  ) : solicitudesFiltradas.length === 0 ? (
+                    <tr>
+                      <td
+                        colSpan={6}
+                        className="px-4 py-16 text-center text-[#8997A6]"
+                      >
+                        No hay solicitudes en el rango de fechas elegido. Probá ampliar
+                        «Desde» / «Hasta» o quitá el filtro.
+                      </td>
+                    </tr>
                   ) : (
-                    solicitudesOrdenadas.map((s) => (
+                    solicitudesFiltradas.map((s) => (
                       <tr key={s.id} className="hover:bg-neutral-50/80">
                         <td className="whitespace-nowrap px-4 py-3 text-[#171717]">
                           {formatFechaCreacion(s.fechaCreacion)}
@@ -508,27 +587,25 @@ export function AdminSolicitudMercaderiaPage({
                               {s.items.length}{' '}
                               {s.items.length === 1 ? 'insumo' : 'insumos'}
                             </span>
-                            <button
-                              type="button"
-                              onClick={() => setDetalleModalId(s.id)}
-                            className="inline-flex items-center gap-1.5 text-sm font-medium text-[#CD1818] underline-offset-4 transition hover:underline"
-                            >
-                              <svg
-                                xmlns="http://www.w3.org/2000/svg"
-                                viewBox="0 0 20 20"
-                                fill="currentColor"
-                                className="h-4 w-4 shrink-0 opacity-90"
-                                aria-hidden
+                            <div className="flex shrink-0 items-center gap-1">
+                              <Link
+                                to={`${solicitudDetalleBasePath.replace(/\/$/, '')}/${encodeURIComponent(s.id)}`}
+                                title="Ver detalle"
+                                aria-label="Ver detalle"
+                                className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-neutral-200 bg-white text-[#CD1818] shadow-sm transition hover:border-[#CD1818]/35 hover:bg-red-50/60"
                               >
-                                <path d="M10 12.5a2.5 2.5 0 100-5 2.5 2.5 0 000 5z" />
-                                <path
-                                  fillRule="evenodd"
-                                  d="M.664 10.59a1.651 1.651 0 010-1.186A11.007 11.007 0 014.702 4.62a11.003 11.003 0 0110.596 0 11.003 11.003 0 014.042 3.784 1.65 1.65 0 010 1.186 11.007 11.007 0 01-4.042 3.784 11.003 11.003 0 01-10.596 0 11.003 11.003 0 01-4.042-3.784zM14.016 10a4.017 4.017 0 10-8.035 0 4.017 4.017 0 008.035 0z"
-                                  clipRule="evenodd"
-                                />
-                              </svg>
-                              Ver detalle
-                            </button>
+                                <Eye className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
+                              </Link>
+                              <button
+                                type="button"
+                                title="Descargar PDF"
+                                aria-label="Descargar PDF"
+                                onClick={() => exportarSolicitudMercaderiaResumenPdf(s)}
+                                className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-neutral-200 bg-white text-[#171717] shadow-sm transition hover:border-[#CD1818]/35 hover:bg-neutral-50"
+                              >
+                                <FileDown className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
+                              </button>
+                            </div>
                           </div>
                         </td>
                         <td className="px-4 py-3 text-xs text-[#8997A6]">
@@ -544,208 +621,6 @@ export function AdminSolicitudMercaderiaPage({
             </div>
           </div>
         </div>
-
-        {solicitudEnDetalle ? (
-          <div
-            className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4 backdrop-blur-[2px]"
-            role="presentation"
-            onClick={() => setDetalleModalId(null)}
-          >
-            <div
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby="modal-detalle-solicitud-titulo"
-              className="flex max-h-[min(90vh,720px)] w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-xl"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="flex shrink-0 items-start justify-between gap-3 border-b border-neutral-100 px-5 py-4">
-                <h2
-                  id="modal-detalle-solicitud-titulo"
-                  className="text-lg font-semibold text-[#171717]"
-                >
-                  Detalle de la Solicitud
-                </h2>
-                <button
-                  type="button"
-                  onClick={() => setDetalleModalId(null)}
-                  className="rounded-lg p-1.5 text-neutral-500 transition hover:bg-neutral-100 hover:text-neutral-800"
-                  aria-label="Cerrar"
-                >
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    viewBox="0 0 20 20"
-                    fill="currentColor"
-                    className="h-5 w-5"
-                  >
-                    <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
-                  </svg>
-                </button>
-              </div>
-
-              <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
-                <dl className="grid gap-3 text-sm sm:grid-cols-2">
-                  <div>
-                    <dt className="text-xs font-medium text-[#8997A6]">
-                      Fecha de creación
-                    </dt>
-                    <dd className="mt-0.5 font-medium text-[#171717]">
-                      {formatFechaCreacion(solicitudEnDetalle.fechaCreacion)}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="text-xs font-medium text-[#8997A6]">
-                      Entrega esperada
-                    </dt>
-                    <dd className="mt-0.5 font-medium text-[#171717]">
-                      {solicitudEnDetalle.fechaEntregaEsperada || '—'}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="text-xs font-medium text-[#8997A6]">
-                      Prioridad
-                    </dt>
-                    <dd className="mt-1">
-                      <span
-                        className="inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold"
-                        style={{
-                          backgroundColor:
-                            solicitudEnDetalle.prioridad === 'Urgente'
-                              ? '#FEE2E2'
-                              : solicitudEnDetalle.prioridad === 'Alta'
-                                ? '#F3F4F6'
-                                : '#F9FAFB',
-                          color:
-                            solicitudEnDetalle.prioridad === 'Urgente'
-                              ? '#CD1818'
-                              : '#8997A6',
-                        }}
-                      >
-                        {solicitudEnDetalle.prioridad}
-                      </span>
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="text-xs font-medium text-[#8997A6]">
-                      Estado
-                    </dt>
-                    <dd className="mt-1">
-                      <span
-                        className="inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold"
-                        style={estiloBadgeEstadoSolicitud(
-                          solicitudEnDetalle.estado,
-                        )}
-                      >
-                        {solicitudEnDetalle.estado}
-                      </span>
-                    </dd>
-                  </div>
-                </dl>
-
-                {solicitudEnDetalle.observacionesDeposito?.trim() ? (
-                  <div className="mt-5 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-[#171717]">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-[#CD1818]">
-                      Observaciones del depósito
-                    </p>
-                    <p className="mt-1.5 leading-relaxed">
-                      {solicitudEnDetalle.observacionesDeposito}
-                    </p>
-                  </div>
-                ) : null}
-
-                {solicitudEnDetalle.observacionesRecepcion?.trim() ? (
-                  <div className="mt-5 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-[#171717]">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-[#8997A6]">
-                      Observaciones de recepción (cocina)
-                    </p>
-                    <p className="mt-1.5 leading-relaxed">
-                      {solicitudEnDetalle.observacionesRecepcion}
-                    </p>
-                  </div>
-                ) : null}
-
-                <div className="mt-6">
-                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[#CD1818]">
-                    Insumos
-                  </p>
-                  <div className="overflow-x-auto rounded-lg border border-neutral-200">
-                    <table className="w-full min-w-[620px] border-collapse text-left text-sm">
-                      <thead>
-                        <tr className="border-b border-neutral-200 bg-neutral-50 text-xs uppercase tracking-wide text-neutral-600">
-                          <th className="px-3 py-2 font-semibold">Producto</th>
-                          <th className="px-3 py-2 font-semibold">Cantidad</th>
-                          <th className="px-3 py-2 font-semibold">Unidad</th>
-                          <th className="px-3 py-2 font-semibold">
-                            Presentación
-                          </th>
-                          <th className="px-3 py-2 font-semibold">Observación</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-neutral-100">
-                        {solicitudEnDetalle.items.map((it, idx) => (
-                          <tr key={idx} className="bg-white">
-                            <td className="px-3 py-2 font-medium text-[#171717]">
-                              {it.producto}
-                            </td>
-                            <td className="px-3 py-2 tabular-nums text-[#171717]">
-                              {it.cantidad}
-                            </td>
-                            <td className="px-3 py-2 text-[#171717]">
-                              {it.unidadMedida}
-                            </td>
-                            <td className="px-3 py-2 text-[#171717]">
-                              {it.presentacion}
-                            </td>
-                            <td className="px-3 py-2 text-[#171717]">
-                              {it.observacion || '—'}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              </div>
-
-              {solicitudEnDetalle.estado === 'Enviado' ? (
-                <div className="shrink-0 border-t border-neutral-200 bg-neutral-50 px-5 py-4">
-                  <label className="block text-left">
-                    <span className="text-xs font-medium text-[#8997A6]">
-                      Observaciones de recepción{' '}
-                      <span className="font-normal text-[#8997A6]">(opcional)</span>
-                    </span>
-                    <textarea
-                      value={obsRecepcionDraft}
-                      onChange={(e) => setObsRecepcionDraft(e.target.value)}
-                      rows={2}
-                      placeholder='Ej. "Faltó 1 kg de tomate, el resto OK"'
-                      className="mt-1.5 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-[#171717] outline-none focus:border-[#CD1818]/30 focus:ring-2 focus:ring-[#CD1818]/10"
-                    />
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() => void handleConfirmarRecepcion()}
-                    disabled={confirmandoRecepcion}
-                    className="mt-4 flex min-h-12 w-full items-center justify-center rounded-xl bg-[#CD1818] px-5 text-base font-semibold text-white shadow-sm transition hover:brightness-105 disabled:opacity-45"
-                  >
-                    {confirmandoRecepcion
-                      ? 'Confirmando…'
-                      : 'Confirmar Recepción de Mercadería'}
-                  </button>
-                </div>
-              ) : null}
-
-              <div className="flex shrink-0 justify-end border-t border-neutral-100 bg-white px-5 py-4">
-                <button
-                  type="button"
-                  onClick={() => setDetalleModalId(null)}
-                  className="min-h-10 rounded-xl border border-gray-200 bg-white px-5 text-sm font-semibold text-[#171717] shadow-sm transition hover:bg-neutral-50"
-                >
-                  Cerrar
-                </button>
-              </div>
-            </div>
-          </div>
-        ) : null}
       </div>
     )
   }

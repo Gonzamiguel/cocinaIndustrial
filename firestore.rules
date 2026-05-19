@@ -42,6 +42,19 @@ service cloud.firestore {
       return hasRole('analista');
     }
 
+    function isGerencia() {
+      return hasRole('gerencia');
+    }
+
+    function isJefeCampamento() {
+      return hasRole('jefe_campamento');
+    }
+
+    /** Lectura transversal de datos operativos (sin silo por ubicación en la app). */
+    function visionGlobalLectura() {
+      return isAnalista() || isGerencia();
+    }
+
     /** Hotelería / campamento: mismo literal que en `AuthContext` y en el documento `usuarios/{uid}`. */
     function isHoteleriaCasposo() {
       return hasRole('hoteleria_casposo');
@@ -57,13 +70,77 @@ service cloud.firestore {
         || s == 'CENA_NOCHERO' || s == 'FUERA DE HORARIO';
     }
 
+    /** Carga retroactiva desde dashboard: no admite fuera de horario. */
+    function servicioComedorRetroManualValido(s) {
+      return s == 'DESAYUNO' || s == 'ALMUERZO' || s == 'MERIENDA' || s == 'CENA' || s == 'CENA_NOCHERO';
+    }
+
+    function fechaHoraRegistroComedorOk() {
+      return request.resource.data.fechaHora is timestamp
+        || request.resource.data.fechaHora == request.time;
+    }
+
+    function contieneRefrigerioRegistroComedorOk() {
+      return !request.resource.data.keys().hasAny(['contieneRefrigerio'])
+        || request.resource.data.contieneRefrigerio is bool;
+    }
+
+    function observacionesRegistroComedorOpcionalOk() {
+      return !request.resource.data.keys().hasAny(['observaciones'])
+        || (
+          request.resource.data.observaciones is string
+          && request.resource.data.observaciones.size() > 0
+          && request.resource.data.observaciones.size() <= 2000
+        );
+    }
+
+    function creacionRegistroComedorTerminal() {
+      return isTerminalComedor()
+        && request.resource.data.keys().hasAll([
+          'dni', 'nombre', 'apellido', 'empresa', 'servicio', 'diaOperativo', 'fechaHora', 'usuarioRegistro'
+        ])
+        && request.resource.data.dni is string
+        && request.resource.data.nombre is string
+        && request.resource.data.apellido is string
+        && request.resource.data.empresa is string
+        && request.resource.data.diaOperativo is string
+        && request.resource.data.diaOperativo.size() == 10
+        && request.resource.data.usuarioRegistro is string
+        && request.resource.data.usuarioRegistro == request.auth.uid
+        && servicioComedorValido(request.resource.data.servicio)
+        && fechaHoraRegistroComedorOk()
+        && contieneRefrigerioRegistroComedorOk()
+        && observacionesRegistroComedorOpcionalOk();
+    }
+
+    function creacionRegistroComedorSupervisor() {
+      return (isAdminCampamento() || isJefeCampamento())
+        && request.resource.data.keys().hasAll([
+          'dni', 'nombre', 'apellido', 'empresa', 'servicio', 'diaOperativo', 'fechaHora', 'usuarioRegistro',
+          'observaciones'
+        ])
+        && request.resource.data.dni is string
+        && request.resource.data.nombre is string
+        && request.resource.data.apellido is string
+        && request.resource.data.empresa is string
+        && request.resource.data.diaOperativo is string
+        && request.resource.data.diaOperativo.size() == 10
+        && request.resource.data.usuarioRegistro == 'Carga Manual Supervisor'
+        && request.resource.data.observaciones is string
+        && request.resource.data.observaciones.size() > 0
+        && request.resource.data.observaciones.size() <= 2000
+        && servicioComedorRetroManualValido(request.resource.data.servicio)
+        && fechaHoraRegistroComedorOk()
+        && contieneRefrigerioRegistroComedorOk();
+    }
+
     /** Staff con documento en `usuarios` (excluye solo anónimos sin rol). */
     function staffLeerInsumos() {
-      return isAdminDeposito() || isAnalista() || isAdminCampamento() || isAdminCocina();
+      return isAdminDeposito() || isAnalista() || isGerencia() || isAdminCampamento() || isJefeCampamento() || isAdminCocina();
     }
 
     function puedeLeerMovimientos() {
-      return isAdminDeposito() || isAnalista() || isAdminCampamento() || isAdminCocina();
+      return isAdminDeposito() || isAnalista() || isGerencia() || isAdminCampamento() || isJefeCampamento() || isAdminCocina();
     }
 
     /** Ubicación operativa del usuario campamento (fallback Casposo si no está en el doc). */
@@ -76,9 +153,9 @@ service cloud.firestore {
         : 'CASPOSO';
     }
 
-    /** Campamento: solo documentos cuya ubicación coincide con la del usuario. */
+    /** Campamento o jefe de campamento: solo documentos cuya ubicación coincide con la del usuario. */
     function campamentoUbicacionCoincide() {
-      return isAdminCampamento()
+      return (isAdminCampamento() || isJefeCampamento())
         && request.resource.data.keys().hasAny(['ubicacionId'])
         && request.resource.data.ubicacionId == campamentoUbicacionUsuario();
     }
@@ -114,7 +191,7 @@ service cloud.firestore {
         && resource.data.estadoTraslado == 'EN_TRANSITO'
         && resource.data.keys().hasAny(['ubicacionDestino'])
         && (
-          (isAdminCampamento() && resource.data.ubicacionDestino == campamentoUbicacionUsuario())
+          ((isAdminCampamento() || isJefeCampamento()) && resource.data.ubicacionDestino == campamentoUbicacionUsuario())
           || (isAdminCocina() && resource.data.ubicacionDestino == cocinaUbicacionUsuario())
         );
     }
@@ -150,7 +227,7 @@ service cloud.firestore {
     }
 
     match /pedidos/{pedidoId} {
-      allow read: if signedIn() && (isAdminCocina() || isAnalista());
+      allow read: if signedIn() && (isAdminCocina() || isAnalista() || isGerencia());
       allow create: if signedIn() && pedidoClienteValido();
       allow update: if isAdminCocina();
       allow delete: if isAdminCocina();
@@ -158,7 +235,7 @@ service cloud.firestore {
 
     match /insumos/{insumoId} {
       allow read: if signedIn() && staffLeerInsumos();
-      allow create, update, delete: if isAdminDeposito() || isAnalista();
+      allow create, update, delete: if isAdminDeposito() || isAnalista() || isGerencia();
     }
 
     match /categorias/{catId} {
@@ -167,14 +244,14 @@ service cloud.firestore {
     }
 
     match /recetario/{docId} {
-      allow read: if signedIn() && (isAdminCocina() || isAdminDeposito() || isAnalista());
+      allow read: if signedIn() && (isAdminCocina() || isAdminDeposito() || isAnalista() || isGerencia());
       allow create, update, delete: if isAdminCocina();
     }
 
     match /solicitudes_mercaderia/{id} {
-      allow read: if signedIn() && (isAdminCocina() || isAdminDeposito() || isAdminCampamento());
-      allow create: if isAdminCocina() || isAdminCampamento();
-      allow update: if isAdminCocina() || isAdminDeposito() || isAdminCampamento();
+      allow read: if signedIn() && (isAdminCocina() || isAdminDeposito() || isAdminCampamento() || isJefeCampamento() || isAnalista() || isGerencia());
+      allow create: if isAdminCocina() || isAdminCampamento() || isJefeCampamento();
+      allow update: if isAdminCocina() || isAdminDeposito() || isAdminCampamento() || isJefeCampamento();
       allow delete: if isAdminDeposito();
     }
 
@@ -199,7 +276,7 @@ service cloud.firestore {
     }
 
     match /produccion_cocina/{id} {
-      allow read: if signedIn() && (isAnalista() || isAdminDeposito() || isAdminCocina());
+      allow read: if signedIn() && (isAnalista() || isGerencia() || isAdminDeposito() || isAdminCocina());
       allow create: if signedIn() && isAdminCocina()
         && request.resource.data.keys().hasAll([
           'fecha', 'ubicacionId', 'recetaId', 'recetaNombre', 'cantidadPorciones',
@@ -211,50 +288,32 @@ service cloud.firestore {
     }
 
     match /padron_personas/{id} {
-      allow read: if signedIn() && (isHoteleriaCasposo() || isTerminalComedor());
-      allow create, update, delete: if signedIn() && isHoteleriaCasposo();
+      allow read: if signedIn() && (isHoteleriaCasposo() || isTerminalComedor() || isAdminCampamento() || isJefeCampamento() || visionGlobalLectura());
+      allow create, update, delete: if signedIn() && (isHoteleriaCasposo() || isJefeCampamento());
     }
 
     match /registros_comedor/{id} {
-      allow read: if signedIn() && (isTerminalComedor() || isAdminCampamento());
-      allow create: if signedIn() && isTerminalComedor()
-        && request.resource.data.keys().hasAll([
-          'dni', 'nombre', 'apellido', 'empresa', 'servicio', 'diaOperativo', 'fechaHora', 'usuarioRegistro'
-        ])
-        && request.resource.data.dni is string
-        && request.resource.data.nombre is string
-        && request.resource.data.apellido is string
-        && request.resource.data.empresa is string
-        && request.resource.data.diaOperativo is string
-        && request.resource.data.diaOperativo.size() == 10
-        && request.resource.data.usuarioRegistro is string
-        && servicioComedorValido(request.resource.data.servicio)
-        && request.resource.data.usuarioRegistro == request.auth.uid
-        && (
-          request.resource.data.fechaHora is timestamp
-          || request.resource.data.fechaHora == request.time
-        )
-        && (
-          !request.resource.data.keys().hasAny(['contieneRefrigerio'])
-          || request.resource.data.contieneRefrigerio is bool
-        );
+      allow read: if signedIn() && (isTerminalComedor() || isAdminCampamento() || isJefeCampamento() || visionGlobalLectura());
+      allow create: if signedIn() && (
+        creacionRegistroComedorTerminal() || creacionRegistroComedorSupervisor()
+      );
       allow update, delete: if false;
     }
 
     match /camas/{id} {
-      allow read: if signedIn() && isHoteleriaCasposo();
-      allow create, update, delete: if signedIn() && isHoteleriaCasposo();
+      allow read: if signedIn() && (isHoteleriaCasposo() || isJefeCampamento() || visionGlobalLectura());
+      allow create, update, delete: if signedIn() && (isHoteleriaCasposo() || isJefeCampamento());
     }
 
     match /historial_limpiezas/{id} {
-      allow read: if signedIn() && isHoteleriaCasposo();
-      allow create: if signedIn() && isHoteleriaCasposo();
+      allow read: if signedIn() && (isHoteleriaCasposo() || isJefeCampamento() || visionGlobalLectura());
+      allow create: if signedIn() && (isHoteleriaCasposo() || isJefeCampamento());
       allow update, delete: if false;
     }
 
     match /historial_pernoctes/{id} {
-      allow read: if signedIn() && isHoteleriaCasposo();
-      allow create, update, delete: if signedIn() && isHoteleriaCasposo();
+      allow read: if signedIn() && (isHoteleriaCasposo() || isJefeCampamento() || visionGlobalLectura());
+      allow create, update, delete: if signedIn() && (isHoteleriaCasposo() || isJefeCampamento());
     }
 
     match /{document=**} {
