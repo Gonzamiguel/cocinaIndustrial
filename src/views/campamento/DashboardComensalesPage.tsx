@@ -1,8 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import * as XLSX from 'xlsx'
 import { useToast } from '../../context/ToastContext'
+import type { PadronPersona } from '../../types/hoteleria'
 import type { RegistroComedor, ServicioComedor } from '../../types/comedor'
+import { SERVICIOS_COMEDOR_FORZABLES } from '../../types/comedor'
 import {
+  buscarPersonaPadronPorDni,
+  crearRegistroComedorRetroactivoSupervisor,
   SERVICIOS_COMEDOR_PRINCIPALES,
   subscribeRegistrosComedorPorRango,
 } from '../../lib/comedor'
@@ -64,6 +68,15 @@ export function DashboardComensalesPage() {
   const [servicioFiltro, setServicioFiltro] = useState<FiltroServicio>('TODOS')
   const [pagina, setPagina] = useState(1)
 
+  const [modalRetroAbierto, setModalRetroAbierto] = useState(false)
+  const [retroDni, setRetroDni] = useState('')
+  const [retroFechaOperativa, setRetroFechaOperativa] = useState(() => hoyYmdLocal())
+  const [retroServicio, setRetroServicio] = useState<ServicioComedor>('ALMUERZO')
+  const [retroObservaciones, setRetroObservaciones] = useState('')
+  const [retroPersona, setRetroPersona] = useState<PadronPersona | null>(null)
+  const [retroBuscando, setRetroBuscando] = useState(false)
+  const [retroGuardando, setRetroGuardando] = useState(false)
+
   const rangoValido = useMemo(() => Boolean(desde && hasta && desde <= hasta), [desde, hasta])
 
   useEffect(() => {
@@ -83,6 +96,79 @@ export function DashboardComensalesPage() {
   useEffect(() => {
     setPagina(1)
   }, [desde, hasta, empresaFiltro, servicioFiltro])
+
+  function abrirModalRetro() {
+    setRetroDni('')
+    setRetroFechaOperativa(hoyYmdLocal())
+    setRetroServicio('ALMUERZO')
+    setRetroObservaciones('')
+    setRetroPersona(null)
+    setModalRetroAbierto(true)
+  }
+
+  function cerrarModalRetro() {
+    setModalRetroAbierto(false)
+  }
+
+  async function buscarRetroPadron() {
+    const d = retroDni.trim().toUpperCase()
+    if (!d) {
+      showToast('Ingresá un DNI.', 'error')
+      return
+    }
+    setRetroBuscando(true)
+    setRetroPersona(null)
+    try {
+      const p = await buscarPersonaPadronPorDni(d)
+      if (!p) {
+        showToast('No se encontró en el padrón.', 'error')
+        return
+      }
+      setRetroPersona(p)
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : 'Error al consultar el padrón.', 'error')
+    } finally {
+      setRetroBuscando(false)
+    }
+  }
+
+  async function guardarRetroManual() {
+    if (!retroPersona) {
+      showToast('Buscá la persona en el padrón antes de guardar.', 'error')
+      return
+    }
+    const obs = retroObservaciones.trim()
+    if (!obs) {
+      showToast('Completá observaciones / motivo.', 'error')
+      return
+    }
+    const ymd = retroFechaOperativa.trim()
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) {
+      showToast('Fecha operativa inválida.', 'error')
+      return
+    }
+    setRetroGuardando(true)
+    try {
+      await crearRegistroComedorRetroactivoSupervisor({
+        persona: retroPersona,
+        servicio: retroServicio,
+        diaOperativo: ymd,
+        observaciones: obs,
+      })
+      const fueraDeGrilla = ymd < desde || ymd > hasta
+      showToast(
+        fueraDeGrilla
+          ? 'Registro manual guardado. Ajustá Desde / Hasta para verlo en la grilla (fecha fuera del rango actual).'
+          : 'Registro manual guardado.',
+        'success',
+      )
+      cerrarModalRetro()
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : 'No se pudo guardar.', 'error')
+    } finally {
+      setRetroGuardando(false)
+    }
+  }
 
   const empresasOpciones = useMemo(() => {
     const set = new Set<string>()
@@ -167,6 +253,7 @@ export function DashboardComensalesPage() {
       'Servicio',
       'Día operativo',
       'Usuario / dispositivo',
+      'Observaciones',
     ]
     const dataRows = filasOrdenadas.map((r) => [
       formatFechaHora(r.fechaHora),
@@ -177,6 +264,7 @@ export function DashboardComensalesPage() {
       etiquetaServicioComedor(r.servicio),
       r.diaOperativo,
       r.usuarioRegistro,
+      r.observaciones ?? '',
     ])
     const ws = XLSX.utils.aoa_to_sheet([header, ...dataRows])
     const wb = XLSX.utils.book_new()
@@ -203,6 +291,13 @@ export function DashboardComensalesPage() {
               (día operativo), empresa y servicio. Usá rangos acotados, por ejemplo un mes, para
               cargar más rápido.
             </p>
+            <button
+              type="button"
+              onClick={abrirModalRetro}
+              className="mt-4 inline-flex min-h-10 items-center justify-center rounded-xl border border-[#CD1818]/40 bg-[#CD1818]/5 px-4 text-sm font-semibold text-[#CD1818] transition hover:bg-[#CD1818]/10"
+            >
+              + Agregar Registro Manual (Retroactivo)
+            </button>
           </div>
 
           <div className="mt-6 flex flex-col gap-4 xl:flex-row xl:flex-wrap xl:items-end xl:justify-between">
@@ -323,24 +418,25 @@ export function DashboardComensalesPage() {
                     <th className="px-4 py-3">Empresa</th>
                     <th className="px-4 py-3">Servicio</th>
                     <th className="px-4 py-3">Dispositivo / usuario</th>
+                    <th className="px-4 py-3">Observaciones</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-neutral-100 bg-white text-neutral-800">
                   {!rangoValido ? (
                     <tr>
-                      <td colSpan={6} className="px-4 py-10 text-center text-neutral-500">
+                      <td colSpan={7} className="px-4 py-10 text-center text-neutral-500">
                         Completá las fechas Desde y Hasta.
                       </td>
                     </tr>
                   ) : cargando ? (
                     <tr>
-                      <td colSpan={6} className="px-4 py-10 text-center text-neutral-500">
+                      <td colSpan={7} className="px-4 py-10 text-center text-neutral-500">
                         Cargando registros del período…
                       </td>
                     </tr>
                   ) : filasPagina.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="px-4 py-10 text-center text-neutral-500">
+                      <td colSpan={7} className="px-4 py-10 text-center text-neutral-500">
                         No hay registros con los filtros seleccionados.
                       </td>
                     </tr>
@@ -361,6 +457,12 @@ export function DashboardComensalesPage() {
                           title={r.usuarioRegistro}
                         >
                           {truncarUid(r.usuarioRegistro)}
+                        </td>
+                        <td
+                          className="max-w-[14rem] truncate px-4 py-3 text-xs text-neutral-600"
+                          title={r.observaciones}
+                        >
+                          {r.observaciones ?? '—'}
                         </td>
                       </tr>
                     ))
@@ -400,6 +502,118 @@ export function DashboardComensalesPage() {
             ) : null}
           </div>
         </section>
+
+        {modalRetroAbierto ? (
+          <div className="fixed inset-0 z-[95] flex items-center justify-center bg-black/45 p-4">
+            <div
+              role="dialog"
+              aria-modal="true"
+              className="w-full max-w-lg rounded-2xl border border-neutral-200 bg-white p-6 shadow-xl"
+            >
+              <h2 className="text-lg font-semibold text-gray-900">Registro manual (retroactivo)</h2>
+              <p className="mt-1 text-sm text-neutral-500">
+                Los campos son obligatorios. El registro queda auditado como carga de supervisor.
+              </p>
+              <div className="mt-5 space-y-4">
+                <label className="block">
+                  <span className="text-xs font-medium text-neutral-600">
+                    DNI <span className="text-[#CD1818]">*</span>
+                  </span>
+                  <div className="mt-1 flex gap-2">
+                    <input
+                      type="text"
+                      value={retroDni}
+                      onChange={(e) => {
+                        setRetroDni(e.target.value)
+                        setRetroPersona(null)
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') void buscarRetroPadron()
+                      }}
+                      className="min-h-11 min-w-0 flex-1 rounded-xl border border-neutral-200 px-3 font-mono text-sm outline-none focus:border-[#CD1818]/40 focus:ring-2 focus:ring-[#CD1818]/15"
+                      placeholder="Sin puntos"
+                      autoComplete="off"
+                    />
+                    <button
+                      type="button"
+                      disabled={retroBuscando || !retroDni.trim()}
+                      onClick={() => void buscarRetroPadron()}
+                      className="shrink-0 rounded-xl bg-neutral-800 px-4 text-sm font-semibold text-white disabled:opacity-45"
+                    >
+                      {retroBuscando ? '…' : 'Validar'}
+                    </button>
+                  </div>
+                </label>
+                {retroPersona ? (
+                  <div className="rounded-xl border border-emerald-200 bg-emerald-50/80 px-3 py-2 text-sm text-emerald-950">
+                    <p className="font-semibold">
+                      {retroPersona.apellido}, {retroPersona.nombre}
+                    </p>
+                    <p className="mt-0.5 font-mono text-xs">DNI {retroPersona.dni}</p>
+                    <p className="mt-1 text-emerald-900">{retroPersona.empresa || 'Sin empresa'}</p>
+                  </div>
+                ) : null}
+                <label className="block">
+                  <span className="text-xs font-medium text-neutral-600">
+                    Fecha operativa <span className="text-[#CD1818]">*</span>
+                  </span>
+                  <input
+                    type="date"
+                    value={retroFechaOperativa}
+                    onChange={(e) => setRetroFechaOperativa(e.target.value)}
+                    className="mt-1 block w-full min-h-11 rounded-xl border border-neutral-200 px-3 text-sm outline-none focus:border-[#CD1818]/40 focus:ring-2 focus:ring-[#CD1818]/15"
+                  />
+                </label>
+                <label className="block">
+                  <span className="text-xs font-medium text-neutral-600">
+                    Servicio <span className="text-[#CD1818]">*</span>
+                  </span>
+                  <select
+                    value={retroServicio}
+                    onChange={(e) => setRetroServicio(e.target.value as ServicioComedor)}
+                    className="mt-1 block w-full min-h-11 rounded-xl border border-neutral-200 bg-white px-3 text-sm outline-none focus:border-[#CD1818]/40 focus:ring-2 focus:ring-[#CD1818]/15"
+                  >
+                    {SERVICIOS_COMEDOR_FORZABLES.map((s) => (
+                      <option key={s} value={s}>
+                        {etiquetaServicioComedor(s)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="block">
+                  <span className="text-xs font-medium text-neutral-600">
+                    Observaciones / motivo <span className="text-[#CD1818]">*</span>
+                  </span>
+                  <textarea
+                    value={retroObservaciones}
+                    onChange={(e) => setRetroObservaciones(e.target.value)}
+                    rows={3}
+                    className="mt-1 block w-full resize-y rounded-xl border border-neutral-200 px-3 py-2 text-sm outline-none focus:border-[#CD1818]/40 focus:ring-2 focus:ring-[#CD1818]/15"
+                    placeholder="Ej. Llegada tarde de camión, fallo de dispositivo…"
+                  />
+                </label>
+              </div>
+              <div className="mt-6 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={cerrarModalRetro}
+                  disabled={retroGuardando}
+                  className="rounded-xl border border-neutral-200 px-4 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-50 disabled:opacity-45"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  disabled={retroGuardando}
+                  onClick={() => void guardarRetroManual()}
+                  className="rounded-xl bg-[#CD1818] px-4 py-2 text-sm font-semibold text-white hover:brightness-105 disabled:opacity-45"
+                >
+                  {retroGuardando ? 'Guardando…' : 'Confirmar registro'}
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
       </div>
     </div>
   )

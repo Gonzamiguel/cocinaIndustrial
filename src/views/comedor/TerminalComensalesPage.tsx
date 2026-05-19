@@ -4,7 +4,8 @@ import { Clock, LogOut, Search, UserCheck, Wifi, WifiOff } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { useToast } from '../../context/ToastContext'
 import type { PadronPersona } from '../../types/hoteleria'
-import type { RegistroComedor } from '../../types/comedor'
+import type { RegistroComedor, ServicioComedor } from '../../types/comedor'
+import { SERVICIOS_COMEDOR_FORZABLES } from '../../types/comedor'
 import {
   buscarPersonaPadronPorDni,
   encolarRegistroComedor,
@@ -14,9 +15,10 @@ import {
 import { reproducirBeepExito } from '../../lib/beepExito'
 import { extraerDniDesdeQr } from '../../lib/qrComensal'
 import {
+  contieneRefrigerioPorServicio,
   etiquetaServicioComedor,
-  puedeRegistrarComedor,
   resolverServicioParaRegistro,
+  servicioComedorActivo,
 } from '../../lib/servicioComedor'
 import { useOnlineStatus } from '../../hooks/useOnlineStatus'
 import { useServicioComedor } from '../../hooks/useServicioComedor'
@@ -70,12 +72,15 @@ export function TerminalComensalesPage() {
   const [modoNochero, setModoNochero] = useState(false)
 
   const servicioMostrado = modoNochero ? 'CENA_NOCHERO' : servicioHorario
-  const puedeRegistrar = puedeRegistrarComedor(servicioHorario, modoNochero)
+  const fueraDeFranjaSinNochero = servicioHorario === 'FUERA DE HORARIO' && !modoNochero
 
   const [modo, setModo] = useState<ModoVista>('qr')
   const [dniInput, setDniInput] = useState('')
   const [buscando, setBuscando] = useState(false)
   const [persona, setPersona] = useState<PadronPersona | null>(null)
+  const [servicioForzadoFueraHorario, setServicioForzadoFueraHorario] = useState<
+    ServicioComedor | ''
+  >('')
   const [contadorHoy, setContadorHoy] = useState(0)
   const [historialHoy, setHistorialHoy] = useState<RegistroComedor[]>([])
   const [flashOk, setFlashOk] = useState(false)
@@ -92,6 +97,12 @@ export function TerminalComensalesPage() {
   const horasLocales = horasLocalesRef.current
 
   useEffect(() => {
+    if (servicioHorario !== 'FUERA DE HORARIO' || modoNochero) {
+      setServicioForzadoFueraHorario('')
+    }
+  }, [servicioHorario, modoNochero])
+
+  useEffect(() => {
     const unsub = subscribeContadorComedorHoy(setContadorHoy)
     return () => unsub()
   }, [])
@@ -105,20 +116,37 @@ export function TerminalComensalesPage() {
     return () => unsub()
   }, [user?.uid])
 
+  const resolverServicioIngresoActual = useCallback((): ServicioComedor | null => {
+    if (modoNochero) return 'CENA_NOCHERO'
+    if (servicioComedorActivo(servicioHorario)) {
+      return resolverServicioParaRegistro(false)
+    }
+    const f = servicioForzadoFueraHorario
+    if (f && SERVICIOS_COMEDOR_FORZABLES.includes(f)) {
+      return f
+    }
+    return null
+  }, [modoNochero, servicioHorario, servicioForzadoFueraHorario])
+
   const confirmarExitoUi = useCallback(
-    (p: PadronPersona, opts?: { silencioso?: boolean }) => {
+    (p: PadronPersona, opts?: { silencioso?: boolean; servicioRegistrado?: ServicioComedor }) => {
       reproducirBeepExito()
       setFlashOk(true)
       window.setTimeout(() => setFlashOk(false), 400)
-      const lineaExito = modoNochero
-        ? `${p.apellido}, ${p.nombre} - CENA NOCHERO + REFRIG. Registrado`
-        : `${p.apellido}, ${p.nombre}`
+      const svc = opts?.servicioRegistrado
+      let lineaExito: string
+      if (modoNochero) {
+        lineaExito = `${p.apellido}, ${p.nombre} — Cena nochera + refrigerio`
+      } else if (svc && contieneRefrigerioPorServicio(svc)) {
+        lineaExito = `${p.apellido}, ${p.nombre} — ${etiquetaServicioComedor(svc)} + refrigerio`
+      } else if (svc) {
+        lineaExito = `${p.apellido}, ${p.nombre} — ${etiquetaServicioComedor(svc)}`
+      } else {
+        lineaExito = `${p.apellido}, ${p.nombre}`
+      }
       setUltimoNombre(lineaExito)
       if (!opts?.silencioso) {
-        showToast(
-          modoNochero ? lineaExito : `Registrado: ${p.apellido}, ${p.nombre}`,
-          'success',
-        )
+        showToast(`Registrado: ${lineaExito}`, 'success')
       }
     },
     [modoNochero, showToast],
@@ -131,18 +159,18 @@ export function TerminalComensalesPage() {
         showToast('Sesión no válida. Volvé a iniciar sesión.', 'error')
         return false
       }
-      if (!puedeRegistrarComedor(servicioHorario, modoNochero)) {
-        showToast('Fuera de horario de servicio. No se puede registrar.', 'error')
+      const servicio = resolverServicioIngresoActual()
+      if (!servicio) {
+        showToast('Elegí el servicio en el selector (fuera de horario).', 'error')
         return false
       }
-      const servicio = resolverServicioParaRegistro(modoNochero)
       const { id, promise } = encolarRegistroComedor({
         persona: p,
         servicio,
         usuarioRegistro: user.uid,
       })
       horasLocalesRef.current.set(id, new Date())
-      confirmarExitoUi(p, opts)
+      confirmarExitoUi(p, { ...opts, servicioRegistrado: servicio })
       void promise.catch((e) => {
         horasLocalesRef.current.delete(id)
         const msg = e instanceof Error ? e.message : 'No se pudo guardar el registro. Reintentá.'
@@ -150,7 +178,7 @@ export function TerminalComensalesPage() {
       })
       return true
     },
-    [user?.uid, servicioHorario, modoNochero, showToast, confirmarExitoUi],
+    [user?.uid, showToast, confirmarExitoUi, resolverServicioIngresoActual],
   )
 
   const limpiarManual = useCallback(() => {
@@ -321,9 +349,9 @@ export function TerminalComensalesPage() {
               className={`mt-1 text-2xl font-bold leading-tight sm:text-3xl ${
                 modoNochero
                   ? 'text-[#CD1818]'
-                  : puedeRegistrar
-                    ? 'text-[#171717]'
-                    : 'text-red-600'
+                  : fueraDeFranjaSinNochero
+                    ? 'text-amber-900'
+                    : 'text-[#171717]'
               }`}
             >
               {modoNochero
@@ -384,10 +412,30 @@ export function TerminalComensalesPage() {
           </span>
         </label>
 
-        {!puedeRegistrar ? (
-          <p className="mt-2 text-sm text-red-600">
-            Fuera de horario: activá modo nochero o esperá la próxima franja.
-          </p>
+        {fueraDeFranjaSinNochero ? (
+          <div className="mt-3 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2.5 text-sm text-amber-950 shadow-sm">
+            <p className="font-semibold">Atención: Fuera de horario de servicio</p>
+            <label className="mt-2 block">
+              <span className="text-xs font-medium text-amber-900">
+                Forzar servicio (obligatorio para registrar)
+              </span>
+              <select
+                value={servicioForzadoFueraHorario}
+                onChange={(e) => {
+                  const v = e.target.value
+                  setServicioForzadoFueraHorario(v === '' ? '' : (v as ServicioComedor))
+                }}
+                className="mt-1.5 w-full min-h-11 rounded-lg border border-amber-200 bg-white px-3 text-sm font-medium text-neutral-900 outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-200"
+              >
+                <option value="">Elegí servicio…</option>
+                {SERVICIOS_COMEDOR_FORZABLES.map((s) => (
+                  <option key={s} value={s}>
+                    {etiquetaServicioComedor(s)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
         ) : null}
         {ultimoNombre ? (
           <p className="mt-2 truncate text-sm text-neutral-600">Último: {ultimoNombre}</p>
@@ -475,7 +523,7 @@ export function TerminalComensalesPage() {
                 </div>
                 <button
                   type="button"
-                  disabled={!puedeRegistrar}
+                  disabled={Boolean(fueraDeFranjaSinNochero && !servicioForzadoFueraHorario)}
                   onClick={handleRegistrarManual}
                   className="mt-5 min-h-16 w-full rounded-2xl bg-[#CD1818] text-xl font-bold text-white shadow-sm transition hover:bg-[#b01414] disabled:cursor-not-allowed disabled:opacity-45"
                 >

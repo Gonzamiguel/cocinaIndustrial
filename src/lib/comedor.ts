@@ -15,7 +15,7 @@ import {
 import { getDb } from './firebase'
 import { COL_PADRON, mapPadron } from './hoteleria'
 import type { PadronPersona } from '../types/hoteleria'
-import type { RegistroComedor, ServicioComedor } from '../types/comedor'
+import { USUARIO_REGISTRO_SUPERVISOR_MANUAL, type RegistroComedor, type ServicioComedor } from '../types/comedor'
 import { contieneRefrigerioPorServicio } from './servicioComedor'
 
 export const COL_REGISTROS_COMEDOR = 'registros_comedor'
@@ -78,6 +78,10 @@ export function mapRegistroComedor(id: string, data: Record<string, unknown>): R
     fechaHora: tsToDate(data.fechaHora),
     usuarioRegistro:
       typeof data.usuarioRegistro === 'string' ? data.usuarioRegistro.trim() : '',
+    observaciones:
+      typeof data.observaciones === 'string' && data.observaciones.trim()
+        ? data.observaciones.trim()
+        : undefined,
   }
 }
 
@@ -110,17 +114,25 @@ export type CrearRegistroComedorInput = {
   persona: PadronPersona
   servicio?: ServicioComedor
   usuarioRegistro: string
+  /** Día operativo YYYY-MM-DD; por defecto hoy local. */
+  diaOperativo?: string
+  observaciones?: string
 }
 
 function buildPayloadRegistroComedor({
   persona,
   servicio,
   usuarioRegistro,
+  diaOperativo: diaOperativoInput,
+  observaciones,
 }: CrearRegistroComedorInput): Record<string, unknown> {
   if (!servicio) {
     throw new Error('Servicio de comedor no definido.')
   }
-  const diaOperativo = diaOperativoYmdLocal()
+  const ymd = (diaOperativoInput?.trim() || diaOperativoYmdLocal()).trim()
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) {
+    throw new Error('Día operativo inválido (usá YYYY-MM-DD).')
+  }
   const contieneRefrigerio = contieneRefrigerioPorServicio(servicio)
   const payload: Record<string, unknown> = {
     dni: persona.dni.trim().toUpperCase(),
@@ -128,12 +140,16 @@ function buildPayloadRegistroComedor({
     apellido: persona.apellido.trim(),
     empresa: persona.empresa.trim(),
     servicio,
-    diaOperativo,
+    diaOperativo: ymd,
     fechaHora: serverTimestamp(),
     usuarioRegistro: usuarioRegistro.trim(),
   }
   if (contieneRefrigerio) {
     payload.contieneRefrigerio = true
+  }
+  const obs = observaciones?.trim()
+  if (obs) {
+    payload.observaciones = obs
   }
   return payload
 }
@@ -147,9 +163,36 @@ export async function crearRegistroComedor(input: CrearRegistroComedorInput): Pr
     await setDoc(ref, payload)
     return ref.id
   } catch (e) {
-    if (esPermissionDeniedFirestore(e)) throw new Error(mensajePermisosTerminalComedor())
+    if (esPermissionDeniedFirestore(e)) {
+      throw new Error(
+        input.usuarioRegistro.trim() === USUARIO_REGISTRO_SUPERVISOR_MANUAL
+          ? mensajePermisosRegistrosComedor()
+          : mensajePermisosTerminalComedor(),
+      )
+    }
     throw e
   }
+}
+
+/** Alta manual desde dashboard de campamento (día operativo histórico + motivo). */
+export async function crearRegistroComedorRetroactivoSupervisor(input: {
+  persona: PadronPersona
+  servicio: ServicioComedor
+  diaOperativo: string
+  observaciones: string
+}): Promise<string> {
+  const obs = input.observaciones.trim()
+  if (!obs) throw new Error('Completá observaciones / motivo.')
+  if (input.servicio === 'FUERA DE HORARIO') {
+    throw new Error('Elegí un servicio de la lista (no fuera de horario).')
+  }
+  return crearRegistroComedor({
+    persona: input.persona,
+    servicio: input.servicio,
+    usuarioRegistro: USUARIO_REGISTRO_SUPERVISOR_MANUAL,
+    diaOperativo: input.diaOperativo.trim(),
+    observaciones: obs,
+  })
 }
 
 /**
