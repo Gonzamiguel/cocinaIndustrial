@@ -274,6 +274,7 @@ export type EstadoTrasladoInventario = 'EN_TRANSITO' | 'RECIBIDO'
 export interface ItemMovimientoInventario {
   insumoId: string
   nombreSnapshot: string
+  /** Siempre en unidad base (Kg, Lt, Un) tras normalizar. */
   cantidad: number
   lote?: string
   fechaVencimiento?: string | null
@@ -281,6 +282,11 @@ export interface ItemMovimientoInventario {
   controlCalidadOk: boolean
   precioUnitarioFacturado?: number
   costoPorUnidadBaseSnapshot?: number
+  /** Trazabilidad del empaque usado en pantalla (remito operativo). */
+  presentacionUsada?: string
+  /** Cantidad ingresada antes de multiplicar por el factor del empaque. */
+  cantidadOriginal?: number
+  factorPresentacion?: number
 }
 
 /** @deprecated Usar ItemMovimientoInventario */
@@ -498,16 +504,34 @@ function mapItem(
     }
   }
 
-  if (!insumoId || !nombreSnapshot || !Number.isFinite(cantidad)) return null
+  const cantidadOriginal =
+    o.cantidadOriginal != null ? Number(o.cantidadOriginal) : undefined
+  const factorPresentacion =
+    o.factorPresentacion != null ? Number(o.factorPresentacion) : undefined
+  const presentacionUsada =
+    typeof o.presentacionUsada === 'string' ? o.presentacionUsada.trim() : undefined
+
+  let cantidadBase = cantidad
+  if (
+    cantidadOriginal != null &&
+    Number.isFinite(cantidadOriginal) &&
+    factorPresentacion != null &&
+    Number.isFinite(factorPresentacion) &&
+    factorPresentacion > 0
+  ) {
+    cantidadBase = cantidadOriginal * factorPresentacion
+  }
+
+  if (!insumoId || !nombreSnapshot || !Number.isFinite(cantidadBase)) return null
 
   if (movTipo === 'AJUSTE') {
-    if (cantidad === 0) return null
-  } else if (cantidad <= 0) return null
+    if (cantidadBase === 0) return null
+  } else if (cantidadBase <= 0) return null
 
   return {
     insumoId,
     nombreSnapshot,
-    cantidad,
+    cantidad: cantidadBase,
     ...(lote ? { lote } : {}),
     ...(fechaVencimiento !== undefined && fechaVencimiento !== ''
       ? { fechaVencimiento }
@@ -519,6 +543,17 @@ function mapItem(
       : {}),
     ...(costoPorUnidadBaseSnapshot !== undefined
       ? { costoPorUnidadBaseSnapshot }
+      : {}),
+    ...(presentacionUsada ? { presentacionUsada } : {}),
+    ...(cantidadOriginal != null &&
+    Number.isFinite(cantidadOriginal) &&
+    cantidadOriginal > 0
+      ? { cantidadOriginal }
+      : {}),
+    ...(factorPresentacion != null &&
+    Number.isFinite(factorPresentacion) &&
+    factorPresentacion > 0
+      ? { factorPresentacion }
       : {}),
   }
 }
@@ -703,6 +738,19 @@ function itemToFirestore(it: ItemMovimientoInventario, incluirPrecio: boolean) {
             it.costoPorUnidadBaseSnapshot,
           ),
         }
+      : {}),
+    ...(it.presentacionUsada?.trim()
+      ? { presentacionUsada: it.presentacionUsada.trim() }
+      : {}),
+    ...(it.cantidadOriginal != null &&
+    Number.isFinite(it.cantidadOriginal) &&
+    it.cantidadOriginal > 0
+      ? { cantidadOriginal: it.cantidadOriginal }
+      : {}),
+    ...(it.factorPresentacion != null &&
+    Number.isFinite(it.factorPresentacion) &&
+    it.factorPresentacion > 0
+      ? { factorPresentacion: it.factorPresentacion }
       : {}),
   }
 }
@@ -1081,7 +1129,7 @@ export async function crearMovimiento(input: CrearMovimientoInput): Promise<stri
         if (disponible + 1e-9 < row.cantidad) {
           const sinSaldo =
             !snap.exists() || disponible === 0
-              ? ' Ejecutá «Recalcular saldos desde movimientos» en Configuración del depósito si acabas de migrar.'
+              ? ' Verificá que haya un ingreso con ese lote en depósito central.'
               : ''
           throw new Error(
             `Stock insuficiente en servidor para «${row.nombreSnapshot}» (lote ${row.loteLabel}). Disponible: ${disponible.toLocaleString('es-AR', { maximumFractionDigits: 4 })}, solicitado: ${row.cantidad.toLocaleString('es-AR', { maximumFractionDigits: 4 })}.${sinSaldo}`,
@@ -1160,7 +1208,7 @@ export async function crearMovimiento(input: CrearMovimientoInput): Promise<stri
         if (disponible + 1e-9 < row.cantidad) {
           const sinSaldo =
             !snap.exists() || disponible === 0
-              ? ' Ejecutá «Recalcular saldos desde movimientos» en Configuración del depósito si acabas de migrar.'
+              ? ' Verificá que haya un ingreso con ese lote en depósito central.'
               : ''
           throw new Error(
             `Stock insuficiente en servidor para «${row.nombreSnapshot}» (lote ${row.loteLabel}). Disponible: ${disponible.toLocaleString('es-AR', { maximumFractionDigits: 4 })}, solicitado: ${row.cantidad.toLocaleString('es-AR', { maximumFractionDigits: 4 })}.${sinSaldo}`,
@@ -1299,7 +1347,20 @@ function normalizarItems(
   for (const it of rawItems) {
     const insumoId = it.insumoId?.trim() ?? ''
     const nombreSnapshot = it.nombreSnapshot?.trim() ?? ''
-    const cantidad = Number(it.cantidad)
+    let cantidad = Number(it.cantidad)
+    const cantidadOriginal =
+      it.cantidadOriginal != null ? Number(it.cantidadOriginal) : undefined
+    const factorPresentacion =
+      it.factorPresentacion != null ? Number(it.factorPresentacion) : undefined
+    if (
+      cantidadOriginal != null &&
+      Number.isFinite(cantidadOriginal) &&
+      factorPresentacion != null &&
+      Number.isFinite(factorPresentacion) &&
+      factorPresentacion > 0
+    ) {
+      cantidad = cantidadOriginal * factorPresentacion
+    }
     if (!insumoId || !nombreSnapshot) continue
 
     if (movTipo === 'AJUSTE') {
@@ -1343,6 +1404,22 @@ function normalizarItems(
     }
     if (costoPorUnidadBaseSnapshot !== undefined) {
       row.costoPorUnidadBaseSnapshot = costoPorUnidadBaseSnapshot
+    }
+    const presentacionUsada = it.presentacionUsada?.trim()
+    if (presentacionUsada) row.presentacionUsada = presentacionUsada
+    if (
+      cantidadOriginal != null &&
+      Number.isFinite(cantidadOriginal) &&
+      cantidadOriginal !== 0
+    ) {
+      row.cantidadOriginal = cantidadOriginal
+    }
+    if (
+      factorPresentacion != null &&
+      Number.isFinite(factorPresentacion) &&
+      factorPresentacion > 0
+    ) {
+      row.factorPresentacion = factorPresentacion
     }
     out.push(row)
   }

@@ -2,6 +2,7 @@ import { Loader2 } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { InsumoSearchSelect } from '../../components/insumos/InsumoSearchSelect'
+import { PresentacionCantidadFields } from '../../components/insumos/PresentacionCantidadFields'
 import {
   ModalEtiquetasQR,
   type EtiquetaIngresoFila,
@@ -36,6 +37,13 @@ import {
   subscribeInsumos,
   type Insumo,
 } from '../../lib/insumos'
+import {
+  PRESENTACION_BASE_ID,
+  convertirCantidadAUnidadBase,
+  etiquetaPresentacionSeleccionada,
+  factorPresentacionSeleccionada,
+  parseCantidadUsuario,
+} from '../../lib/presentacionesInsumo'
 
 type TabFiltro = 'todos' | 'ingresos' | 'egresos' | 'otros'
 
@@ -44,6 +52,8 @@ type FilaDraft = {
   insumoId: string | null
   nombreSnapshot: string
   cantidad: string
+  /** `PRESENTACION_BASE_ID` o id de presentación del catálogo. */
+  presentacionEmpaqueId: string
   lote: string
   fechaVencimiento: string
   temperatura: string
@@ -62,6 +72,7 @@ function nuevaFila(): FilaDraft {
     insumoId: null,
     nombreSnapshot: '',
     cantidad: '',
+    presentacionEmpaqueId: PRESENTACION_BASE_ID,
     lote: '',
     fechaVencimiento: '',
     temperatura: '',
@@ -141,11 +152,19 @@ function formatoOpcionLote(l: LoteDisponibleEgreso): string {
   return `Lote: ${lotTxt} - Vto: ${v} (Stock: ${l.stock})`
 }
 
+function cantidadBaseDesdeFila(f: FilaDraft, ins: Insumo | undefined): number | null {
+  const cant = parseCantidadUsuario(f.cantidad)
+  if (cant == null) return null
+  const factor = factorPresentacionSeleccionada(ins, f.presentacionEmpaqueId)
+  return convertirCantidadAUnidadBase(cant, factor)
+}
+
 function stockReservadoOtrasFilasEgreso(
   filas: FilaDraft[],
   exceptIndex: number,
   insumoId: string,
   loteKey: string,
+  insumosById: Map<string, Insumo>,
 ): number {
   let s = 0
   for (let j = 0; j < filas.length; j++) {
@@ -153,8 +172,8 @@ function stockReservadoOtrasFilasEgreso(
     const f = filas[j]
     if (f.insumoId !== insumoId) continue
     if (normalizarLoteKey(f.lote) !== loteKey) continue
-    const c = Number(f.cantidad.trim().replace(',', '.'))
-    if (Number.isFinite(c) && c > 0) s += c
+    const c = cantidadBaseDesdeFila(f, insumosById.get(insumoId))
+    if (c != null && c > 0) s += c
   }
   return s
 }
@@ -436,6 +455,7 @@ export function DepositoMovimientosPage() {
             insumoId: it.insumoId,
             nombreSnapshot: it.nombreSnapshot,
             cantidad: String(it.cantidad),
+            presentacionEmpaqueId: PRESENTACION_BASE_ID,
             lote: '',
             fechaVencimiento: '',
             temperatura: '',
@@ -538,7 +558,13 @@ export function DepositoMovimientosPage() {
         const lotes = lotesDisponiblesParaEgreso(movimientosCentrales, id)
         const keySel = normalizarLoteKey(loteStr)
         const bucket = lotes.find((x) => x.loteKey === keySel)
-        const reserved = stockReservadoOtrasFilasEgreso(prev, prev.length, id, keySel)
+        const reserved = stockReservadoOtrasFilasEgreso(
+          prev,
+          prev.length,
+          id,
+          keySel,
+          insumosById,
+        )
         const stockDisp = bucket ? bucket.stock - reserved : 0
         if (!bucket || stockDisp <= 1e-9) {
           showToast('Este lote no tiene stock disponible.', 'error')
@@ -605,12 +631,15 @@ export function DepositoMovimientosPage() {
 
     for (const fila of filas) {
       const tieneContenido = filaTieneContenido(fila)
-      const cantidad = Number(fila.cantidad.trim().replace(',', '.'))
+      const ins = fila.insumoId
+        ? insumosById.get(fila.insumoId.trim())
+        : undefined
+      const cantidadBase = cantidadBaseDesdeFila(fila, ins)
       const insumoSeleccionado = Boolean(fila.insumoId?.trim())
       const cantidadValida =
         tipoMovimiento === 'AJUSTE'
-          ? Number.isFinite(cantidad) && cantidad !== 0
-          : Number.isFinite(cantidad) && cantidad > 0
+          ? cantidadBase != null && cantidadBase !== 0
+          : cantidadBase != null && cantidadBase > 0
 
       if (!tieneContenido) continue
       if (!insumoSeleccionado || !cantidadValida) return false
@@ -625,6 +654,7 @@ export function DepositoMovimientosPage() {
     destino,
     fechaOperacion,
     filas,
+    insumosById,
     motivo,
     numeroDocumento,
     patente,
@@ -702,7 +732,9 @@ export function DepositoMovimientosPage() {
       }
 
       const cantRaw = f.cantidad.trim().replace(',', '.')
-      const cant = Number(cantRaw)
+      const cantIngresada = Number(cantRaw)
+      const factor = factorPresentacionSeleccionada(ins, f.presentacionEmpaqueId)
+      const cant = convertirCantidadAUnidadBase(cantIngresada, factor)
       if (tipoMovimiento === 'AJUSTE') {
         if (!Number.isFinite(cant) || cant === 0) continue
       } else if (!Number.isFinite(cant) || cant <= 0) {
@@ -729,10 +761,16 @@ export function DepositoMovimientosPage() {
         }
         const neto =
           bucket.stock -
-          stockReservadoOtrasFilasEgreso(filas, idx, idInsumo, keySel)
+          stockReservadoOtrasFilasEgreso(
+            filas,
+            idx,
+            idInsumo,
+            keySel,
+            insumosById,
+          )
         if (cant > neto + 1e-9) {
           showToast(
-            `La cantidad no puede superar el disponible del lote (${neto.toLocaleString('es-AR', { maximumFractionDigits: 4 })}).`,
+            `La cantidad en unidad base no puede superar el disponible del lote (${neto.toLocaleString('es-AR', { maximumFractionDigits: 4 })} ${ins.unidadBase}).`,
             'error',
           )
           return
@@ -746,6 +784,14 @@ export function DepositoMovimientosPage() {
         cantidad: cant,
         controlCalidadOk: f.controlCalidadOk === true,
         costoPorUnidadBaseSnapshot: ins.costoPorUnidadBase,
+      }
+      if (factor !== 1 && Number.isFinite(cantIngresada)) {
+        row.presentacionUsada = etiquetaPresentacionSeleccionada(
+          ins,
+          f.presentacionEmpaqueId,
+        )
+        row.cantidadOriginal = cantIngresada
+        row.factorPresentacion = factor
       }
 
       const lote = f.lote.trim()
@@ -1678,6 +1724,7 @@ export function DepositoMovimientosPage() {
                           i,
                           idInsumo,
                           keySel,
+                          insumosById,
                         )
                       : null
 
@@ -1703,6 +1750,7 @@ export function DepositoMovimientosPage() {
                               actualizarFila(i, {
                                 insumoId: sel.id,
                                 nombreSnapshot: formatLabelInsumo(sel),
+                                presentacionEmpaqueId: PRESENTACION_BASE_ID,
                               })
                             }
                             onAfterSelect={() =>
@@ -1736,25 +1784,19 @@ export function DepositoMovimientosPage() {
 
                       <div className="mt-5 grid gap-4 lg:grid-cols-2">
                         <div className="space-y-4">
-                          <label className="block text-left">
-                            <span className="text-xs font-medium uppercase tracking-wide text-[#8997A6]">
-                              Cantidad
-                            </span>
-                            <input
-                              type="number"
-                              inputMode="decimal"
-                              min={0}
-                              step="any"
-                              ref={registerCantidadRef(fila.key)}
-                              value={fila.cantidad}
-                              onChange={(e) =>
-                                actualizarFila(i, { cantidad: e.target.value })
-                              }
-                              className={`${inputCompact} w-full`}
-                              placeholder="0"
-                              required={Boolean(idInsumo)}
-                            />
-                          </label>
+                          <PresentacionCantidadFields
+                            insumo={ins}
+                            cantidad={fila.cantidad}
+                            presentacionEmpaqueId={fila.presentacionEmpaqueId}
+                            onCantidadChange={(v) =>
+                              actualizarFila(i, { cantidad: v })
+                            }
+                            onPresentacionChange={(id) =>
+                              actualizarFila(i, { presentacionEmpaqueId: id })
+                            }
+                            cantidadInputRef={registerCantidadRef(fila.key)}
+                            required={Boolean(idInsumo)}
+                          />
 
                           <label className="block text-left">
                             <span className="text-xs font-medium uppercase tracking-wide text-[#8997A6]">
@@ -1873,6 +1915,7 @@ export function DepositoMovimientosPage() {
                             actualizarFila(i, {
                               insumoId: sel.id,
                               nombreSnapshot: formatLabelInsumo(sel),
+                              presentacionEmpaqueId: PRESENTACION_BASE_ID,
                               ...(tipoMovimiento === 'EGRESO'
                                 ? {
                                     lote: '',
@@ -1892,6 +1935,7 @@ export function DepositoMovimientosPage() {
                             actualizarFila(i, {
                               insumoId: null,
                               nombreSnapshot: '',
+                              presentacionEmpaqueId: PRESENTACION_BASE_ID,
                               ...(tipoMovimiento === 'EGRESO'
                                 ? {
                                     lote: '',
@@ -1921,44 +1965,41 @@ export function DepositoMovimientosPage() {
                         ) : null}
                       </div>
 
-                      <label className="col-span-12 block w-full text-left md:col-span-2">
-                        <span className="text-xs font-medium text-[#8997A6] md:sr-only">
-                          Cantidad
-                        </span>
-                        <input
-                          type="number"
-                          inputMode="decimal"
-                          min={
-                            tipoMovimiento === 'AJUSTE' ? undefined : 0
-                          }
-                          max={
-                            tipoMovimiento === 'EGRESO' &&
-                            stockNetoEgreso != null
-                              ? stockNetoEgreso
-                              : undefined
-                          }
-                          step="any"
-                          ref={registerCantidadRef(fila.key)}
-                          value={fila.cantidad}
-                          onChange={(e) =>
-                            actualizarFila(i, { cantidad: e.target.value })
-                          }
-                          className={`${inputCompact} w-full md:w-24`}
-                          placeholder={
-                            tipoMovimiento === 'AJUSTE' ? '+ / −' : '0'
-                          }
-                          required={Boolean(idInsumo)}
-                        />
-                        {tipoMovimiento === 'EGRESO' &&
-                        stockNetoEgreso != null ? (
-                          <span className="mt-1 block text-[11px] text-[#8997A6]">
-                            Máx. lote:{' '}
-                            {stockNetoEgreso.toLocaleString('es-AR', {
-                              maximumFractionDigits: 4,
-                            })}
-                          </span>
-                        ) : null}
-                      </label>
+                      <PresentacionCantidadFields
+                        insumo={ins}
+                        cantidad={fila.cantidad}
+                        presentacionEmpaqueId={fila.presentacionEmpaqueId}
+                        onCantidadChange={(v) =>
+                          actualizarFila(i, { cantidad: v })
+                        }
+                        onPresentacionChange={(id) =>
+                          actualizarFila(i, { presentacionEmpaqueId: id })
+                        }
+                        cantidadInputRef={registerCantidadRef(fila.key)}
+                        min={tipoMovimiento === 'AJUSTE' ? undefined : 0}
+                        max={
+                          tipoMovimiento === 'EGRESO' &&
+                          stockNetoEgreso != null
+                            ? stockNetoEgreso /
+                              factorPresentacionSeleccionada(
+                                ins,
+                                fila.presentacionEmpaqueId,
+                              )
+                            : undefined
+                        }
+                        placeholder={
+                          tipoMovimiento === 'AJUSTE' ? '+ / −' : '0'
+                        }
+                        required={Boolean(idInsumo)}
+                        layout="inline"
+                        maxHint={
+                          tipoMovimiento === 'EGRESO' &&
+                          stockNetoEgreso != null &&
+                          ins
+                            ? `Máx. en ${ins.unidadBase}: ${stockNetoEgreso.toLocaleString('es-AR', { maximumFractionDigits: 4 })}`
+                            : null
+                        }
+                      />
 
                       {tipoMovimiento === 'EGRESO' ? (
                         <label className="col-span-12 block w-full min-w-0 text-left md:col-span-4">

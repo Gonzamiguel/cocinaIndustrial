@@ -131,6 +131,13 @@ export function AnalistaDashboardPage() {
     [serieMacro],
   )
 
+  const chartSinDatosEnPeriodo = useMemo(() => {
+    if (!fechasOk || chartData.length === 0) return false
+    return chartData.every(
+      (p) => (p.egresosArs ?? 0) === 0 && (p.asistencias ?? 0) === 0,
+    )
+  }, [chartData, fechasOk])
+
   function exportarBalanceConsolidado() {
     if (!fechasOk) return
     const movs = filtrarMovimientosBi(movimientos, filtroUb, desdeDt, hastaDt)
@@ -304,6 +311,12 @@ export function AnalistaDashboardPage() {
           <div className="mt-4 h-[300px] w-full min-h-[280px]">
             {!fechasOk || chartData.length === 0 ? (
               <p className="text-sm text-gray-500">Indicá fechas válidas para ver la serie.</p>
+            ) : chartSinDatosEnPeriodo ? (
+              <div className="flex h-64 w-full items-center justify-center rounded-lg border border-dashed border-gray-300 bg-gray-50">
+                <p className="px-4 text-center text-sm text-gray-500">
+                  Sin movimientos ni registros en el período seleccionado
+                </p>
+              </div>
             ) : (
               <ResponsiveContainer width="100%" height="100%">
                 <ComposedChart data={chartData} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>

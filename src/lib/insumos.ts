@@ -12,8 +12,12 @@ import {
   type Unsubscribe,
 } from 'firebase/firestore'
 import { getDb } from './firebase'
+import { sanitizarPresentacionesInsumo } from './presentacionesInsumo'
+import type { PresentacionInsumo } from '../types/insumo'
 
 export const COLLECTION_INSUMOS = 'insumos'
+
+export type { PresentacionInsumo } from '../types/insumo'
 
 export const UNIDADES_BASE_INSUMO = ['Kg', 'Lt', 'Un'] as const
 export type UnidadBaseInsumo = (typeof UNIDADES_BASE_INSUMO)[number]
@@ -30,6 +34,8 @@ export interface Insumo {
   costoEnvase: number
   /** Denormalizado al guardar: costoEnvase / contenidoNeto */
   costoPorUnidadBase: number
+  /** Empaques alternativos (caja, pack, bidón) con factor a unidad base. */
+  presentaciones?: PresentacionInsumo[]
   creadoEn: Date | null
   actualizadoEn: Date | null
 }
@@ -43,6 +49,7 @@ export interface CrearInsumoInput {
   unidadBase: UnidadBaseInsumo
   contenidoNeto: number
   costoEnvase: number
+  presentaciones?: PresentacionInsumo[]
 }
 
 function clampNonNegative(n: number): number {
@@ -87,6 +94,25 @@ function mapInsumoDoc(id: string, data: Record<string, unknown>): Insumo {
   const actualizadoEn =
     data.actualizadoEn instanceof Timestamp ? data.actualizadoEn.toDate() : null
 
+  const presentacionesRaw = Array.isArray(data.presentaciones)
+    ? (data.presentaciones as unknown[])
+    : []
+  const presentaciones: PresentacionInsumo[] = []
+  for (const row of presentacionesRaw) {
+    if (!row || typeof row !== 'object') continue
+    const o = row as Record<string, unknown>
+    const nombre = typeof o.nombre === 'string' ? o.nombre.trim() : ''
+    const factor = Number(o.factorMultiplicador)
+    const id =
+      typeof o.id === 'string' && o.id.trim()
+        ? o.id.trim()
+        : nombre
+          ? `pres_${nombre.replace(/\s+/g, '_').slice(0, 24)}`
+          : ''
+    if (!id || !nombre || !Number.isFinite(factor) || factor <= 0) continue
+    presentaciones.push({ id, nombre, factorMultiplicador: factor })
+  }
+
   return {
     id,
     nombreGenerico:
@@ -106,6 +132,7 @@ function mapInsumoDoc(id: string, data: Record<string, unknown>): Insumo {
     contenidoNeto,
     costoEnvase,
     costoPorUnidadBase,
+    ...(presentaciones.length > 0 ? { presentaciones } : {}),
     creadoEn,
     actualizadoEn,
   }
@@ -121,6 +148,7 @@ function buildInsumoPayload(input: CrearInsumoInput): {
   contenidoNeto: number
   costoEnvase: number
   costoPorUnidadBase: number
+  presentaciones: PresentacionInsumo[]
 } {
   const nombreGenerico = input.nombreGenerico.trim()
   const marca = input.marca.trim()
@@ -150,6 +178,7 @@ function buildInsumoPayload(input: CrearInsumoInput): {
   }
 
   const costoPorUnidadBase = computeCostoPorUnidadBase(costoEnvase, contenidoNeto)
+  const presentaciones = sanitizarPresentacionesInsumo(input.presentaciones)
 
   return {
     nombreGenerico,
@@ -161,6 +190,7 @@ function buildInsumoPayload(input: CrearInsumoInput): {
     contenidoNeto,
     costoEnvase: clampNonNegative(costoEnvase),
     costoPorUnidadBase: clampNonNegative(costoPorUnidadBase),
+    presentaciones,
   }
 }
 

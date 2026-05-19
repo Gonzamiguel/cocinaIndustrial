@@ -28,6 +28,9 @@ export type UserRole =
 
 const USUARIOS_COLLECTION = 'usuarios'
 
+const MSG_ERROR_PERFIL_USUARIO =
+  'Error de acceso: Perfil de usuario no encontrado o sin permisos.'
+
 function parseRol(raw: unknown): UserRole | null {
   if (
     raw === 'admin_cocina' ||
@@ -80,18 +83,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return
       }
 
+      if (nextUser.isAnonymous) {
+        setRol(null)
+        setUbicacionId(null)
+        setLoading(false)
+        return
+      }
+
       setLoading(true)
       try {
         const db = getDb()
         const snap = await getDoc(doc(db, USUARIOS_COLLECTION, nextUser.uid))
         if (cancelled) return
+
         if (!snap.exists()) {
+          console.error(MSG_ERROR_PERFIL_USUARIO)
+          await signOut(auth)
           setRol(null)
           setUbicacionId(null)
           return
         }
+
         const data = snap.data() as Record<string, unknown>
         const r = parseRol(data.rol)
+        if (!r) {
+          console.error(MSG_ERROR_PERFIL_USUARIO)
+          await signOut(auth)
+          setRol(null)
+          setUbicacionId(null)
+          return
+        }
+
         setRol(r)
         const ubic = parseUbicacionId(data.ubicacionId)
         if (r === 'admin_campamento' || r === 'jefe_campamento' || r === 'hoteleria_casposo') {
@@ -100,6 +122,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setUbicacionId(ubic ?? UBICACION_COCINA_CENTRAL)
         } else {
           setUbicacionId(ubic)
+        }
+      } catch (err) {
+        console.error(MSG_ERROR_PERFIL_USUARIO, err)
+        if (!cancelled) {
+          await signOut(auth)
+          setRol(null)
+          setUbicacionId(null)
         }
       } finally {
         if (!cancelled) setLoading(false)

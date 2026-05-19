@@ -15,8 +15,10 @@ import {
   subscribeInsumos,
   type CrearInsumoInput,
   type Insumo,
+  type PresentacionInsumo,
   type UnidadBaseInsumo,
 } from '../../lib/insumos'
+import { nuevaPresentacionInsumo } from '../../lib/presentacionesInsumo'
 
 const inputClass =
   'mt-2 w-full min-h-11 rounded-xl border border-gray-200 bg-white px-4 text-sm text-[#171717] shadow-sm outline-none transition focus:border-[#CD1818]/30 focus:ring-2 focus:ring-[#CD1818]/10'
@@ -40,6 +42,9 @@ export function DepositoInsumosPage() {
   const [unidadBase, setUnidadBase] = useState<UnidadBaseInsumo>('Kg')
   const [contenidoNeto, setContenidoNeto] = useState('')
   const [costoEnvase, setCostoEnvase] = useState('')
+  const [presentacionesEmpaque, setPresentacionesEmpaque] = useState<PresentacionInsumo[]>(
+    [],
+  )
 
   useEffect(() => {
     return subscribeInsumos((rows) => {
@@ -82,6 +87,7 @@ export function DepositoInsumosPage() {
     setUnidadBase('Kg')
     setContenidoNeto('')
     setCostoEnvase('')
+    setPresentacionesEmpaque([])
   }
 
   function cargarParaEditar(row: Insumo) {
@@ -94,6 +100,7 @@ export function DepositoInsumosPage() {
     setUnidadBase(row.unidadBase)
     setContenidoNeto(String(row.contenidoNeto))
     setCostoEnvase(String(row.costoEnvase))
+    setPresentacionesEmpaque(row.presentaciones ? [...row.presentaciones] : [])
   }
 
   function abrirNuevo() {
@@ -118,6 +125,7 @@ export function DepositoInsumosPage() {
       unidadBase,
       contenidoNeto: Number(contenidoNeto),
       costoEnvase: Number(costoEnvase),
+      presentaciones: presentacionesEmpaque,
     }
     setGuardando(true)
     try {
@@ -454,6 +462,25 @@ export function DepositoInsumosPage() {
                 </p>
               </div>
 
+              {insumoEnDetalle.presentaciones &&
+              insumoEnDetalle.presentaciones.length > 0 ? (
+                <div className="mx-5 mb-2 rounded-xl border border-gray-200 bg-white px-4 py-3">
+                  <p className="text-xs font-medium uppercase tracking-wide text-[#8997A6]">
+                    Presentaciones de empaque
+                  </p>
+                  <ul className="mt-2 space-y-1 text-sm text-[#171717]">
+                    {insumoEnDetalle.presentaciones.map((p) => (
+                      <li key={p.id}>
+                        {p.nombre}{' '}
+                        <span className="text-[#8997A6]">
+                          (×{p.factorMultiplicador} {insumoEnDetalle.unidadBase})
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+
               <div className="flex shrink-0 flex-wrap justify-end gap-2 border-t border-neutral-100 bg-white px-5 py-4">
                 <button
                   type="button"
@@ -648,6 +675,102 @@ export function DepositoInsumosPage() {
                   />
                 </label>
               </div>
+
+              <section className="mt-8 rounded-xl border border-gray-200 bg-white p-5 shadow-sm sm:p-6">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <h2 className="text-sm font-semibold uppercase tracking-wide text-[#CD1818]">
+                      Presentaciones de empaque disponibles
+                    </h2>
+                    <p className="mt-1 text-xs text-[#8997A6]">
+                      Definí cajas, packs o bidones. En movimientos el usuario elige el
+                      empaque y el sistema convierte a {unidadBase}.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setPresentacionesEmpaque((prev) => [
+                        ...prev,
+                        nuevaPresentacionInsumo(),
+                      ])
+                    }
+                    className="inline-flex min-h-10 shrink-0 items-center justify-center rounded-xl border border-[#CD1818]/30 bg-white px-4 text-sm font-semibold text-[#CD1818] transition hover:bg-[#CD1818]/5"
+                  >
+                    + Agregar presentación
+                  </button>
+                </div>
+                {presentacionesEmpaque.length === 0 ? (
+                  <p className="mt-4 text-sm text-[#8997A6]">
+                    Sin empaques alternativos: solo se usará la unidad base ({unidadBase}).
+                  </p>
+                ) : (
+                  <ul className="mt-4 space-y-3">
+                    {presentacionesEmpaque.map((p, idx) => (
+                      <li
+                        key={p.id}
+                        className="grid gap-3 rounded-xl border border-gray-200 bg-gray-50 p-4 sm:grid-cols-[1fr_140px_auto]"
+                      >
+                        <label className="block min-w-0">
+                          <span className="text-xs font-medium text-[#8997A6]">
+                            Nombre del empaque
+                          </span>
+                          <input
+                            value={p.nombre}
+                            onChange={(e) => {
+                              const v = e.target.value
+                              setPresentacionesEmpaque((prev) =>
+                                prev.map((row, i) =>
+                                  i === idx ? { ...row, nombre: v } : row,
+                                ),
+                              )
+                            }}
+                            className={inputClass}
+                            placeholder='Ej. "Caja x50"'
+                          />
+                        </label>
+                        <label className="block">
+                          <span className="text-xs font-medium text-[#8997A6]">
+                            Factor (× {unidadBase})
+                          </span>
+                          <input
+                            type="number"
+                            min={0.0001}
+                            step="any"
+                            value={p.factorMultiplicador || ''}
+                            onChange={(e) => {
+                              const v = Number(e.target.value)
+                              setPresentacionesEmpaque((prev) =>
+                                prev.map((row, i) =>
+                                  i === idx
+                                    ? {
+                                        ...row,
+                                        factorMultiplicador: v,
+                                      }
+                                    : row,
+                                ),
+                              )
+                            }}
+                            className={inputClass}
+                            placeholder="50"
+                          />
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setPresentacionesEmpaque((prev) =>
+                              prev.filter((_, i) => i !== idx),
+                            )
+                          }
+                          className="self-end rounded-xl px-3 py-2 text-sm font-medium text-[#8997A6] transition hover:bg-white hover:text-[#CD1818] sm:self-center"
+                        >
+                          Quitar
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
 
               <div className="mt-6 rounded-xl border border-gray-200 bg-white px-4 py-3">
                 <p className="text-xs font-medium uppercase tracking-wide text-[#8997A6]">

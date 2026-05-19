@@ -65,6 +65,24 @@ service cloud.firestore {
       return hasRole('terminal_comedor');
     }
 
+    /** Proveedor de autenticación Firebase (p. ej. `anonymous`, `password`). */
+    function authSignInProvider() {
+      return request.auth.token.firebase.sign_in_provider;
+    }
+
+    /** Vista pública de pedidos (`signInAnonymously` en `authPublico.ts`). */
+    function isAuthAnonimo() {
+      return signedIn() && authSignInProvider() == 'anonymous';
+    }
+
+    /**
+     * Quien puede crear pedidos o descontar stock del menú en transacción:
+     * cliente anónimo o terminal de comedor con documento en `usuarios`.
+     */
+    function isClientePedido() {
+      return isAuthAnonimo() || isTerminalComedor();
+    }
+
     function servicioComedorValido(s) {
       return s == 'DESAYUNO' || s == 'ALMUERZO' || s == 'MERIENDA' || s == 'CENA'
         || s == 'CENA_NOCHERO' || s == 'FUERA DE HORARIO';
@@ -223,19 +241,20 @@ service cloud.firestore {
     match /menu/{itemId} {
       allow read: if signedIn();
       allow create, delete: if isAdminCocina();
-      allow update: if isAdminCocina() || (signedIn() && menuSoloDescuentaStock());
+      allow update: if isAdminCocina()
+        || (menuSoloDescuentaStock() && isClientePedido());
     }
 
     match /pedidos/{pedidoId} {
       allow read: if signedIn() && (isAdminCocina() || isAnalista() || isGerencia());
-      allow create: if signedIn() && pedidoClienteValido();
+      allow create: if pedidoClienteValido() && isClientePedido();
       allow update: if isAdminCocina();
       allow delete: if isAdminCocina();
     }
 
     match /insumos/{insumoId} {
       allow read: if signedIn() && staffLeerInsumos();
-      allow create, update, delete: if isAdminDeposito() || isAnalista() || isGerencia();
+      allow create, update, delete: if isAdminDeposito();
     }
 
     match /categorias/{catId} {

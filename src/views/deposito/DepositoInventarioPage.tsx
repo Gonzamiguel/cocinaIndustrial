@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { subscribeCategorias, type Categoria } from '../../lib/categorias'
 import {
   subscribeMovimientosInventario,
@@ -303,6 +303,22 @@ export function DepositoInventarioPage() {
       </header>
 
       <div className="flex min-h-0 flex-1 flex-col px-5 py-5 sm:px-8 lg:px-12 xl:px-16 2xl:px-20">
+        {insumos.length === 0 ? (
+          <div className="flex flex-1 items-center justify-center py-12">
+            <div className="w-full max-w-md rounded-xl border border-gray-200 bg-white p-10 text-center shadow-sm">
+              <p className="text-sm text-gray-500">
+                El catálogo de insumos está vacío.
+              </p>
+              <Link
+                to="/deposito/insumos"
+                className="mt-6 inline-flex min-h-11 items-center justify-center rounded-xl bg-[#CD1818] px-6 text-sm font-semibold text-white shadow-sm transition hover:brightness-105"
+              >
+                Crear primer insumo
+              </Link>
+            </div>
+          </div>
+        ) : (
+          <>
         <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-[minmax(0,1.25fr)_minmax(12rem,0.8fr)_minmax(12rem,0.8fr)_auto] xl:items-end">
             <label className="block">
@@ -624,6 +640,8 @@ export function DepositoInventarioPage() {
             </div>
           </div>
         </div>
+          </>
+        )}
       </div>
     </div>
   )
