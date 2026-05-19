@@ -55,6 +55,14 @@
       "fields": [
         { "fieldPath": "diaOperativo", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "registros_comedor",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "diaOperativo", "order": "ASCENDING" },
+        { "fieldPath": "usuarioRegistro", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

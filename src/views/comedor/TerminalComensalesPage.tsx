@@ -1,13 +1,15 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Html5Qrcode as Html5QrcodeType } from 'html5-qrcode'
-import { LogOut, Search, UserCheck, Wifi, WifiOff } from 'lucide-react'
+import { Clock, LogOut, Search, UserCheck, Wifi, WifiOff } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { useToast } from '../../context/ToastContext'
 import type { PadronPersona } from '../../types/hoteleria'
+import type { RegistroComedor } from '../../types/comedor'
 import {
   buscarPersonaPadronPorDni,
-  crearRegistroComedor,
+  encolarRegistroComedor,
   subscribeContadorComedorHoy,
+  subscribeRegistrosComedorHoyEnDispositivo,
 } from '../../lib/comedor'
 import { reproducirBeepExito } from '../../lib/beepExito'
 import { extraerDniDesdeQr } from '../../lib/qrComensal'
@@ -20,9 +22,24 @@ import { useOnlineStatus } from '../../hooks/useOnlineStatus'
 import { useServicioComedor } from '../../hooks/useServicioComedor'
 
 const QR_READER_ID = 'terminal-comedor-qr-reader'
-const SCAN_COOLDOWN_MS = 1800
+/** Evita doble lectura del mismo DNI en ráfaga; no bloquea el siguiente comensal distinto. */
+const DNI_DUPLICADO_COOLDOWN_MS = 1200
 
-type ModoIngreso = 'manual' | 'qr'
+type ModoVista = 'qr' | 'manual' | 'historial'
+
+function formatHora(d: Date): string {
+  const h = String(d.getHours()).padStart(2, '0')
+  const m = String(d.getMinutes()).padStart(2, '0')
+  return `${h}:${m}`
+}
+
+function horaDeRegistro(
+  r: RegistroComedor,
+  horasLocales: ReadonlyMap<string, Date>,
+): string {
+  const d = r.fechaHora ?? horasLocales.get(r.id)
+  return d ? formatHora(d) : '—'
+}
 
 /** Evita el error "Cannot stop, scanner is not running" al desmontar antes de `start()`. */
 async function detenerScannerQr(
@@ -55,12 +72,12 @@ export function TerminalComensalesPage() {
   const servicioMostrado = modoNochero ? 'CENA_NOCHERO' : servicioHorario
   const puedeRegistrar = puedeRegistrarComedor(servicioHorario, modoNochero)
 
-  const [modo, setModo] = useState<ModoIngreso>('qr')
+  const [modo, setModo] = useState<ModoVista>('qr')
   const [dniInput, setDniInput] = useState('')
   const [buscando, setBuscando] = useState(false)
   const [persona, setPersona] = useState<PadronPersona | null>(null)
-  const [registrando, setRegistrando] = useState(false)
   const [contadorHoy, setContadorHoy] = useState(0)
+  const [historialHoy, setHistorialHoy] = useState<RegistroComedor[]>([])
   const [flashOk, setFlashOk] = useState(false)
   const [ultimoNombre, setUltimoNombre] = useState<string | null>(null)
 
@@ -69,14 +86,47 @@ export function TerminalComensalesPage() {
   const procesandoQrRef = useRef(false)
   const ultimoDniQrRef = useRef<string | null>(null)
   const ultimoQrTsRef = useRef(0)
+  /** Hora local al encolar (mientras `fechaHora` del servidor aún es null offline). */
+  const horasLocalesRef = useRef<Map<string, Date>>(new Map())
+
+  const horasLocales = horasLocalesRef.current
 
   useEffect(() => {
     const unsub = subscribeContadorComedorHoy(setContadorHoy)
     return () => unsub()
   }, [])
 
+  useEffect(() => {
+    if (!user?.uid) {
+      setHistorialHoy([])
+      return
+    }
+    const unsub = subscribeRegistrosComedorHoyEnDispositivo(user.uid, setHistorialHoy)
+    return () => unsub()
+  }, [user?.uid])
+
+  const confirmarExitoUi = useCallback(
+    (p: PadronPersona, opts?: { silencioso?: boolean }) => {
+      reproducirBeepExito()
+      setFlashOk(true)
+      window.setTimeout(() => setFlashOk(false), 400)
+      const lineaExito = modoNochero
+        ? `${p.apellido}, ${p.nombre} - CENA NOCHERO + REFRIG. Registrado`
+        : `${p.apellido}, ${p.nombre}`
+      setUltimoNombre(lineaExito)
+      if (!opts?.silencioso) {
+        showToast(
+          modoNochero ? lineaExito : `Registrado: ${p.apellido}, ${p.nombre}`,
+          'success',
+        )
+      }
+    },
+    [modoNochero, showToast],
+  )
+
+  /** Registro optimista: feedback inmediato; Firestore en segundo plano. */
   const registrarPersona = useCallback(
-    async (p: PadronPersona, opts?: { silencioso?: boolean }) => {
+    (p: PadronPersona, opts?: { silencioso?: boolean }): boolean => {
       if (!user?.uid) {
         showToast('Sesión no válida. Volvé a iniciar sesión.', 'error')
         return false
@@ -86,39 +136,27 @@ export function TerminalComensalesPage() {
         return false
       }
       const servicio = resolverServicioParaRegistro(modoNochero)
-      setRegistrando(true)
-      try {
-        await crearRegistroComedor({
-          persona: p,
-          servicio,
-          usuarioRegistro: user.uid,
-        })
-        reproducirBeepExito()
-        setFlashOk(true)
-        window.setTimeout(() => setFlashOk(false), 400)
-        const lineaExito = modoNochero
-          ? `${p.apellido}, ${p.nombre} - CENA NOCHERO + REFRIG. Registrado`
-          : `${p.apellido}, ${p.nombre}`
-        setUltimoNombre(lineaExito)
-        if (!opts?.silencioso) {
-          showToast(
-            modoNochero
-              ? lineaExito
-              : `Registrado: ${p.apellido}, ${p.nombre}`,
-            'success',
-          )
-        }
-        return true
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : 'No se pudo registrar. Reintentá.'
+      const { id, promise } = encolarRegistroComedor({
+        persona: p,
+        servicio,
+        usuarioRegistro: user.uid,
+      })
+      horasLocalesRef.current.set(id, new Date())
+      confirmarExitoUi(p, opts)
+      void promise.catch((e) => {
+        horasLocalesRef.current.delete(id)
+        const msg = e instanceof Error ? e.message : 'No se pudo guardar el registro. Reintentá.'
         showToast(msg, 'error')
-        return false
-      } finally {
-        setRegistrando(false)
-      }
+      })
+      return true
     },
-    [user?.uid, servicioHorario, modoNochero, showToast],
+    [user?.uid, servicioHorario, modoNochero, showToast, confirmarExitoUi],
   )
+
+  const limpiarManual = useCallback(() => {
+    setPersona(null)
+    setDniInput('')
+  }, [])
 
   const procesarDniEscaneado = useCallback(
     async (raw: string) => {
@@ -129,7 +167,7 @@ export function TerminalComensalesPage() {
       const ahora = Date.now()
       if (
         ultimoDniQrRef.current === dni &&
-        ahora - ultimoQrTsRef.current < SCAN_COOLDOWN_MS
+        ahora - ultimoQrTsRef.current < DNI_DUPLICADO_COOLDOWN_MS
       ) {
         return
       }
@@ -144,14 +182,12 @@ export function TerminalComensalesPage() {
           showToast(`DNI ${dni} no está en el padrón.`, 'error')
           return
         }
-        await registrarPersona(p, { silencioso: true })
+        registrarPersona(p, { silencioso: true })
       } catch (e) {
         const msg = e instanceof Error ? e.message : 'Error al consultar el padrón.'
         showToast(msg, 'error')
       } finally {
-        window.setTimeout(() => {
-          procesandoQrRef.current = false
-        }, SCAN_COOLDOWN_MS)
+        procesandoQrRef.current = false
       }
     },
     [registrarPersona, showToast],
@@ -232,12 +268,10 @@ export function TerminalComensalesPage() {
     }
   }
 
-  async function handleRegistrarManual() {
+  function handleRegistrarManual() {
     if (!persona) return
-    const ok = await registrarPersona(persona)
-    if (ok) {
-      setPersona(null)
-      setDniInput('')
+    if (registrarPersona(persona)) {
+      limpiarManual()
     }
   }
 
@@ -249,6 +283,24 @@ export function TerminalComensalesPage() {
     window.location.href = '/login'
   }
 
+  const historialOrdenado = useMemo(
+    () =>
+      [...historialHoy].sort((a, b) => {
+        const ta = a.fechaHora?.getTime() ?? horasLocales.get(a.id)?.getTime() ?? 0
+        const tb = b.fechaHora?.getTime() ?? horasLocales.get(b.id)?.getTime() ?? 0
+        if (tb !== ta) return tb - ta
+        return b.id.localeCompare(a.id)
+      }),
+    [historialHoy, horasLocales],
+  )
+
+  const tabClass = (activo: boolean) =>
+    `min-h-12 flex-1 rounded-xl px-2 text-sm font-bold transition sm:min-h-14 sm:rounded-2xl sm:text-base ${
+      activo
+        ? 'bg-[#CD1818] text-white shadow-sm'
+        : 'border border-neutral-200 bg-neutral-50 text-neutral-600'
+    }`
+
   return (
     <div
       className={`relative flex min-h-0 flex-1 flex-col bg-neutral-50 ${
@@ -257,9 +309,7 @@ export function TerminalComensalesPage() {
     >
       <header
         className={`shrink-0 border-b bg-white px-4 pb-4 pt-[max(0.75rem,env(safe-area-inset-top))] transition-colors ${
-          modoNochero
-            ? 'border-[#CD1818]/30 bg-[#CD1818]/5'
-            : 'border-neutral-200'
+          modoNochero ? 'border-[#CD1818]/30 bg-[#CD1818]/5' : 'border-neutral-200'
         }`}
       >
         <div className="flex items-start justify-between gap-3">
@@ -344,30 +394,28 @@ export function TerminalComensalesPage() {
         ) : null}
       </header>
 
-      <div className="flex shrink-0 gap-2 border-b border-neutral-200 bg-white p-3">
-        <button
-          type="button"
-          onClick={() => setModo('qr')}
-          className={`min-h-14 flex-1 rounded-2xl text-base font-bold transition ${
-            modo === 'qr'
-              ? 'bg-[#CD1818] text-white shadow-sm'
-              : 'border border-neutral-200 bg-neutral-50 text-neutral-600'
-          }`}
-        >
-          Escanear QR
+      <nav
+        className="flex shrink-0 gap-1.5 border-b border-neutral-200 bg-white p-2 sm:gap-2 sm:p-3"
+        aria-label="Modo de ingreso"
+      >
+        <button type="button" onClick={() => setModo('qr')} className={tabClass(modo === 'qr')}>
+          QR
         </button>
         <button
           type="button"
           onClick={() => setModo('manual')}
-          className={`min-h-14 flex-1 rounded-2xl text-base font-bold transition ${
-            modo === 'manual'
-              ? 'bg-[#CD1818] text-white shadow-sm'
-              : 'border border-neutral-200 bg-neutral-50 text-neutral-600'
-          }`}
+          className={tabClass(modo === 'manual')}
         >
-          Carga manual
+          Manual
         </button>
-      </div>
+        <button
+          type="button"
+          onClick={() => setModo('historial')}
+          className={tabClass(modo === 'historial')}
+        >
+          Historial
+        </button>
+      </nav>
 
       <main className="relative min-h-0 flex-1 overflow-y-auto bg-neutral-50 p-4">
         {modo === 'qr' ? (
@@ -377,10 +425,10 @@ export function TerminalComensalesPage() {
               className="w-full max-w-sm overflow-hidden rounded-2xl border-2 border-neutral-200 bg-white shadow-sm [&_video]:rounded-xl"
             />
             <p className="mt-4 text-center text-sm text-neutral-500">
-              Apuntá la cámara al código QR del comensal. El registro es automático.
+              Apuntá la cámara al código QR. El registro es inmediato al validar el DNI.
             </p>
           </div>
-        ) : (
+        ) : modo === 'manual' ? (
           <div className="mx-auto flex w-full max-w-md flex-col gap-4">
             <label className="block">
               <span className="text-xs font-medium uppercase tracking-wide text-neutral-500">
@@ -427,18 +475,48 @@ export function TerminalComensalesPage() {
                 </div>
                 <button
                   type="button"
-                  disabled={registrando || !puedeRegistrar}
-                  onClick={() => void handleRegistrarManual()}
+                  disabled={!puedeRegistrar}
+                  onClick={handleRegistrarManual}
                   className="mt-5 min-h-16 w-full rounded-2xl bg-[#CD1818] text-xl font-bold text-white shadow-sm transition hover:bg-[#b01414] disabled:cursor-not-allowed disabled:opacity-45"
                 >
-                  {registrando
-                    ? 'Registrando…'
-                    : modoNochero
-                      ? 'Registrar cena nochera'
-                      : 'Registrar'}
+                  {modoNochero ? 'Registrar cena nochera' : 'Registrar'}
                 </button>
               </div>
             ) : null}
+          </div>
+        ) : (
+          <div className="mx-auto w-full max-w-lg">
+            <div className="mb-3 flex items-center gap-2 text-sm text-neutral-600">
+              <Clock className="h-4 w-4 shrink-0 text-[#CD1818]" aria-hidden />
+              <span>
+                Registros de <strong className="font-semibold text-[#171717]">hoy</strong> en este
+                dispositivo ({historialOrdenado.length})
+              </span>
+            </div>
+            {historialOrdenado.length === 0 ? (
+              <p className="rounded-2xl border border-dashed border-neutral-300 bg-white px-4 py-10 text-center text-sm text-neutral-500">
+                Todavía no hay registros hoy desde esta terminal.
+              </p>
+            ) : (
+              <ul className="flex flex-col gap-2">
+                {historialOrdenado.map((r) => (
+                  <li
+                    key={r.id}
+                    className="flex items-center gap-3 rounded-xl border border-neutral-200 bg-white px-3 py-2.5 shadow-sm"
+                  >
+                    <span className="w-12 shrink-0 font-mono text-sm font-bold tabular-nums text-[#CD1818]">
+                      {horaDeRegistro(r, horasLocales)}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-semibold text-[#171717]">
+                        {r.apellido}, {r.nombre}
+                      </p>
+                      <p className="font-mono text-xs text-neutral-500">{r.dni}</p>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         )}
       </main>

@@ -112,26 +112,22 @@ export type CrearRegistroComedorInput = {
   usuarioRegistro: string
 }
 
-/** Crea un documento en `registros_comedor` (sincroniza offline si hay persistencia). */
-export async function crearRegistroComedor({
+function buildPayloadRegistroComedor({
   persona,
   servicio,
   usuarioRegistro,
-}: CrearRegistroComedorInput): Promise<string> {
-  const db = getDb()
-  const ref = doc(collection(db, COL_REGISTROS_COMEDOR))
+}: CrearRegistroComedorInput): Record<string, unknown> {
   if (!servicio) {
     throw new Error('Servicio de comedor no definido.')
   }
-  const serv = servicio
   const diaOperativo = diaOperativoYmdLocal()
-  const contieneRefrigerio = contieneRefrigerioPorServicio(serv)
+  const contieneRefrigerio = contieneRefrigerioPorServicio(servicio)
   const payload: Record<string, unknown> = {
     dni: persona.dni.trim().toUpperCase(),
     nombre: persona.nombre.trim(),
     apellido: persona.apellido.trim(),
     empresa: persona.empresa.trim(),
-    servicio: serv,
+    servicio,
     diaOperativo,
     fechaHora: serverTimestamp(),
     usuarioRegistro: usuarioRegistro.trim(),
@@ -139,6 +135,14 @@ export async function crearRegistroComedor({
   if (contieneRefrigerio) {
     payload.contieneRefrigerio = true
   }
+  return payload
+}
+
+/** Crea un documento en `registros_comedor` (espera confirmación de Firestore). */
+export async function crearRegistroComedor(input: CrearRegistroComedorInput): Promise<string> {
+  const db = getDb()
+  const ref = doc(collection(db, COL_REGISTROS_COMEDOR))
+  const payload = buildPayloadRegistroComedor(input)
   try {
     await setDoc(ref, payload)
     return ref.id
@@ -146,6 +150,73 @@ export async function crearRegistroComedor({
     if (esPermissionDeniedFirestore(e)) throw new Error(mensajePermisosTerminalComedor())
     throw e
   }
+}
+
+/**
+ * Encola el registro sin bloquear la UI (offline-first / fire-and-forget).
+ * Devuelve el id del documento de inmediato; `promise` resuelve al persistir en cola local/servidor.
+ */
+export function encolarRegistroComedor(input: CrearRegistroComedorInput): {
+  id: string
+  promise: Promise<void>
+} {
+  const db = getDb()
+  const ref = doc(collection(db, COL_REGISTROS_COMEDOR))
+  const payload = buildPayloadRegistroComedor(input)
+  const promise = setDoc(ref, payload).then(() => undefined).catch((e) => {
+    if (esPermissionDeniedFirestore(e)) throw new Error(mensajePermisosTerminalComedor())
+    throw e
+  })
+  return { id: ref.id, promise }
+}
+
+function ordenarRegistrosRecientes(rows: RegistroComedor[]): RegistroComedor[] {
+  return [...rows].sort((a, b) => {
+    const ta = a.fechaHora?.getTime() ?? 0
+    const tb = b.fechaHora?.getTime() ?? 0
+    if (tb !== ta) return tb - ta
+    return b.id.localeCompare(a.id)
+  })
+}
+
+/**
+ * Registros del día operativo actual hechos desde este terminal (`usuarioRegistro` = uid).
+ * Misma base que el contador, filtrado por dispositivo/sesión.
+ */
+export function subscribeRegistrosComedorHoyEnDispositivo(
+  usuarioRegistro: string,
+  onChange: (rows: RegistroComedor[]) => void,
+): Unsubscribe {
+  const uid = usuarioRegistro.trim()
+  if (!uid) {
+    onChange([])
+    return () => {}
+  }
+  const db = getDb()
+  const hoyString = diaOperativoYmdLocal()
+  const q = query(
+    collection(db, COL_REGISTROS_COMEDOR),
+    where('diaOperativo', '==', hoyString),
+    where('usuarioRegistro', '==', uid),
+  )
+  return onSnapshot(
+    q,
+    (snap) => {
+      const rows: RegistroComedor[] = []
+      snap.forEach((d) =>
+        rows.push(mapRegistroComedor(d.id, d.data() as Record<string, unknown>)),
+      )
+      onChange(ordenarRegistrosRecientes(rows))
+    },
+    (err: FirestoreErrorish) => {
+      if (err?.code === 'permission-denied') {
+        console.error('[Firestore] registros_comedor:', mensajePermisosTerminalComedor())
+      } else {
+        console.error('[Firestore] registros_comedor (historial terminal)', err)
+      }
+      onChange([])
+    },
+  )
 }
 
 /**
