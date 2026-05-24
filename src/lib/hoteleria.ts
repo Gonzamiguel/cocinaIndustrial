@@ -134,19 +134,42 @@ function startOfDayLocal(d: Date): Date {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate())
 }
 
-/** Egreso planificado al check-in (campo `fechaSalidaEstimada` en Firestore). */
-function validarFechaEgresoPlanificadaCheckIn(
+/** Fecha de egreso programada al check-in (campo `fechaSalidaEstimada` en Firestore). */
+function validarFechaEgresoProgramadaCheckIn(
   fechaCheckIn: Date,
-  fechaEgresoPlanificada: Date | null | undefined,
+  fechaEgresoProgramada: Date | null | undefined,
 ): void {
-  if (!fechaEgresoPlanificada) {
-    throw new Error('Indicá la fecha de egreso planificada.')
+  if (!fechaEgresoProgramada) {
+    throw new Error('Indicá la fecha de egreso.')
   }
   if (
-    startOfDayLocal(fechaEgresoPlanificada).getTime() < startOfDayLocal(fechaCheckIn).getTime()
+    startOfDayLocal(fechaEgresoProgramada).getTime() < startOfDayLocal(fechaCheckIn).getTime()
   ) {
-    throw new Error('La fecha de egreso planificada debe ser igual o posterior al ingreso.')
+    throw new Error('La fecha de egreso debe ser igual o posterior al ingreso.')
   }
+}
+
+/** ¿Ya corresponde ejecutar el egreso programado? (día calendario local). */
+export function egresoProgramadoVencido(
+  fechaSalidaEstimada: Date | null | undefined,
+  ref: Date = new Date(),
+): boolean {
+  if (!fechaSalidaEstimada) return false
+  return (
+    startOfDayLocal(ref).getTime() >= startOfDayLocal(fechaSalidaEstimada).getTime()
+  )
+}
+
+export function fechaCheckOutDesdeEgresoProgramado(fechaSalidaEstimada: Date): Date {
+  return new Date(
+    fechaSalidaEstimada.getFullYear(),
+    fechaSalidaEstimada.getMonth(),
+    fechaSalidaEstimada.getDate(),
+    12,
+    0,
+    0,
+    0,
+  )
 }
 
 /** Check-out real: no admite fechas posteriores al día de hoy (hora local). */
@@ -642,7 +665,7 @@ export async function checkInCamaTransaccion(input: {
   fecha: Date
   fechaSalidaEstimada: Date
 }): Promise<string> {
-  validarFechaEgresoPlanificadaCheckIn(input.fecha, input.fechaSalidaEstimada)
+  validarFechaEgresoProgramadaCheckIn(input.fecha, input.fechaSalidaEstimada)
   const db = getDb()
   const camaRef = doc(db, COL_CAMAS, input.camaId)
   const personaRef = doc(db, COL_PADRON, input.personaId)
@@ -683,6 +706,10 @@ export async function checkInCamaTransaccion(input: {
   return histRef.id
 }
 
+/**
+ * Check-out efectivo: persiste `fechaCheckOut` en el historial, limpia la planificación
+ * y deja la cama en estado SUCIA (pendiente de limpieza).
+ */
 export async function checkOutCamaTransaccion(input: {
   camaId: string
   fechaCheckOut: Date
@@ -708,7 +735,7 @@ export async function checkOutCamaTransaccion(input: {
       throw new Error('El pernocte ya fue cerrado.')
     }
 
-    t.update(hRef, { fechaCheckOut: outTs })
+    t.update(hRef, { fechaCheckOut: outTs, fechaSalidaEstimada: null })
     t.update(camaRef, {
       estado: 'SUCIA',
       personaId: null,
@@ -721,7 +748,47 @@ export async function checkOutCamaTransaccion(input: {
   })
 }
 
-export async function actualizarFechaSalidaEstimadaTransaccion(input: {
+/**
+ * Ejecuta check-out automático en camas cuya fecha de egreso programada ya venció.
+ * Se invoca al cargar vistas de hotelería (p. ej. al abrir el mapa al día siguiente).
+ */
+export async function procesarEgresosProgramadosCamas(camas: Cama[]): Promise<number> {
+  const candidatas = camas.filter(
+    (c) =>
+      c.estado === 'OCUPADA' &&
+      c.historialAbiertoId &&
+      egresoProgramadoVencido(c.fechaSalidaEstimada),
+  )
+  let procesadas = 0
+  for (const c of candidatas) {
+    const fse = c.fechaSalidaEstimada
+    if (!fse) continue
+    try {
+      await checkOutCamaTransaccion({
+        camaId: c.id,
+        fechaCheckOut: fechaCheckOutDesdeEgresoProgramado(fse),
+      })
+      procesadas += 1
+    } catch (err) {
+      console.error('[hoteleria] egreso programado automático', c.id, err)
+    }
+  }
+  return procesadas
+}
+
+/** Alias semántico para el check-out efectivo desde la UI operativa. */
+export async function registrarCheckOutEfectivo(input: {
+  camaId: string
+  fechaCheckOut: Date
+}): Promise<void> {
+  return checkOutCamaTransaccion(input)
+}
+
+/**
+ * Actualiza la fecha de egreso programada (`fechaSalidaEstimada`).
+ * Si la nueva fecha ya venció, el caller debe ejecutar el check-out automático.
+ */
+export async function actualizarPlanificacionEstadiaTransaccion(input: {
   camaId: string
   fechaSalidaEstimada: Date
 }): Promise<void> {
@@ -734,11 +801,13 @@ export async function actualizarFechaSalidaEstimadaTransaccion(input: {
     if (!cSnap.exists()) throw new Error('La cama no existe.')
     const c = mapCama(cSnap.id, cSnap.data() as Record<string, unknown>)
     if (c.estado !== 'OCUPADA' || !c.historialAbiertoId) {
-      throw new Error('Solo se puede editar el egreso planificado en una cama ocupada con historial activo.')
+      throw new Error(
+        'Solo se puede editar la planificación en una cama ocupada con estadía activa.',
+      )
     }
     const checkIn = c.fechaCheckIn
     if (checkIn) {
-      validarFechaEgresoPlanificadaCheckIn(checkIn, input.fechaSalidaEstimada)
+      validarFechaEgresoProgramadaCheckIn(checkIn, input.fechaSalidaEstimada)
     }
     const hRef = doc(db, COL_HISTORIAL_PERNOCTES, c.historialAbiertoId)
     const hSnap = await t.get(hRef)
@@ -751,6 +820,9 @@ export async function actualizarFechaSalidaEstimadaTransaccion(input: {
     t.update(hRef, { fechaSalidaEstimada: fseTs })
   })
 }
+
+/** @deprecated Usar `actualizarPlanificacionEstadiaTransaccion`. */
+export const actualizarFechaSalidaEstimadaTransaccion = actualizarPlanificacionEstadiaTransaccion
 
 export async function trasladarCamaTransaccion(input: {
   camaOrigenId: string
@@ -858,7 +930,7 @@ export async function checkInCamasMasivoBatch(items: ItemCheckInMasivo[]): Promi
     ops = 0
   }
   for (const it of items) {
-    validarFechaEgresoPlanificadaCheckIn(it.fecha, it.fechaSalidaEstimada)
+    validarFechaEgresoProgramadaCheckIn(it.fecha, it.fechaSalidaEstimada)
     const histRef = doc(collection(db, COL_HISTORIAL_PERNOCTES))
     const camaRef = doc(db, COL_CAMAS, it.camaId)
     const ts = Timestamp.fromDate(it.fecha)
@@ -1103,7 +1175,7 @@ export async function marcarCamaMantenimiento(camaId: string, activar: boolean):
 
 function validarFechasAjustePernocte(fechaCheckIn: Date, fechaCheckOut: Date | null | undefined): void {
   if (!fechaCheckOut) {
-    throw new Error('Indicá la fecha de egreso planificada.')
+    throw new Error('Indicá la fecha de egreso.')
   }
   if (fechaCheckOut.getTime() <= fechaCheckIn.getTime()) {
     throw new Error('La fecha de egreso debe ser posterior al ingreso.')

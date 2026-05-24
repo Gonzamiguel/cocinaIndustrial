@@ -1,17 +1,20 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useToast } from '../../context/ToastContext'
 import type { Cama, PadronPersona } from '../../types/hoteleria'
 import {
-  actualizarFechaSalidaEstimadaTransaccion,
+  actualizarPlanificacionEstadiaTransaccion,
   assertFechaCheckOutRealNoEsFutura,
   buscarCamaOcupadaPorPersona,
   buscarPersonaPadronPorId,
   buscarPersonaPorDni,
   checkInCamaTransaccion,
   checkInCamasMasivoBatch,
-  checkOutCamaTransaccion,
   checkOutCamasMasivoBatch,
+  egresoProgramadoVencido,
+  fechaCheckOutDesdeEgresoProgramado,
   marcarCamaMantenimiento,
+  procesarEgresosProgramadosCamas,
+  registrarCheckOutEfectivo,
   registrarLimpiezaCamasBatch,
   subscribeCamas,
   subscribePadronPersonas,
@@ -50,8 +53,13 @@ function formatoSalidaPrevista(d: Date): string {
   return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`
 }
 
-const AYUDA_EGRESO_PLANIFICADO =
-  'Indica la fecha en la que finaliza su turno o baja del campamento.'
+const AYUDA_FECHA_EGRESO_CHECKIN =
+  'El sistema liberará la cama automáticamente al llegar esta fecha (check-out efectivo).'
+
+const AYUDA_FECHA_EGRESO_EDICION =
+  'Si adelantás la fecha a hoy, el egreso se procesará al guardar. Si la extendés, el huésped sigue alojado hasta ese día.'
+
+type ModoOcupada = 'estadia' | 'traslado'
 
 function etiquetaNombrePersona(p: PadronPersona): string {
   const t = `${p.nombre} ${p.apellido}`.trim()
@@ -86,10 +94,11 @@ export function MapaCamasPage() {
   const [fechaSalidaEstimadaCheckIn, setFechaSalidaEstimadaCheckIn] = useState('')
 
   const [fechaMovimientoTraslado, setFechaMovimientoTraslado] = useState(hoyYmdLocal())
-  const [fechaCheckOutReal, setFechaCheckOutReal] = useState(hoyYmdLocal())
-  const [modoOcupada, setModoOcupada] = useState<'estadia' | 'traslado' | 'checkout_real'>('estadia')
+  const [modoOcupada, setModoOcupada] = useState<ModoOcupada>('estadia')
   const [camaDestinoId, setCamaDestinoId] = useState('')
   const [fechaSalidaEstimadaEdicion, setFechaSalidaEstimadaEdicion] = useState('')
+
+  const procesandoEgresosAutoRef = useRef(false)
 
   const [isMultiSelectMode, setIsMultiSelectMode] = useState(false)
   const [selectedCamas, setSelectedCamas] = useState<string[]>([])
@@ -119,6 +128,29 @@ export function MapaCamasPage() {
     const unsub = subscribeCamas(setCamas)
     return () => unsub()
   }, [])
+
+  useEffect(() => {
+    const hayVencidas = camas.some(
+      (c) => c.estado === 'OCUPADA' && egresoProgramadoVencido(c.fechaSalidaEstimada),
+    )
+    if (!hayVencidas || procesandoEgresosAutoRef.current) return
+
+    procesandoEgresosAutoRef.current = true
+    void procesarEgresosProgramadosCamas(camas)
+      .then((n) => {
+        if (n > 0) {
+          showToast(
+            n === 1
+              ? '1 egreso automático por fecha de check-out programada.'
+              : `${n} egresos automáticos por fecha de check-out programada.`,
+            'info',
+          )
+        }
+      })
+      .finally(() => {
+        procesandoEgresosAutoRef.current = false
+      })
+  }, [camas, showToast])
 
   useEffect(() => {
     if (!necesitaPadron) {
@@ -333,7 +365,6 @@ export function MapaCamasPage() {
     }
     if (c.estado === 'OCUPADA') {
       setModoOcupada('estadia')
-      setFechaCheckOutReal(hoyYmdLocal())
       setFechaMovimientoTraslado(hoyYmdLocal())
       setCamaDestinoId('')
       setFechaSalidaEstimadaEdicion(
@@ -375,7 +406,7 @@ export function MapaCamasPage() {
       return
     }
     if (!fechaSalidaEstimadaCheckIn.trim()) {
-      showToast('Indicá la fecha de egreso planificada.', 'error')
+      showToast('Indicá la fecha de egreso.', 'error')
       return
     }
     setBusy(true)
@@ -388,13 +419,22 @@ export function MapaCamasPage() {
         )
         return
       }
+      const fechaEgreso = parseYmdToLocalDate(fechaSalidaEstimadaCheckIn.trim())
       await checkInCamaTransaccion({
         camaId: modal.cama.id,
         personaId: personaCheckIn.id,
         fecha: parseYmdToLocalDate(fechaCheckIn),
-        fechaSalidaEstimada: parseYmdToLocalDate(fechaSalidaEstimadaCheckIn.trim()),
+        fechaSalidaEstimada: fechaEgreso,
       })
-      showToast('Check-in registrado correctamente.', 'success')
+      if (egresoProgramadoVencido(fechaEgreso)) {
+        await registrarCheckOutEfectivo({
+          camaId: modal.cama.id,
+          fechaCheckOut: fechaCheckOutDesdeEgresoProgramado(fechaEgreso),
+        })
+        showToast('Check-in registrado. Egreso automático aplicado (fecha de egreso alcanzada).', 'success')
+      } else {
+        showToast('Check-in registrado correctamente.', 'success')
+      }
       setModal(null)
     } catch (e) {
       showToast(e instanceof Error ? e.message : 'Error en check-in.', 'error')
@@ -403,7 +443,7 @@ export function MapaCamasPage() {
     }
   }
 
-  async function guardarFechaSalidaEstimadaEdicion() {
+  async function guardarPlanificacionEstadia() {
     if (!modal || modal.tipo !== 'checkout') return
     const c = camasById.get(modal.cama.id) ?? modal.cama
     if (!c.historialAbiertoId) {
@@ -411,16 +451,26 @@ export function MapaCamasPage() {
       return
     }
     if (!fechaSalidaEstimadaEdicion.trim()) {
-      showToast('Indicá la fecha de egreso planificada.', 'error')
+      showToast('Indicá la fecha de egreso.', 'error')
       return
     }
+    const nuevaFechaEgreso = parseYmdToLocalDate(fechaSalidaEstimadaEdicion.trim())
     setBusy(true)
     try {
-      await actualizarFechaSalidaEstimadaTransaccion({
+      if (egresoProgramadoVencido(nuevaFechaEgreso)) {
+        await registrarCheckOutEfectivo({
+          camaId: c.id,
+          fechaCheckOut: fechaCheckOutDesdeEgresoProgramado(nuevaFechaEgreso),
+        })
+        showToast('Egreso automático registrado. La cama quedó en limpieza (SUCIA).', 'success')
+        setModal(null)
+        return
+      }
+      await actualizarPlanificacionEstadiaTransaccion({
         camaId: c.id,
-        fechaSalidaEstimada: parseYmdToLocalDate(fechaSalidaEstimadaEdicion.trim()),
+        fechaSalidaEstimada: nuevaFechaEgreso,
       })
-      showToast('Fecha de egreso planificada actualizada.', 'success')
+      showToast('Fecha de egreso actualizada.', 'success')
     } catch (e) {
       showToast(e instanceof Error ? e.message : 'No se pudo guardar.', 'error')
     } finally {
@@ -450,38 +500,6 @@ export function MapaCamasPage() {
         fecha: parseYmdToLocalDate(fechaMovimientoTraslado),
       })
       showToast('Movimiento de cama completado.', 'success')
-      setModal(null)
-    } catch (e) {
-      showToast(e instanceof Error ? e.message : 'Error en la operación.', 'error')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  async function confirmarCheckOutReal() {
-    if (!modal || modal.tipo !== 'checkout') return
-    const c = camasById.get(modal.cama.id) ?? modal.cama
-    if (!c.historialAbiertoId) {
-      showToast(
-        'Esta cama no tiene vínculo de historial activo. Contactá a sistemas para regularizar datos.',
-        'error',
-      )
-      return
-    }
-    const fecha = parseYmdToLocalDate(fechaCheckOutReal)
-    try {
-      assertFechaCheckOutRealNoEsFutura(fecha)
-    } catch (e) {
-      showToast(e instanceof Error ? e.message : 'Fecha no válida.', 'error')
-      return
-    }
-    setBusy(true)
-    try {
-      await checkOutCamaTransaccion({
-        camaId: c.id,
-        fechaCheckOut: fecha,
-      })
-      showToast('Check-out registrado. La cama quedó en limpieza.', 'success')
       setModal(null)
     } catch (e) {
       showToast(e instanceof Error ? e.message : 'Error en la operación.', 'error')
@@ -633,7 +651,7 @@ export function MapaCamasPage() {
   async function confirmarMasivoCheckin() {
     setMasivoCheckinCamaIdsConError([])
     if (!masivoFechaSalidaEstimada.trim()) {
-      showToast('Indicá la fecha de egreso planificada.', 'error')
+      showToast('Indicá la fecha de egreso.', 'error')
       return
     }
     const fecha = parseYmdToLocalDate(fechaMasivo)
@@ -932,7 +950,7 @@ export function MapaCamasPage() {
                                     </span>
                                     {salidaPreviaTexto ? (
                                       <span className="mt-0.5 text-xs text-gray-700">
-                                        Egreso planificado: {salidaPreviaTexto}
+                                        Check-out: {salidaPreviaTexto}
                                       </span>
                                     ) : null}
                                   </>
@@ -989,18 +1007,18 @@ export function MapaCamasPage() {
               />
             </label>
             <div className="mt-4 block">
-              <label htmlFor="checkin-egreso-planificado" className="text-xs font-medium text-neutral-600">
-                Fecha de Egreso Planificada <span className="text-[#CD1818]">*</span>
+              <label htmlFor="checkin-fecha-egreso" className="text-xs font-medium text-neutral-600">
+                Fecha de egreso (check-out) <span className="text-[#CD1818]">*</span>
               </label>
               <input
-                id="checkin-egreso-planificado"
+                id="checkin-fecha-egreso"
                 type="date"
                 value={fechaSalidaEstimadaCheckIn}
                 onChange={(e) => setFechaSalidaEstimadaCheckIn(e.target.value)}
                 required
                 className="mt-1 w-full min-h-10 rounded-xl border border-neutral-200 px-3 text-sm"
               />
-              <p className="mt-1 text-xs text-gray-500">{AYUDA_EGRESO_PLANIFICADO}</p>
+              <p className="mt-1 text-xs text-gray-500">{AYUDA_FECHA_EGRESO_CHECKIN}</p>
             </div>
             <label className="mt-4 block">
               <span className="text-xs font-medium text-neutral-600">DNI (padrón)</span>
@@ -1072,20 +1090,20 @@ export function MapaCamasPage() {
 
       {modal?.tipo === 'checkout' && camaModalOcupada ? (
         <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/45 p-4 backdrop-blur-[1px]">
-          <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl border border-neutral-200 bg-white p-6 shadow-xl">
+          <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-neutral-200 bg-white p-6 shadow-xl">
             <h3 className="text-lg font-semibold text-neutral-900">Cama ocupada</h3>
             <p className="mt-1 text-sm text-neutral-600">
               {camaModalOcupada.sector} · {camaModalOcupada.habitacion} · {camaModalOcupada.denominacion}
             </p>
             <p className="mt-3 text-sm font-medium leading-relaxed text-neutral-900">
-              Cama ocupada por:{' '}
+              Huésped:{' '}
               <span className="font-semibold text-neutral-950">
                 {camaModalOcupada.ocupanteNombre?.trim() ||
                   (checkoutPersonaResuelta
                     ? `${checkoutPersonaResuelta.apellido}, ${checkoutPersonaResuelta.nombre}`.trim()
                     : nombreEnCama(camaModalOcupada))}
               </span>
-              {' - '}
+              {' · '}
               Empresa:{' '}
               <span className="font-semibold text-neutral-950">
                 {camaModalOcupada.ocupanteEmpresa?.trim() ||
@@ -1094,70 +1112,97 @@ export function MapaCamasPage() {
                   '—'}
               </span>
             </p>
+            {camaModalOcupada.fechaSalidaEstimada ? (
+              <p className="mt-2 text-xs text-neutral-500">
+                Check-out programado: {formatoSalidaPrevista(camaModalOcupada.fechaSalidaEstimada)}
+              </p>
+            ) : null}
             {checkoutPersonaCargando &&
             !camaModalOcupada.ocupanteNombre?.trim() &&
             !checkoutPersonaResuelta ? (
               <p className="mt-1 text-xs text-neutral-500">Consultando datos del padrón…</p>
             ) : null}
-            <div className="mt-4 flex flex-wrap gap-2 rounded-xl bg-neutral-50 p-1">
+
+            <div className="mt-5 flex gap-1 rounded-xl bg-neutral-100 p-1">
               <button
                 type="button"
                 onClick={() => setModoOcupada('estadia')}
-                className={`min-w-0 flex-1 rounded-lg py-2 text-xs font-semibold sm:text-sm ${modoOcupada === 'estadia' ? 'bg-white text-[#CD1818] shadow-sm' : 'text-neutral-600'}`}
+                className={`min-w-0 flex-1 rounded-lg px-2 py-2.5 text-xs font-semibold leading-tight sm:text-sm ${
+                  modoOcupada === 'estadia'
+                    ? 'bg-white text-[#CD1818] shadow-sm'
+                    : 'text-neutral-600 hover:text-neutral-800'
+                }`}
               >
                 Editar estadía
               </button>
               <button
                 type="button"
                 onClick={() => setModoOcupada('traslado')}
-                className={`min-w-0 flex-1 rounded-lg py-2 text-xs font-semibold sm:text-sm ${modoOcupada === 'traslado' ? 'bg-white text-[#CD1818] shadow-sm' : 'text-neutral-600'}`}
+                className={`min-w-0 flex-1 rounded-lg px-2 py-2.5 text-xs font-semibold leading-tight sm:text-sm ${
+                  modoOcupada === 'traslado'
+                    ? 'bg-white text-[#CD1818] shadow-sm'
+                    : 'text-neutral-600 hover:text-neutral-800'
+                }`}
               >
                 Trasladar
-              </button>
-              <button
-                type="button"
-                onClick={() => setModoOcupada('checkout_real')}
-                className={`min-w-0 flex-1 rounded-lg py-2 text-xs font-semibold sm:text-sm ${modoOcupada === 'checkout_real' ? 'bg-white text-[#CD1818] shadow-sm' : 'text-neutral-600'}`}
-              >
-                Check-out real
               </button>
             </div>
 
             {modoOcupada === 'estadia' ? (
-              <div className="mt-4 space-y-3">
-                <div className="block">
-                  <label
-                    htmlFor="edicion-egreso-planificado"
-                    className="text-xs font-medium text-neutral-600"
-                  >
-                    Fecha de Egreso Planificada <span className="text-[#CD1818]">*</span>
-                  </label>
+              <section className="mt-5 space-y-3 rounded-xl border border-neutral-200 bg-neutral-50/60 p-4">
+                <div>
+                  <h4 className="text-sm font-semibold text-neutral-900">Editar estadía</h4>
+                  <p className="mt-1 text-xs text-neutral-600">
+                    Cambiá la fecha de egreso si el turno se extiende o si la persona se va antes.
+                    El egreso se ejecuta automáticamente al llegar esa fecha.
+                  </p>
+                </div>
+                <label className="block" htmlFor="edicion-fecha-egreso">
+                  <span className="text-xs font-medium text-neutral-700">
+                    Fecha de egreso (check-out) <span className="text-[#CD1818]">*</span>
+                  </span>
                   <input
-                    id="edicion-egreso-planificado"
+                    id="edicion-fecha-egreso"
                     type="date"
                     value={fechaSalidaEstimadaEdicion}
                     onChange={(e) => setFechaSalidaEstimadaEdicion(e.target.value)}
                     required
-                    className="mt-1 w-full min-h-10 rounded-xl border border-neutral-200 px-3 text-sm"
+                    className="mt-1 w-full min-h-10 rounded-xl border border-neutral-200 bg-white px-3 text-sm"
                   />
-                  <p className="mt-1 text-xs text-gray-500">{AYUDA_EGRESO_PLANIFICADO}</p>
+                  <p className="mt-1 text-xs text-neutral-500">{AYUDA_FECHA_EGRESO_EDICION}</p>
+                </label>
+                <div className="flex justify-end pt-1">
+                  <button
+                    type="button"
+                    onClick={() => void guardarPlanificacionEstadia()}
+                    disabled={busy || !fechaSalidaEstimadaEdicion.trim()}
+                    className="rounded-xl bg-[#CD1818] px-4 py-2 text-sm font-semibold text-white hover:bg-[#b01414] disabled:opacity-50"
+                  >
+                    Guardar fecha de egreso
+                  </button>
                 </div>
-              </div>
+              </section>
             ) : null}
 
             {modoOcupada === 'traslado' ? (
-              <div className="mt-4 space-y-4">
+              <section className="mt-5 space-y-4 rounded-xl border border-neutral-200 bg-neutral-50/60 p-4">
+                <div>
+                  <h4 className="text-sm font-semibold text-neutral-900">Trasladar huésped</h4>
+                  <p className="mt-1 text-xs text-neutral-600">
+                    Mové al huésped a otra cama libre. Se conservan ingreso y fecha de egreso.
+                  </p>
+                </div>
                 <label className="block">
-                  <span className="text-xs font-medium text-neutral-600">Fecha del movimiento</span>
+                  <span className="text-xs font-medium text-neutral-700">Fecha del movimiento</span>
                   <input
                     type="date"
                     value={fechaMovimientoTraslado}
                     onChange={(e) => setFechaMovimientoTraslado(e.target.value)}
-                    className="mt-1 w-full min-h-10 rounded-xl border border-neutral-200 px-3 text-sm"
+                    className="mt-1 w-full min-h-10 rounded-xl border border-neutral-200 bg-white px-3 text-sm"
                   />
                 </label>
                 <label className="block">
-                  <span className="text-xs font-medium text-neutral-600">
+                  <span className="text-xs font-medium text-neutral-700">
                     Cama destino (solo libres)
                   </span>
                   <select
@@ -1178,32 +1223,20 @@ export function MapaCamasPage() {
                     </p>
                   ) : null}
                 </label>
-              </div>
-            ) : null}
-
-            {modoOcupada === 'checkout_real' ? (
-              <div className="mt-4 space-y-3">
-                <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
-                  <strong>Atención:</strong> esto liberará la cama y la marcará como SUCIA. Solo usar
-                  si la persona ya se retiró.
+                <div className="flex justify-end pt-1">
+                  <button
+                    type="button"
+                    onClick={() => void confirmarTrasladoDesdeModal()}
+                    disabled={busy || !camaDestinoId}
+                    className="rounded-xl bg-[#CD1818] px-4 py-2 text-sm font-semibold text-white hover:bg-[#b01414] disabled:opacity-50"
+                  >
+                    Confirmar traslado
+                  </button>
                 </div>
-                <label className="block">
-                  <span className="text-xs font-medium text-neutral-600">Fecha de check-out real</span>
-                  <input
-                    type="date"
-                    value={fechaCheckOutReal}
-                    onChange={(e) => setFechaCheckOutReal(e.target.value)}
-                    max={hoyYmdLocal()}
-                    className="mt-1 w-full min-h-10 rounded-xl border border-neutral-200 px-3 text-sm"
-                  />
-                  <span className="mt-1 block text-[11px] text-neutral-500">
-                    No puede ser una fecha futura.
-                  </span>
-                </label>
-              </div>
+              </section>
             ) : null}
 
-            <div className="mt-6 flex flex-wrap justify-end gap-2">
+            <div className="mt-6 flex justify-end border-t border-neutral-100 pt-4">
               <button
                 type="button"
                 onClick={() => setModal(null)}
@@ -1211,36 +1244,6 @@ export function MapaCamasPage() {
               >
                 Cerrar
               </button>
-              {modoOcupada === 'estadia' ? (
-                <button
-                  type="button"
-                  onClick={() => void guardarFechaSalidaEstimadaEdicion()}
-                  disabled={busy || !fechaSalidaEstimadaEdicion.trim()}
-                  className="rounded-xl bg-[#CD1818] px-4 py-2 text-sm font-semibold text-white hover:bg-[#b01414] disabled:opacity-50"
-                >
-                  Guardar egreso planificado
-                </button>
-              ) : null}
-              {modoOcupada === 'traslado' ? (
-                <button
-                  type="button"
-                  onClick={() => void confirmarTrasladoDesdeModal()}
-                  disabled={busy}
-                  className="rounded-xl bg-[#CD1818] px-4 py-2 text-sm font-semibold text-white hover:bg-[#b01414] disabled:opacity-50"
-                >
-                  Confirmar traslado
-                </button>
-              ) : null}
-              {modoOcupada === 'checkout_real' ? (
-                <button
-                  type="button"
-                  onClick={() => void confirmarCheckOutReal()}
-                  disabled={busy}
-                  className="rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50"
-                >
-                  Ejecutar check-out
-                </button>
-              ) : null}
             </div>
           </div>
         </div>
@@ -1402,20 +1405,20 @@ export function MapaCamasPage() {
               </label>
               <div className="mt-3 block max-w-xs">
                 <label
-                  htmlFor="masivo-egreso-planificado"
+                  htmlFor="masivo-fecha-egreso"
                   className="text-xs font-medium text-neutral-600"
                 >
-                  Fecha de Egreso Planificada <span className="text-[#CD1818]">*</span>
+                  Fecha de egreso (check-out) <span className="text-[#CD1818]">*</span>
                 </label>
                 <input
-                  id="masivo-egreso-planificado"
+                  id="masivo-fecha-egreso"
                   type="date"
                   value={masivoFechaSalidaEstimada}
                   onChange={(e) => setMasivoFechaSalidaEstimada(e.target.value)}
                   required
                   className="mt-1 w-full min-h-10 rounded-xl border border-neutral-200 px-3 text-sm"
                 />
-                <p className="mt-1 text-xs text-gray-500">{AYUDA_EGRESO_PLANIFICADO}</p>
+                <p className="mt-1 text-xs text-gray-500">{AYUDA_FECHA_EGRESO_CHECKIN}</p>
               </div>
             </div>
             <div className="min-h-0 flex-1 overflow-auto px-6 py-4">

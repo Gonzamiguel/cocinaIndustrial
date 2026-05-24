@@ -6,7 +6,9 @@ import { CredencialDigitalModal } from '../../components/padron/CredencialDigita
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog'
 import { useToast } from '../../context/ToastContext'
 import type { PadronPersona } from '../../types/hoteleria'
+import type { PadronEmpresa } from '../../types/padronEmpresa'
 import { filasCargaMasivaDesdeWorkbook } from '../../lib/padronImport'
+import { subscribePadronEmpresas } from '../../lib/padronEmpresas'
 import {
   actualizarPersonaPadron,
   crearPersonaPadron,
@@ -43,6 +45,7 @@ type ModalPersona =
 export function PadronPage() {
   const { showToast } = useToast()
   const [rows, setRows] = useState<PadronPersona[]>([])
+  const [empresasPadron, setEmpresasPadron] = useState<PadronEmpresa[]>([])
   const [q, setQ] = useState('')
   const [empresaFiltro, setEmpresaFiltro] = useState('')
   const [pagina, setPagina] = useState(1)
@@ -63,6 +66,20 @@ export function PadronPage() {
     const unsub = subscribePadronPersonas(setRows)
     return () => unsub()
   }, [])
+
+  useEffect(() => {
+    const unsub = subscribePadronEmpresas(setEmpresasPadron)
+    return () => unsub()
+  }, [])
+
+  const empresasDesplegable = useMemo(
+    () =>
+      [...empresasPadron]
+        .map((e) => e.nombre.trim())
+        .filter(Boolean)
+        .sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' })),
+    [empresasPadron],
+  )
 
   const empresasOpciones = useMemo(() => {
     const set = new Set<string>()
@@ -460,11 +477,28 @@ export function PadronPage() {
           </label>
           <label className="block">
             <span className={labelClass}>Empresa</span>
+            <select
+              value={empresasDesplegable.includes(fEmpresa) ? fEmpresa : ''}
+              onChange={(e) => setFEmpresa(sanitizarEmpresaInput(e.target.value))}
+              className={inputClass}
+            >
+              <option value="">Elegir del padrón de empresas…</option>
+              {empresasDesplegable.map((nombre) => (
+                <option key={nombre} value={nombre}>
+                  {nombre}
+                </option>
+              ))}
+            </select>
+            {empresasDesplegable.length === 0 ? (
+              <p className="mt-1.5 text-xs text-neutral-500">
+                No hay empresas cargadas. Agregalas en Padrón de Empresas.
+              </p>
+            ) : null}
             <input
               value={fEmpresa}
               onChange={(e) => setFEmpresa(sanitizarEmpresaInput(e.target.value))}
-              className={`${inputClass} uppercase`}
-              placeholder="Opcional"
+              className={`${inputClass} mt-2 uppercase`}
+              placeholder="Empresa seleccionada o escribí el nombre"
               autoComplete="organization"
             />
           </label>

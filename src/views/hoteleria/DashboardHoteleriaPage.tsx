@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Download, Loader2, Pencil, Plus, Trash2, TriangleAlert } from 'lucide-react'
 import { AjusteEstadiaModal, toDatetimeLocalValue } from '../../components/hoteleria/AjusteEstadiaModal'
 import { useToast } from '../../context/ToastContext'
@@ -15,7 +15,9 @@ import { exportarHoteleriaExcel } from '../../lib/hoteleriaExcelExport'
 import {
   actualizarAjusteManualPernocte,
   crearAjusteManualPernocte,
+  egresoProgramadoVencido,
   eliminarAjusteManualPernocte,
+  procesarEgresosProgramadosCamas,
   resolverCamaIdPorTexto,
   subscribeCamas,
   subscribeHistorialPernoctes,
@@ -131,6 +133,7 @@ export function DashboardHoteleriaPage() {
     null,
   )
   const [guardandoAjuste, setGuardandoAjuste] = useState(false)
+  const procesandoEgresosAutoRef = useRef(false)
 
   useEffect(() => {
     setCargando(true)
@@ -157,6 +160,29 @@ export function DashboardHoteleriaPage() {
       u3()
     }
   }, [])
+
+  useEffect(() => {
+    const hayVencidas = camas.some(
+      (c) => c.estado === 'OCUPADA' && egresoProgramadoVencido(c.fechaSalidaEstimada),
+    )
+    if (!hayVencidas || procesandoEgresosAutoRef.current) return
+
+    procesandoEgresosAutoRef.current = true
+    void procesarEgresosProgramadosCamas(camas)
+      .then((n) => {
+        if (n > 0) {
+          showToast(
+            n === 1
+              ? '1 egreso automático por fecha de check-out programada.'
+              : `${n} egresos automáticos por fecha de check-out programada.`,
+            'info',
+          )
+        }
+      })
+      .finally(() => {
+        procesandoEgresosAutoRef.current = false
+      })
+  }, [camas, showToast])
 
   useEffect(() => {
     setPaginaMov(1)

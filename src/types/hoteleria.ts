@@ -26,7 +26,7 @@ export interface Cama {
   ocupanteNombre?: string | null
   /** Denormalizado al check-in: empresa del padrón. */
   ocupanteEmpresa?: string | null
-  /** Planificación: fecha estimada de salida (no ejecuta check-out). */
+  /** Fecha de egreso programada al check-in; el sistema ejecuta el check-out automático al llegar este día. */
   fechaSalidaEstimada?: Date | null
   /** Última limpieza registrada (denormalizado para consulta rápida). */
   ultimoResponsableLimpieza?: string | null
@@ -51,7 +51,7 @@ export interface HistorialPernocte {
   empresa: string
   fechaCheckIn: Date | null
   fechaCheckOut: Date | null
-  /** Mientras el pernocte está abierto: salida prevista (opcional). */
+  /** Fecha de egreso programada; al llegar el día se procesa check-out automático. */
   fechaSalidaEstimada?: Date | null
 }
 

@@ -1,4 +1,4 @@
-import { BarChart3, BedDouble, Building2, Hotel, Settings, Users } from 'lucide-react'
+import { BarChart3, BedDouble, Brush, Building2, FileSpreadsheet, Hotel, Settings, Users } from 'lucide-react'
 // import { ChefHat } from 'lucide-react'
 import type { SVGProps } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
@@ -30,6 +30,8 @@ const navItems = [
   { to: '/control/padron', label: 'Padrón de Personas', Icon: Users, end: false },
   { to: '/control/empresas', label: 'Padrón de Empresas', Icon: Building2, end: false },
   { to: '/control/alojamiento', label: 'Mapa de camas', Icon: BedDouble, end: false },
+  { to: '/control/reporte-limpieza', label: 'Auditoría de limpieza', Icon: Brush, end: false },
+  { to: '/control/facturacion', label: 'Sábana de facturación', Icon: FileSpreadsheet, end: false },
   { to: '/control/configuracion', label: 'Configuración', Icon: Settings, end: false },
   // MVP: gestión de menú oculta
   // { to: '/control/menu', label: 'Gestión de Menú', Icon: ChefHat, end: false },
