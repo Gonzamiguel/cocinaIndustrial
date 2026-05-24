@@ -163,6 +163,8 @@ export async function validarRegistroComedorUnico(input: {
   servicio: ServicioComedor
   diaOperativo?: string
   registrosLocales?: RegistroComedor[]
+  /** Sin red: validar solo contra `registrosLocales` y cola optimista. */
+  omitirConsultaServidor?: boolean
 }): Promise<void> {
   const ymd = (input.diaOperativo?.trim() || diaOperativoYmdLocal()).trim()
   const dni = input.persona.dni.trim().toUpperCase()
@@ -174,7 +176,10 @@ export async function validarRegistroComedorUnico(input: {
     throw new Error(mensajeRegistroDuplicadoComedor(input.servicio, ymd))
   }
 
-  if (await existeRegistroComedorDiaServicio({ dni, servicio: input.servicio, diaOperativo: ymd })) {
+  if (
+    !input.omitirConsultaServidor &&
+    (await existeRegistroComedorDiaServicio({ dni, servicio: input.servicio, diaOperativo: ymd }))
+  ) {
     throw new Error(mensajeRegistroDuplicadoComedor(input.servicio, ymd))
   }
 }

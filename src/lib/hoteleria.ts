@@ -261,6 +261,15 @@ export function subscribePadronPersonas(
   )
 }
 
+/** Descarga el padrón completo (usa caché IndexedDB de Firestore si está offline). */
+export async function fetchPadronPersonasCompleto(): Promise<PadronPersona[]> {
+  const db = getDb()
+  const snap = await getDocs(query(collection(db, COL_PADRON)))
+  const rows: PadronPersona[] = []
+  snap.forEach((d) => rows.push(mapPadron(d.id, d.data() as Record<string, unknown>)))
+  return sortPadronRows(rows)
+}
+
 export function subscribeCamas(onChange: (rows: Cama[]) => void): Unsubscribe {
   const db = getDb()
   const q = query(collection(db, COL_CAMAS))

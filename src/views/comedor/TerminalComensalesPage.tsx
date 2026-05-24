@@ -5,16 +5,17 @@ import {
   Camera,
   CloudOff,
   Keyboard,
+  Loader2,
   LogOut,
+  RefreshCw,
   User,
   Wifi,
 } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { useToast } from '../../context/ToastContext'
 import type { PadronPersona } from '../../types/hoteleria'
-import type { RegistroComedor, ServicioComedor } from '../../types/comedor'
+import type { RegistroComedor } from '../../types/comedor'
 import {
-  buscarPersonaPadronPorDni,
   claveRegistroComedorDia,
   diaOperativoYmdLocal,
   encolarRegistroComedor,
@@ -23,13 +24,13 @@ import {
   subscribeRegistrosComedorHoyEnDispositivo,
   validarRegistroComedorUnico,
 } from '../../lib/comedor'
-import { subscribePadronPersonas } from '../../lib/hoteleria'
+import { fetchPadronPersonasCompleto } from '../../lib/hoteleria'
+import {
+  cargarPadronDesdeCache,
+  guardarPadronEnCache,
+} from '../../lib/terminalPadronCache'
 import { reproducirBeepExito } from '../../lib/beepExito'
 import { extraerDniDesdeQr } from '../../lib/qrComensal'
-import {
-  contieneRefrigerioPorServicio,
-  etiquetaServicioComedor,
-} from '../../lib/servicioComedor'
 import { useOnlineStatus } from '../../hooks/useOnlineStatus'
 
 const QR_READER_ID = 'terminal-comedor-qr-reader'
@@ -67,7 +68,7 @@ function resolverConfigServicio(activo: string | null) {
 /** Búsqueda unificada DNI / nombre / apellido sobre el padrón en memoria. */
 function buscarPersonaPorConsulta(
   consulta: string,
-  padron: PadronPersona[],
+  padronLocal: PadronPersona[],
 ): { persona: PadronPersona | null; ambiguo: boolean } {
   const q = consulta.trim()
   if (!q) return { persona: null, ambiguo: false }
@@ -76,11 +77,11 @@ function buscarPersonaPorConsulta(
   const soloDigitos = q.replace(/\D/g, '')
   if (soloDigitos.length >= 6) {
     const dniNorm = soloDigitos.toUpperCase()
-    const porDni = padron.find((p) => p.dni === dniNorm)
+    const porDni = padronLocal.find((p) => p.dni === dniNorm)
     if (porDni) return { persona: porDni, ambiguo: false }
   }
 
-  const matches = padron.filter((p) => {
+  const matches = padronLocal.filter((p) => {
     const blob = `${p.dni} ${p.nombre} ${p.apellido} ${p.empresa}`.toLowerCase()
     return blob.includes(qLower)
   })
@@ -88,6 +89,15 @@ function buscarPersonaPorConsulta(
   if (matches.length === 1) return { persona: matches[0]!, ambiguo: false }
   if (matches.length > 1) return { persona: null, ambiguo: true }
   return { persona: null, ambiguo: false }
+}
+
+function buscarPersonaPorDniLocal(
+  dni: string,
+  padronPorDni: ReadonlyMap<string, PadronPersona>,
+): PadronPersona | null {
+  const d = dni.trim().toUpperCase()
+  if (!d) return null
+  return padronPorDni.get(d) ?? null
 }
 
 async function detenerScannerQr(
@@ -127,6 +137,40 @@ function IndicadorRed({ online }: { online: boolean }) {
   )
 }
 
+function BarraSincronizacionPadron({
+  ultimaSincronizacion,
+  isSyncing,
+  cantidad,
+  onSync,
+}: {
+  ultimaSincronizacion: string | null
+  isSyncing: boolean
+  cantidad: number
+  onSync: () => void
+}) {
+  return (
+    <div className="flex flex-wrap items-center justify-end gap-2 text-[10px] leading-snug text-gray-500">
+      <span>
+        Última act: {ultimaSincronizacion ?? '—'}
+        {cantidad > 0 ? ` · ${cantidad.toLocaleString('es-AR')} pers.` : ''}
+      </span>
+      <button
+        type="button"
+        onClick={onSync}
+        disabled={isSyncing}
+        aria-label="Sincronizar padrón de personas"
+        className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-600 transition hover:bg-gray-50 disabled:opacity-50"
+      >
+        {isSyncing ? (
+          <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+        ) : (
+          <RefreshCw className="h-3.5 w-3.5" aria-hidden />
+        )}
+      </button>
+    </div>
+  )
+}
+
 export function TerminalComensalesPage() {
   const { user, logout } = useAuth()
   const { showToast } = useToast()
@@ -136,11 +180,14 @@ export function TerminalComensalesPage() {
   /** inicio = 2 botones + historial; manual = buscador; qr = solo cámara */
   const [vistaRegistro, setVistaRegistro] = useState<'inicio' | 'manual' | 'qr'>('inicio')
   const [busquedaInput, setBusquedaInput] = useState('')
-  const [padron, setPadron] = useState<PadronPersona[]>([])
+  const [padronLocal, setPadronLocal] = useState<PadronPersona[]>([])
+  const [ultimaSincronizacion, setUltimaSincronizacion] = useState<string | null>(null)
+  const [isSyncing, setIsSyncing] = useState(false)
   const [registrando, setRegistrando] = useState(false)
   const [contadorHoy, setContadorHoy] = useState(0)
   const [historialHoy, setHistorialHoy] = useState<RegistroComedor[]>([])
   const [flashOk, setFlashOk] = useState(false)
+  const [mensajeExito, setMensajeExito] = useState(false)
 
   const scannerRef = useRef<Html5QrcodeType | null>(null)
   const scannerRunningRef = useRef(false)
@@ -154,6 +201,45 @@ export function TerminalComensalesPage() {
 
   const configServicio = resolverConfigServicio(servicioActivo)
   const tituloServicio = configServicio?.titulo ?? ''
+
+  const padronPorDni = useMemo(() => {
+    const m = new Map<string, PadronPersona>()
+    for (const p of padronLocal) {
+      const dni = p.dni.trim().toUpperCase()
+      if (dni) m.set(dni, p)
+    }
+    return m
+  }, [padronLocal])
+
+  const fetchPadron = useCallback(async () => {
+    setIsSyncing(true)
+    try {
+      const rows = await fetchPadronPersonasCompleto()
+      const hora = new Date().toLocaleTimeString('es-AR', {
+        hour: '2-digit',
+        minute: '2-digit',
+      })
+      setPadronLocal(rows)
+      setUltimaSincronizacion(hora)
+      guardarPadronEnCache(rows, hora)
+    } catch (e) {
+      showToast(
+        e instanceof Error ? e.message : 'No se pudo sincronizar el padrón.',
+        'error',
+      )
+    } finally {
+      setIsSyncing(false)
+    }
+  }, [showToast])
+
+  useEffect(() => {
+    const cache = cargarPadronDesdeCache()
+    if (cache.padron.length) {
+      setPadronLocal(cache.padron)
+      setUltimaSincronizacion(cache.ultimaSincronizacion)
+    }
+    void fetchPadron()
+  }, [fetchPadron])
 
   useEffect(() => {
     const unsub = subscribeContadorComedorHoy(setContadorHoy)
@@ -169,31 +255,18 @@ export function TerminalComensalesPage() {
     return () => unsub()
   }, [user?.uid])
 
-  useEffect(() => {
-    if (!servicioActivo) {
-      setPadron([])
-      return
-    }
-    return subscribePadronPersonas(setPadron)
-  }, [servicioActivo])
-
-  const confirmarExitoUi = useCallback(
-    (p: PadronPersona, servicioRegistrado: ServicioComedor) => {
-      reproducirBeepExito()
-      setFlashOk(true)
-      window.setTimeout(() => setFlashOk(false), 400)
-      const svc = servicioRegistrado
-      const linea =
-        contieneRefrigerioPorServicio(svc)
-          ? `${p.apellido}, ${p.nombre} — ${etiquetaServicioComedor(svc)} + refrigerio`
-          : `${p.apellido}, ${p.nombre} — ${etiquetaServicioComedor(svc)}`
-      showToast(`Registrado: ${linea}`, 'success')
-    },
-    [showToast],
-  )
+  const confirmarExitoUi = useCallback(() => {
+    reproducirBeepExito()
+    setFlashOk(true)
+    setMensajeExito(true)
+    window.setTimeout(() => {
+      setFlashOk(false)
+      setMensajeExito(false)
+    }, 1400)
+  }, [])
 
   const registrarPersona = useCallback(
-    async (p: PadronPersona, opts?: { silencioso?: boolean }): Promise<boolean> => {
+    async (p: PadronPersona): Promise<boolean> => {
       if (!user?.uid) {
         showToast('Sesión no válida. Volvé a iniciar sesión.', 'error')
         return false
@@ -217,6 +290,7 @@ export function TerminalComensalesPage() {
           servicio: cfg.servicio,
           diaOperativo: ymd,
           registrosLocales: historialHoy,
+          omitirConsultaServidor: !online,
         })
       } catch (e) {
         const msg =
@@ -236,13 +310,7 @@ export function TerminalComensalesPage() {
         observaciones,
       })
       horasLocalesRef.current.set(id, new Date())
-      if (!opts?.silencioso) {
-        confirmarExitoUi(p, cfg.servicio)
-      } else {
-        reproducirBeepExito()
-        setFlashOk(true)
-        window.setTimeout(() => setFlashOk(false), 400)
-      }
+      confirmarExitoUi()
       void promise.catch((e) => {
         pendientesHoyRef.current.delete(clave)
         horasLocalesRef.current.delete(id)
@@ -251,7 +319,7 @@ export function TerminalComensalesPage() {
       })
       return true
     },
-    [user?.uid, servicioActivo, historialHoy, showToast, confirmarExitoUi],
+    [user?.uid, servicioActivo, historialHoy, online, showToast, confirmarExitoUi],
   )
 
   const procesarDniEscaneado = useCallback(
@@ -273,20 +341,20 @@ export function TerminalComensalesPage() {
       ultimoQrTsRef.current = ahora
 
       try {
-        const p = await buscarPersonaPadronPorDni(dni)
+        const p = buscarPersonaPorDniLocal(dni, padronPorDni)
         if (!p) {
-          showToast(`DNI ${dni} no está en el padrón.`, 'error')
+          showToast(
+            `DNI ${dni} no está en el padrón local. Sincronizá la base de datos.`,
+            'error',
+          )
           return
         }
-        await registrarPersona(p, { silencioso: true })
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : 'Error al consultar el padrón.'
-        showToast(msg, 'error')
+        await registrarPersona(p)
       } finally {
         procesandoQrRef.current = false
       }
     },
-    [registrarPersona, showToast],
+    [padronPorDni, registrarPersona, showToast],
   )
 
   useEffect(() => {
@@ -364,31 +432,25 @@ export function TerminalComensalesPage() {
       showToast('Ingresá DNI, nombre o apellido.', 'error')
       return
     }
+    if (padronLocal.length === 0) {
+      showToast('Padrón local vacío. Sincronizá la base de datos.', 'error')
+      return
+    }
     setRegistrando(true)
     try {
-      let { persona, ambiguo } = buscarPersonaPorConsulta(consulta, padron)
-
-      if (!persona && !ambiguo) {
-        const soloDigitos = consulta.replace(/\D/g, '')
-        if (soloDigitos.length >= 6) {
-          persona = await buscarPersonaPadronPorDni(soloDigitos)
-        }
-      }
+      const { persona, ambiguo } = buscarPersonaPorConsulta(consulta, padronLocal)
 
       if (ambiguo) {
         showToast('Varios resultados. Sé más específico o usá el DNI completo.', 'error')
         return
       }
       if (!persona) {
-        showToast('No se encontró en el padrón.', 'error')
+        showToast('Persona no encontrada en el padrón local.', 'error')
         return
       }
       if (await registrarPersona(persona)) {
         setBusquedaInput('')
       }
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : 'Error al consultar el padrón.'
-      showToast(msg, 'error')
     } finally {
       setRegistrando(false)
     }
@@ -430,6 +492,12 @@ export function TerminalComensalesPage() {
           </div>
           <div className="flex flex-col items-end gap-2">
             <IndicadorRed online={online} />
+            <BarraSincronizacionPadron
+              ultimaSincronizacion={ultimaSincronizacion}
+              isSyncing={isSyncing}
+              cantidad={padronLocal.length}
+              onSync={() => void fetchPadron()}
+            />
             <button
               type="button"
               onClick={() => void handleCerrarSesion()}
@@ -485,8 +553,14 @@ export function TerminalComensalesPage() {
           <h1 className="min-w-0 flex-1 text-center text-lg font-bold text-[#CD1818]">
             {tituloServicio}
           </h1>
-          <div className="flex w-12 shrink-0 justify-end">
+          <div className="flex min-w-[5.5rem] shrink-0 flex-col items-end gap-1">
             <IndicadorRed online={online} />
+            <BarraSincronizacionPadron
+              ultimaSincronizacion={ultimaSincronizacion}
+              isSyncing={isSyncing}
+              cantidad={padronLocal.length}
+              onSync={() => void fetchPadron()}
+            />
           </div>
         </div>
         <p className="mt-1 text-center text-[11px] text-gray-500">
@@ -592,6 +666,18 @@ export function TerminalComensalesPage() {
           </p>
         </main>
       )}
+
+      {mensajeExito ? (
+        <div
+          className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center bg-emerald-600/92 px-6"
+          role="status"
+          aria-live="polite"
+        >
+          <p className="text-center text-3xl font-black tracking-tight text-white sm:text-4xl">
+            ✅ ¡Registro listo!
+          </p>
+        </div>
+      ) : null}
     </div>
   )
 }
