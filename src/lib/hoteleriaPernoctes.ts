@@ -5,6 +5,31 @@ export function parseYmdLocal(yyyyMmDd: string): Date {
   return new Date(y || 1970, (m || 1) - 1, d || 1, 0, 0, 0, 0)
 }
 
+function ymdLocal(d: Date): string {
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${d.getFullYear()}-${m}-${day}`
+}
+
+/** Días calendario YYYY-MM-DD entre desde y hasta (inclusive). */
+export function diasEnRango(desdeYmd: string, hastaYmd: string): string[] {
+  const out: string[] = []
+  const end = parseYmdLocal(hastaYmd).getTime()
+  for (let d = parseYmdLocal(desdeYmd); d.getTime() <= end; d = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1)) {
+    out.push(ymdLocal(d))
+  }
+  return out
+}
+
+/** ¿Durmió la noche que inicia en `ymd` (día calendario local)? */
+export function durmioNocheEnDia(
+  fechaCheckIn: Date | null,
+  fechaCheckOut: Date | null,
+  ymd: string,
+): boolean {
+  return nochesEnRango(fechaCheckIn, fechaCheckOut, ymd, ymd) > 0
+}
+
 function startOfDayLocal(d: Date): Date {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0)
 }

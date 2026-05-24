@@ -55,6 +55,16 @@ service cloud.firestore {
       return isAnalista() || isGerencia();
     }
 
+    /** Panel MVP `/control`: comensales, hotelería y menú (lectura). */
+    function panelControlLectura() {
+      return isAdminCampamento() || isHoteleriaCasposo() || isGerencia() || isAnalista();
+    }
+
+    /** Escritura operativa en `/control` (sin rol analista, solo lectura global). */
+    function panelControlEscritura() {
+      return isAdminCampamento() || isHoteleriaCasposo() || isGerencia();
+    }
+
     /** Hotelería / campamento: mismo literal que en `AuthContext` y en el documento `usuarios/{uid}`. */
     function isHoteleriaCasposo() {
       return hasRole('hoteleria_casposo');
@@ -132,7 +142,7 @@ service cloud.firestore {
     }
 
     function creacionRegistroComedorSupervisor() {
-      return (isAdminCampamento() || isJefeCampamento())
+      return (panelControlEscritura() || isJefeCampamento())
         && request.resource.data.keys().hasAll([
           'dni', 'nombre', 'apellido', 'empresa', 'servicio', 'diaOperativo', 'fechaHora', 'usuarioRegistro',
           'observaciones'
@@ -240,8 +250,8 @@ service cloud.firestore {
 
     match /menu/{itemId} {
       allow read: if signedIn();
-      allow create, delete: if isAdminCocina();
-      allow update: if isAdminCocina()
+      allow create, delete: if isAdminCocina() || panelControlEscritura();
+      allow update: if isAdminCocina() || panelControlEscritura()
         || (menuSoloDescuentaStock() && isClientePedido());
     }
 
@@ -307,12 +317,17 @@ service cloud.firestore {
     }
 
     match /padron_personas/{id} {
-      allow read: if signedIn() && (isHoteleriaCasposo() || isTerminalComedor() || isAdminCampamento() || isJefeCampamento() || visionGlobalLectura());
-      allow create, update, delete: if signedIn() && (isHoteleriaCasposo() || isJefeCampamento());
+      allow read: if signedIn() && (panelControlLectura() || isTerminalComedor() || isJefeCampamento());
+      allow create, update, delete: if signedIn() && (panelControlEscritura() || isJefeCampamento());
+    }
+
+    match /padron_empresas/{id} {
+      allow read: if signedIn() && (panelControlLectura() || isTerminalComedor() || isJefeCampamento());
+      allow create, update, delete: if signedIn() && (panelControlEscritura() || isJefeCampamento());
     }
 
     match /registros_comedor/{id} {
-      allow read: if signedIn() && (isTerminalComedor() || isAdminCampamento() || isJefeCampamento() || visionGlobalLectura());
+      allow read: if signedIn() && (panelControlLectura() || isTerminalComedor() || isJefeCampamento());
       allow create: if signedIn() && (
         creacionRegistroComedorTerminal() || creacionRegistroComedorSupervisor()
       );
@@ -320,19 +335,19 @@ service cloud.firestore {
     }
 
     match /camas/{id} {
-      allow read: if signedIn() && (isHoteleriaCasposo() || isJefeCampamento() || visionGlobalLectura());
-      allow create, update, delete: if signedIn() && (isHoteleriaCasposo() || isJefeCampamento());
+      allow read: if signedIn() && (panelControlLectura() || isJefeCampamento());
+      allow create, update, delete: if signedIn() && (panelControlEscritura() || isJefeCampamento());
     }
 
     match /historial_limpiezas/{id} {
-      allow read: if signedIn() && (isHoteleriaCasposo() || isJefeCampamento() || visionGlobalLectura());
-      allow create: if signedIn() && (isHoteleriaCasposo() || isJefeCampamento());
+      allow read: if signedIn() && (panelControlLectura() || isJefeCampamento());
+      allow create: if signedIn() && (panelControlEscritura() || isJefeCampamento());
       allow update, delete: if false;
     }
 
     match /historial_pernoctes/{id} {
-      allow read: if signedIn() && (isHoteleriaCasposo() || isJefeCampamento() || visionGlobalLectura());
-      allow create, update, delete: if signedIn() && (isHoteleriaCasposo() || isJefeCampamento());
+      allow read: if signedIn() && (panelControlLectura() || isJefeCampamento());
+      allow create, update, delete: if signedIn() && (panelControlEscritura() || isJefeCampamento());
     }
 
     match /{document=**} {

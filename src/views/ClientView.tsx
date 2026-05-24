@@ -1,4 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
+import { Navigate } from 'react-router-dom'
+import { useAuth } from '../context/AuthContext'
+import { rutaHomePorRol } from '../lib/rbac'
 import {
   confirmarPedidoSemanalConTransaccion,
   LUGARES_ENTREGA,
@@ -79,6 +82,7 @@ function validarPedidoSemanal(input: {
 }
 
 export function ClientView() {
+  const { user, rol, loading: authLoading } = useAuth()
   const diasDisponibles = useMemo(() => getVentanaRodanteConsumo(), [])
   const [items, setItems] = useState<MenuItem[]>([])
   const [selecciones, setSelecciones] = useState<Record<string, SeleccionDia>>(() =>
@@ -284,6 +288,11 @@ export function ClientView() {
     : null
   const hayPrincipalTarjeta = Boolean(selTarjeta.principalId)
   const aceptaGuarnicionTarjeta = principalTarjeta?.aceptaGuarnicion !== false
+
+  if (!authLoading && user && rol) {
+    const home = rutaHomePorRol(rol)
+    return <Navigate to={home ?? '/login'} replace />
+  }
 
   return (
     <div className="min-h-dvh bg-gray-50 pb-12">

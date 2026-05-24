@@ -16,7 +16,7 @@ import { getDb } from './firebase'
 import { COL_PADRON, mapPadron } from './hoteleria'
 import type { PadronPersona } from '../types/hoteleria'
 import { USUARIO_REGISTRO_SUPERVISOR_MANUAL, type RegistroComedor, type ServicioComedor } from '../types/comedor'
-import { contieneRefrigerioPorServicio } from './servicioComedor'
+import { contieneRefrigerioPorServicio, etiquetaServicioComedor } from './servicioComedor'
 
 export const COL_REGISTROS_COMEDOR = 'registros_comedor'
 
@@ -42,7 +42,8 @@ export function mensajePermisosTerminalComedor(): string {
 export function mensajePermisosRegistrosComedor(): string {
   return (
     'Permiso denegado en `registros_comedor`. Publicá las reglas: `npm run deploy:firestore-rules`. ' +
-    'Roles con lectura: `terminal_comedor`, `admin_campamento`.'
+    'Roles con lectura en `/control`: `admin_campamento`, `hoteleria_casposo`, `gerencia`, `analista`; ' +
+    'en terminal: `terminal_comedor`, `jefe_campamento`.'
   )
 }
 
@@ -93,6 +94,91 @@ export function diaOperativoYmdLocal(date: Date = new Date()): string {
   return `${y}-${m}-${d}`
 }
 
+export function claveRegistroComedorDia(
+  dni: string,
+  servicio: ServicioComedor,
+  diaOperativo: string,
+): string {
+  return `${dni.trim().toUpperCase()}|${servicio}|${diaOperativo.trim()}`
+}
+
+export function mensajeRegistroDuplicadoComedor(
+  servicio: ServicioComedor,
+  diaOperativo: string,
+): string {
+  return `Esta persona (DNI) ya fue registrada en ${etiquetaServicioComedor(servicio)} el día ${diaOperativo}. Solo se permite un registro por servicio por día.`
+}
+
+/** Comprueba duplicado en un arreglo ya cargado (mismo día operativo + servicio + DNI). */
+export function yaRegistradoComedorEnLista(
+  dni: string,
+  servicio: ServicioComedor,
+  diaOperativo: string,
+  registros: RegistroComedor[],
+): boolean {
+  const clave = claveRegistroComedorDia(dni, servicio, diaOperativo)
+  return registros.some(
+    (r) => claveRegistroComedorDia(r.dni, r.servicio, r.diaOperativo) === clave,
+  )
+}
+
+/**
+ * Consulta Firestore: ¿ya existe registro para este DNI, servicio y día operativo?
+ * Requiere índice compuesto en `registros_comedor` (diaOperativo, dni, servicio).
+ */
+export async function existeRegistroComedorDiaServicio(input: {
+  dni: string
+  servicio: ServicioComedor
+  diaOperativo?: string
+}): Promise<boolean> {
+  const d = input.dni.trim().toUpperCase()
+  if (!d || input.servicio === 'FUERA DE HORARIO') return false
+  const ymd = (input.diaOperativo?.trim() || diaOperativoYmdLocal()).trim()
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return false
+
+  const db = getDb()
+  try {
+    const q = query(
+      collection(db, COL_REGISTROS_COMEDOR),
+      where('diaOperativo', '==', ymd),
+      where('dni', '==', d),
+      where('servicio', '==', input.servicio),
+      limit(1),
+    )
+    const snap = await getDocs(q)
+    return !snap.empty
+  } catch (e) {
+    if (esPermissionDeniedFirestore(e)) {
+      throw new Error(mensajePermisosTerminalComedor())
+    }
+    throw e
+  }
+}
+
+/**
+ * Lanza si la persona ya tiene registro para ese servicio en el día (local + servidor).
+ */
+export async function validarRegistroComedorUnico(input: {
+  persona: PadronPersona
+  servicio: ServicioComedor
+  diaOperativo?: string
+  registrosLocales?: RegistroComedor[]
+}): Promise<void> {
+  const ymd = (input.diaOperativo?.trim() || diaOperativoYmdLocal()).trim()
+  const dni = input.persona.dni.trim().toUpperCase()
+
+  if (
+    input.registrosLocales?.length &&
+    yaRegistradoComedorEnLista(dni, input.servicio, ymd, input.registrosLocales)
+  ) {
+    throw new Error(mensajeRegistroDuplicadoComedor(input.servicio, ymd))
+  }
+
+  if (await existeRegistroComedorDiaServicio({ dni, servicio: input.servicio, diaOperativo: ymd })) {
+    throw new Error(mensajeRegistroDuplicadoComedor(input.servicio, ymd))
+  }
+}
+
 /** Busca en `padron_personas` por DNI (misma normalización que hotelería). */
 export async function buscarPersonaPadronPorDni(dni: string): Promise<PadronPersona | null> {
   const d = dni.trim().toUpperCase()
@@ -117,6 +203,8 @@ export type CrearRegistroComedorInput = {
   /** Día operativo YYYY-MM-DD; por defecto hoy local. */
   diaOperativo?: string
   observaciones?: string
+  /** Evita round-trip si ya tenés registros del rango en memoria. */
+  registrosLocales?: RegistroComedor[]
 }
 
 function buildPayloadRegistroComedor({
@@ -156,6 +244,16 @@ function buildPayloadRegistroComedor({
 
 /** Crea un documento en `registros_comedor` (espera confirmación de Firestore). */
 export async function crearRegistroComedor(input: CrearRegistroComedorInput): Promise<string> {
+  if (!input.servicio) {
+    throw new Error('Servicio de comedor no definido.')
+  }
+  await validarRegistroComedorUnico({
+    persona: input.persona,
+    servicio: input.servicio,
+    diaOperativo: input.diaOperativo,
+    registrosLocales: input.registrosLocales,
+  })
+
   const db = getDb()
   const ref = doc(collection(db, COL_REGISTROS_COMEDOR))
   const payload = buildPayloadRegistroComedor(input)
@@ -180,6 +278,7 @@ export async function crearRegistroComedorRetroactivoSupervisor(input: {
   servicio: ServicioComedor
   diaOperativo: string
   observaciones: string
+  registrosLocales?: RegistroComedor[]
 }): Promise<string> {
   const obs = input.observaciones.trim()
   if (!obs) throw new Error('Completá observaciones / motivo.')
@@ -192,6 +291,7 @@ export async function crearRegistroComedorRetroactivoSupervisor(input: {
     usuarioRegistro: USUARIO_REGISTRO_SUPERVISOR_MANUAL,
     diaOperativo: input.diaOperativo.trim(),
     observaciones: obs,
+    registrosLocales: input.registrosLocales,
   })
 }
 

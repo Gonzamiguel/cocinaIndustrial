@@ -1,10 +1,14 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { Download, Loader2, Pencil, Upload } from 'lucide-react'
 import * as XLSX from 'xlsx'
+import { PadronFormModal, inputClass, labelClass } from '../../components/padron/PadronFormModal'
 import { useToast } from '../../context/ToastContext'
-import type { FilaImportPadron, PadronPersona } from '../../types/hoteleria'
+import type { PadronPersona } from '../../types/hoteleria'
+import { filasCargaMasivaDesdeWorkbook } from '../../lib/padronImport'
 import {
+  actualizarPersonaPadron,
   crearPersonaPadron,
-  importarPadronDesdeFilas,
+  importarPadronCargaMasiva,
   subscribePadronPersonas,
 } from '../../lib/hoteleria'
 
@@ -12,131 +16,192 @@ function normalizarTextoBusqueda(s: string): string {
   return s.trim().toLowerCase()
 }
 
-function filasDesdeSheet(ws: XLSX.WorkSheet): FilaImportPadron[] {
-  const rows = XLSX.utils.sheet_to_json<string[]>(ws, {
-    header: 1,
-    defval: '',
-    raw: false,
-  }) as string[][]
-  if (!rows.length) return []
-  const header = rows[0].map((c) => String(c ?? '').trim().toLowerCase())
-  const idx = (name: string) => header.findIndex((h) => h === name)
-  const iDni = idx('dni')
-  const iNombre = idx('nombre')
-  const iApellido = idx('apellido')
-  const iEmpresa = idx('empresa')
-  if (iDni < 0 || iNombre < 0 || iApellido < 0 || iEmpresa < 0) {
-    throw new Error(
-      'El archivo debe tener una fila de encabezados con las columnas: DNI, Nombre, Apellido, Empresa.',
-    )
-  }
-  const out: FilaImportPadron[] = []
-  for (let r = 1; r < rows.length; r++) {
-    const row = rows[r] ?? []
-    const dni = String(row[iDni] ?? '').trim()
-    const nombre = String(row[iNombre] ?? '').trim()
-    const apellido = String(row[iApellido] ?? '').trim()
-    const empresa = String(row[iEmpresa] ?? '').trim()
-    if (!dni && !nombre && !apellido && !empresa) continue
-    out.push({ dni, nombre, apellido, empresa })
-  }
-  return out
+function hoyYmdLocal(): string {
+  const d = new Date()
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
 }
+
+const PAGE_SIZE = 20
+
+type ModalPersona =
+  | { modo: 'nueva' }
+  | { modo: 'editar'; persona: PadronPersona }
+  | null
 
 export function PadronPage() {
   const { showToast } = useToast()
   const [rows, setRows] = useState<PadronPersona[]>([])
   const [q, setQ] = useState('')
-  const [importing, setImporting] = useState(false)
-  const [modalNueva, setModalNueva] = useState(false)
-  const [guardandoPersona, setGuardandoPersona] = useState(false)
-  const [npDni, setNpDni] = useState('')
-  const [npNombre, setNpNombre] = useState('')
-  const [npApellido, setNpApellido] = useState('')
-  const [npEmpresa, setNpEmpresa] = useState('')
-  const fileRef = useRef<HTMLInputElement>(null)
+  const [empresaFiltro, setEmpresaFiltro] = useState('')
+  const [pagina, setPagina] = useState(1)
+  const [cargandoMasiva, setCargandoMasiva] = useState(false)
+  const [exportando, setExportando] = useState(false)
+  const [modal, setModal] = useState<ModalPersona>(null)
+  const [guardando, setGuardando] = useState(false)
+  const [fDni, setFDni] = useState('')
+  const [fNombre, setFNombre] = useState('')
+  const [fApellido, setFApellido] = useState('')
+  const [fEmpresa, setFEmpresa] = useState('')
+  const cargaMasivaRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     const unsub = subscribePadronPersonas(setRows)
     return () => unsub()
   }, [])
 
+  const empresasOpciones = useMemo(() => {
+    const set = new Set<string>()
+    for (const p of rows) {
+      const e = p.empresa?.trim()
+      if (e) set.add(e)
+    }
+    return [...set].sort((a, b) => a.localeCompare(b, 'es'))
+  }, [rows])
+
   const filtradas = useMemo(() => {
     const nq = normalizarTextoBusqueda(q)
-    if (!nq) return rows
     return rows.filter((p) => {
+      if (empresaFiltro && p.empresa !== empresaFiltro) return false
+      if (!nq) return true
       const blob = `${p.dni} ${p.nombre} ${p.apellido} ${p.empresa}`.toLowerCase()
       return blob.includes(nq)
     })
-  }, [rows, q])
+  }, [rows, q, empresaFiltro])
 
-  const onPickExcel = useCallback(() => {
-    fileRef.current?.click()
-  }, [])
+  const totalPaginas = Math.max(1, Math.ceil(filtradas.length / PAGE_SIZE))
+  const paginaSegura = Math.min(pagina, totalPaginas)
 
-  async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
+  const filtradasPagina = useMemo(() => {
+    const start = (paginaSegura - 1) * PAGE_SIZE
+    return filtradas.slice(start, start + PAGE_SIZE)
+  }, [filtradas, paginaSegura])
+
+  useEffect(() => {
+    setPagina(1)
+  }, [q, empresaFiltro])
+
+  useEffect(() => {
+    if (pagina > totalPaginas) setPagina(totalPaginas)
+  }, [pagina, totalPaginas])
+
+  function abrirSelectorCargaMasiva() {
+    cargaMasivaRef.current?.click()
+  }
+
+  function abrirNueva() {
+    setFDni('')
+    setFNombre('')
+    setFApellido('')
+    setFEmpresa('')
+    setModal({ modo: 'nueva' })
+  }
+
+  function abrirEditar(persona: PadronPersona) {
+    setFDni(persona.dni)
+    setFNombre(persona.nombre)
+    setFApellido(persona.apellido)
+    setFEmpresa(persona.empresa)
+    setModal({ modo: 'editar', persona })
+  }
+
+  function cerrarModal() {
+    if (guardando) return
+    setModal(null)
+  }
+
+  async function handleExportExcel() {
+    if (!filtradas.length) {
+      showToast('No hay registros para exportar.', 'error')
+      return
+    }
+    setExportando(true)
+    try {
+      await new Promise((resolve) => requestAnimationFrame(resolve))
+      const header = ['DNI', 'Apellido', 'Nombre', 'Empresa']
+      const rowsExport = filtradas.map((p) => [
+        p.dni,
+        p.apellido,
+        p.nombre,
+        p.empresa || 'No especificada',
+      ])
+      const ws = XLSX.utils.aoa_to_sheet([header, ...rowsExport])
+      const wb = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(wb, ws, 'Padron')
+      const fechaArchivo = hoyYmdLocal()
+      XLSX.writeFile(wb, `Padron_Personas_Export_${fechaArchivo}.xlsx`)
+      showToast(
+        `Excel generado: ${filtradas.length.toLocaleString('es-AR')} registros.`,
+        'success',
+      )
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : 'No se pudo exportar el Excel.', 'error')
+    } finally {
+      setExportando(false)
+    }
+  }
+
+  async function onCargaMasiva(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     e.target.value = ''
     if (!file) return
-    setImporting(true)
+
+    setCargandoMasiva(true)
     try {
       const buf = await file.arrayBuffer()
       const wb = XLSX.read(buf, { type: 'array' })
-      const name = wb.SheetNames[0]
-      if (!name) {
-        showToast('El archivo no tiene hojas.', 'error')
-        return
-      }
-      const filas = filasDesdeSheet(wb.Sheets[name]!)
-      if (!filas.length) {
-        showToast('No se encontraron filas de datos.', 'error')
-        return
-      }
-      const res = await importarPadronDesdeFilas(filas)
+      const filas = filasCargaMasivaDesdeWorkbook(wb)
+      const { procesados } = await importarPadronCargaMasiva(filas)
       showToast(
-        `Importación finalizada: ${res.creados} creados, ${res.actualizados} actualizados.`,
+        `Carga masiva finalizada: ${procesados.toLocaleString('es-AR')} registros procesados.`,
         'success',
       )
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'No se pudo importar el archivo.'
+      const msg = err instanceof Error ? err.message : 'No se pudo procesar el archivo.'
       showToast(msg, 'error')
     } finally {
-      setImporting(false)
+      setCargandoMasiva(false)
     }
   }
 
-  function abrirModalNueva() {
-    setNpDni('')
-    setNpNombre('')
-    setNpApellido('')
-    setNpEmpresa('')
-    setModalNueva(true)
-  }
-
-  async function guardarNuevaPersona() {
-    setGuardandoPersona(true)
+  async function guardarFormulario() {
+    setGuardando(true)
     try {
-      await crearPersonaPadron({
-        dni: npDni,
-        nombre: npNombre,
-        apellido: npApellido,
-        empresa: npEmpresa,
-      })
-      showToast('Persona agregada al padrón.', 'success')
-      setModalNueva(false)
+      const payload = {
+        dni: fDni,
+        nombre: fNombre,
+        apellido: fApellido,
+        empresa: fEmpresa,
+      }
+      if (modal?.modo === 'editar') {
+        await actualizarPersonaPadron(modal.persona.id, payload)
+        showToast('Persona actualizada.', 'success')
+      } else {
+        await crearPersonaPadron(payload)
+        showToast('Persona agregada al padrón.', 'success')
+      }
+      setModal(null)
     } catch (e) {
       showToast(e instanceof Error ? e.message : 'No se pudo guardar.', 'error')
     } finally {
-      setGuardandoPersona(false)
+      setGuardando(false)
     }
   }
+
+  const esEdicion = modal?.modo === 'editar'
+  const tituloModal = esEdicion ? 'Editar persona' : 'Nueva persona'
+  const subtituloModal = esEdicion
+    ? `${modal.persona.apellido}, ${modal.persona.nombre}`
+    : 'Completá los datos del padrón'
 
   return (
     <div className="min-h-full w-full bg-neutral-50">
       <div className="mx-auto w-full max-w-[1600px] px-4 py-6 sm:px-6 lg:px-8">
         <section className="rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-            <label className="block min-w-0 flex-1">
+          <div className="flex flex-wrap items-end gap-3">
+            <label className="block min-w-0 w-full max-w-[12rem] sm:max-w-[14rem]">
               <span className="text-xs font-medium text-neutral-600">Buscar por DNI o nombre</span>
               <input
                 type="search"
@@ -146,30 +211,61 @@ export function PadronPage() {
                 className="mt-1.5 w-full min-h-11 rounded-xl border border-neutral-200 bg-white px-3 text-sm text-neutral-900 outline-none transition focus:border-[#CD1818]/40 focus:ring-2 focus:ring-[#CD1818]/15"
               />
             </label>
-            <div className="flex shrink-0 flex-wrap gap-2">
-              <input
-                ref={fileRef}
-                type="file"
-                accept=".xlsx,.xls"
-                className="hidden"
-                onChange={(ev) => void onFile(ev)}
-              />
-              <button
-                type="button"
-                onClick={abrirModalNueva}
-                className="inline-flex min-h-11 items-center justify-center rounded-xl border border-[#CD1818]/30 bg-white px-5 text-sm font-semibold text-[#CD1818] shadow-sm transition hover:bg-[#CD1818]/5"
+            <label className="block min-w-[10rem] sm:min-w-[12rem]">
+              <span className="text-xs font-medium text-neutral-600">Empresa</span>
+              <select
+                value={empresaFiltro}
+                onChange={(e) => setEmpresaFiltro(e.target.value)}
+                className="mt-1.5 block w-full min-h-11 rounded-xl border border-neutral-200 bg-white px-3 text-sm text-neutral-900 outline-none transition focus:border-[#CD1818]/40 focus:ring-2 focus:ring-[#CD1818]/15"
               >
-                Nueva persona
-              </button>
-              <button
-                type="button"
-                onClick={onPickExcel}
-                disabled={importing}
-                className="inline-flex min-h-11 items-center justify-center rounded-xl bg-[#CD1818] px-5 text-sm font-semibold text-white shadow-sm transition hover:bg-[#b01414] disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {importing ? 'Importando…' : 'Importar Excel'}
-              </button>
-            </div>
+                <option value="">Todas las empresas</option>
+                {empresasOpciones.map((e) => (
+                  <option key={e} value={e}>
+                    {e}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <input
+              ref={cargaMasivaRef}
+              type="file"
+              accept=".xlsx,.xls,.csv"
+              className="hidden"
+              onChange={(ev) => void onCargaMasiva(ev)}
+            />
+            <button
+              type="button"
+              onClick={abrirNueva}
+              className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-xl border border-[#CD1818]/30 bg-white px-4 text-sm font-semibold text-[#CD1818] shadow-sm transition hover:bg-[#CD1818]/5"
+            >
+              Nueva persona
+            </button>
+            <button
+              type="button"
+              onClick={abrirSelectorCargaMasiva}
+              disabled={cargandoMasiva}
+              className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl border border-gray-300 bg-white px-4 text-sm font-semibold text-gray-700 shadow-sm transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {cargandoMasiva ? (
+                <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
+              ) : (
+                <Upload className="h-4 w-4 shrink-0" aria-hidden />
+              )}
+              {cargandoMasiva ? 'Cargando…' : 'Carga masiva'}
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleExportExcel()}
+              disabled={!filtradas.length || exportando}
+              className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-[#CD1818] px-5 text-sm font-semibold text-white shadow-sm transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-45"
+            >
+              {exportando ? (
+                <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
+              ) : (
+                <Download className="h-4 w-4 shrink-0" aria-hidden />
+              )}
+              Excel
+            </button>
           </div>
 
           <div className="mt-6 overflow-x-auto rounded-xl border border-neutral-100">
@@ -180,103 +276,125 @@ export function PadronPage() {
                   <th className="px-4 py-3">Nombre</th>
                   <th className="px-4 py-3">Apellido</th>
                   <th className="px-4 py-3">Empresa</th>
+                  <th className="w-14 px-4 py-3 text-center">
+                    <span className="sr-only">Editar</span>
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-neutral-100 bg-white text-neutral-800">
                 {filtradas.length === 0 ? (
                   <tr>
-                    <td colSpan={4} className="px-4 py-10 text-center text-neutral-500">
+                    <td colSpan={5} className="px-4 py-10 text-center text-neutral-500">
                       {rows.length === 0
-                        ? 'No hay personas en el padrón. Usá «Nueva persona» o importá un Excel.'
-                        : 'No hay resultados para la búsqueda.'}
+                        ? 'No hay personas en el padrón. Usá «Nueva persona» o «Carga masiva».'
+                        : 'No hay resultados con los filtros aplicados.'}
                     </td>
                   </tr>
                 ) : (
-                  filtradas.map((p) => (
+                  filtradasPagina.map((p) => (
                     <tr key={p.id} className="hover:bg-neutral-50/80">
                       <td className="whitespace-nowrap px-4 py-3 font-mono text-xs">{p.dni}</td>
                       <td className="px-4 py-3">{p.nombre}</td>
                       <td className="px-4 py-3">{p.apellido}</td>
                       <td className="px-4 py-3 text-neutral-600">{p.empresa || '—'}</td>
+                      <td className="px-4 py-3 text-center">
+                        <button
+                          type="button"
+                          onClick={() => abrirEditar(p)}
+                          aria-label={`Editar ${p.apellido}, ${p.nombre}`}
+                          className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-neutral-500 transition hover:bg-[#CD1818]/10 hover:text-[#CD1818]"
+                        >
+                          <Pencil className="h-4 w-4" aria-hidden />
+                        </button>
+                      </td>
                     </tr>
                   ))
                 )}
               </tbody>
             </table>
+            {filtradas.length > 0 ? (
+              <div className="flex flex-wrap items-center justify-between gap-3 border-t border-neutral-100 bg-neutral-50/80 px-4 py-3">
+                <p className="text-xs text-neutral-600">
+                  Mostrando {(paginaSegura - 1) * PAGE_SIZE + 1}–
+                  {Math.min(paginaSegura * PAGE_SIZE, filtradas.length)} de{' '}
+                  {filtradas.length.toLocaleString('es-AR')} filtrados ({rows.length.toLocaleString('es-AR')}{' '}
+                  en total)
+                </p>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={paginaSegura <= 1}
+                    onClick={() => setPagina((p) => Math.max(1, p - 1))}
+                    className="rounded-lg border border-neutral-200 bg-white px-3 py-1.5 text-xs font-medium text-neutral-700 disabled:opacity-40"
+                  >
+                    Anterior
+                  </button>
+                  <span className="text-xs tabular-nums text-neutral-600">
+                    Pág. {paginaSegura} / {totalPaginas}
+                  </span>
+                  <button
+                    type="button"
+                    disabled={paginaSegura >= totalPaginas}
+                    onClick={() => setPagina((p) => Math.min(totalPaginas, p + 1))}
+                    className="rounded-lg border border-neutral-200 bg-white px-3 py-1.5 text-xs font-medium text-neutral-700 disabled:opacity-40"
+                  >
+                    Siguiente
+                  </button>
+                </div>
+              </div>
+            ) : null}
           </div>
-          <p className="mt-4 text-xs text-neutral-500">
-            Mostrando {filtradas.length} de {rows.length} registros.
-          </p>
         </section>
       </div>
 
-      {modalNueva ? (
-        <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/45 p-4">
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="titulo-nueva-persona"
-            className="w-full max-w-md rounded-2xl border border-neutral-200 bg-white p-6 shadow-xl"
-          >
-            <h2 id="titulo-nueva-persona" className="text-lg font-semibold text-neutral-900">
-              Nueva persona
-            </h2>
-            <div className="mt-4 space-y-3">
-              <label className="block">
-                <span className="text-xs font-medium text-neutral-600">DNI</span>
-                <input
-                  value={npDni}
-                  onChange={(e) => setNpDni(e.target.value)}
-                  className="mt-1 w-full min-h-10 rounded-xl border border-neutral-200 px-3 text-sm font-mono outline-none focus:border-[#CD1818]/40 focus:ring-2 focus:ring-[#CD1818]/15"
-                  placeholder="Sin puntos"
-                  autoComplete="off"
-                />
-              </label>
-              <label className="block">
-                <span className="text-xs font-medium text-neutral-600">Nombre</span>
-                <input
-                  value={npNombre}
-                  onChange={(e) => setNpNombre(e.target.value)}
-                  className="mt-1 w-full min-h-10 rounded-xl border border-neutral-200 px-3 text-sm outline-none focus:border-[#CD1818]/40 focus:ring-2 focus:ring-[#CD1818]/15"
-                />
-              </label>
-              <label className="block">
-                <span className="text-xs font-medium text-neutral-600">Apellido</span>
-                <input
-                  value={npApellido}
-                  onChange={(e) => setNpApellido(e.target.value)}
-                  className="mt-1 w-full min-h-10 rounded-xl border border-neutral-200 px-3 text-sm outline-none focus:border-[#CD1818]/40 focus:ring-2 focus:ring-[#CD1818]/15"
-                />
-              </label>
-              <label className="block">
-                <span className="text-xs font-medium text-neutral-600">Empresa</span>
-                <input
-                  value={npEmpresa}
-                  onChange={(e) => setNpEmpresa(e.target.value)}
-                  className="mt-1 w-full min-h-10 rounded-xl border border-neutral-200 px-3 text-sm outline-none focus:border-[#CD1818]/40 focus:ring-2 focus:ring-[#CD1818]/15"
-                />
-              </label>
-            </div>
-            <div className="mt-6 flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setModalNueva(false)}
-                className="rounded-xl border border-neutral-200 px-4 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-50"
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                onClick={() => void guardarNuevaPersona()}
-                disabled={guardandoPersona}
-                className="rounded-xl bg-[#CD1818] px-4 py-2 text-sm font-semibold text-white hover:bg-[#b01414] disabled:opacity-50"
-              >
-                {guardandoPersona ? 'Guardando…' : 'Guardar'}
-              </button>
-            </div>
-          </div>
+      <PadronFormModal
+        open={modal !== null}
+        title={tituloModal}
+        subtitle={subtituloModal}
+        onClose={cerrarModal}
+        onSave={() => void guardarFormulario()}
+        saving={guardando}
+        saveDisabled={!fDni.trim() || !fNombre.trim() || !fApellido.trim()}
+        saveLabel={esEdicion ? 'Guardar cambios' : 'Guardar'}
+      >
+        <div className="space-y-4">
+          <label className="block">
+            <span className={labelClass}>DNI</span>
+            <input
+              value={fDni}
+              onChange={(e) => setFDni(e.target.value)}
+              className={`${inputClass} font-mono`}
+              placeholder="Sin puntos"
+              autoComplete="off"
+            />
+          </label>
+          <label className="block">
+            <span className={labelClass}>Nombre</span>
+            <input
+              value={fNombre}
+              onChange={(e) => setFNombre(e.target.value)}
+              className={inputClass}
+            />
+          </label>
+          <label className="block">
+            <span className={labelClass}>Apellido</span>
+            <input
+              value={fApellido}
+              onChange={(e) => setFApellido(e.target.value)}
+              className={inputClass}
+            />
+          </label>
+          <label className="block">
+            <span className={labelClass}>Empresa</span>
+            <input
+              value={fEmpresa}
+              onChange={(e) => setFEmpresa(e.target.value)}
+              className={inputClass}
+              placeholder="Opcional"
+            />
+          </label>
         </div>
-      ) : null}
+      </PadronFormModal>
     </div>
   )
 }

@@ -22,6 +22,7 @@ import { getDb } from './firebase'
 import type {
   Cama,
   EstadoCama,
+  FilaCargaMasivaPadron,
   FilaImportPadron,
   HistorialLimpieza,
   HistorialPernocte,
@@ -60,7 +61,7 @@ function logErrorSuscripcion(coleccion: string, err: FirestoreErrorish) {
       `[Firestore] ${coleccion}: permiso denegado. ` +
         'Publicá las reglas del repositorio en tu proyecto: `firebase deploy --only firestore:rules` ' +
         '(desde la raíz del proyecto, con firebase.json). ' +
-        'Comprobá también en Firestore el documento `usuarios/{tuUID}` con el campo exacto `rol: "hoteleria_casposo"`.',
+        'Comprobá `usuarios/{tuUID}.rol` (`admin_campamento`, `hoteleria_casposo`, `gerencia` o `analista` para `/control`).',
     )
     return
   }
@@ -128,6 +129,25 @@ function finDelDiaLocal(ref: Date): Date {
   return new Date(ref.getFullYear(), ref.getMonth(), ref.getDate(), 23, 59, 59, 999)
 }
 
+function startOfDayLocal(d: Date): Date {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate())
+}
+
+/** Egreso planificado al check-in (campo `fechaSalidaEstimada` en Firestore). */
+function validarFechaEgresoPlanificadaCheckIn(
+  fechaCheckIn: Date,
+  fechaEgresoPlanificada: Date | null | undefined,
+): void {
+  if (!fechaEgresoPlanificada) {
+    throw new Error('Indicá la fecha de egreso planificada.')
+  }
+  if (
+    startOfDayLocal(fechaEgresoPlanificada).getTime() < startOfDayLocal(fechaCheckIn).getTime()
+  ) {
+    throw new Error('La fecha de egreso planificada debe ser igual o posterior al ingreso.')
+  }
+}
+
 /** Check-out real: no admite fechas posteriores al día de hoy (hora local). */
 export function assertFechaCheckOutRealNoEsFutura(fechaCheckOut: Date): void {
   if (fechaCheckOut.getTime() > finDelDiaLocal(new Date()).getTime()) {
@@ -136,14 +156,30 @@ export function assertFechaCheckOutRealNoEsFutura(fechaCheckOut: Date): void {
 }
 
 export function mapPadron(id: string, data: Record<string, unknown>): PadronPersona {
+  let nombre = typeof data.nombre === 'string' ? data.nombre.trim() : ''
+  let apellido = typeof data.apellido === 'string' ? data.apellido.trim() : ''
+  const nombreCompleto =
+    typeof data.nombreCompleto === 'string' ? data.nombreCompleto.trim() : ''
+  if (!nombre && !apellido && nombreCompleto) {
+    const partes = nombreCompleto.split(/\s+/).filter(Boolean)
+    nombre = partes[0] ?? ''
+    apellido = partes.slice(1).join(' ')
+  }
   return {
     id,
     dni: typeof data.dni === 'string' ? data.dni.trim() : '',
-    nombre: typeof data.nombre === 'string' ? data.nombre.trim() : '',
-    apellido: typeof data.apellido === 'string' ? data.apellido.trim() : '',
+    nombre,
+    apellido,
     empresa: typeof data.empresa === 'string' ? data.empresa.trim() : '',
     creadoEn: tsToDate(data.creadoEn),
   }
+}
+
+/** Id de documento Firestore a partir del DNI (colección `padron_personas`). */
+export function idDocumentoPadronPorDni(dni: string): string {
+  const d = dni.trim().toUpperCase().replace(/\//g, '-')
+  if (!d) throw new Error('DNI inválido.')
+  return d
 }
 
 export function mapCama(id: string, data: Record<string, unknown>): Cama {
@@ -398,6 +434,53 @@ export async function importarPadronDesdeFilas(
   return { creados, actualizados }
 }
 
+const BATCH_PADRON_MAX = 500
+
+/**
+ * Carga masiva: un documento por DNI en `padron_personas` con `merge: true`.
+ * Columnas esperadas: DNI, Apellido, Nombre, Empresa (+ Legajo, Posición opcionales).
+ */
+export async function importarPadronCargaMasiva(
+  filas: FilaCargaMasivaPadron[],
+): Promise<{ procesados: number }> {
+  const db = getDb()
+  let procesados = 0
+
+  for (let i = 0; i < filas.length; i += BATCH_PADRON_MAX) {
+    const chunk = filas.slice(i, i + BATCH_PADRON_MAX)
+    const batch = writeBatch(db)
+    let ops = 0
+
+    for (const f of chunk) {
+      const dni = String(f.dni).trim().toUpperCase()
+      if (!dni) continue
+
+      const docId = idDocumentoPadronPorDni(dni)
+      const ref = doc(db, COL_PADRON, docId)
+
+      const payload: Record<string, unknown> = {
+        dni,
+        nombre: f.nombre,
+        apellido: f.apellido,
+        nombreCompleto: f.nombreCompleto,
+        empresa: f.empresa,
+        estado: f.estado,
+      }
+      if (f.legajo) payload.legajo = f.legajo
+      if (f.posicion) payload.posicion = f.posicion
+      if (f.sector) payload.sector = f.sector
+
+      batch.set(ref, payload, { merge: true })
+      ops++
+      procesados++
+    }
+
+    if (ops > 0) await batch.commit()
+  }
+
+  return { procesados }
+}
+
 /** Alta manual en padrón; falla si el DNI ya existe. */
 export async function crearPersonaPadron(input: {
   dni: string
@@ -423,6 +506,30 @@ export async function crearPersonaPadron(input: {
     creadoEn: serverTimestamp(),
   })
   return ref.id
+}
+
+/** Actualiza datos del padrón; valida DNI único excluyendo el registro actual. */
+export async function actualizarPersonaPadron(
+  id: string,
+  input: {
+    dni: string
+    nombre: string
+    apellido: string
+    empresa: string
+  },
+): Promise<void> {
+  const docId = id.trim()
+  if (!docId) throw new Error('Registro inválido.')
+  const dni = input.dni.trim().toUpperCase()
+  const nombre = input.nombre.trim()
+  const apellido = input.apellido.trim()
+  const empresa = input.empresa.trim()
+  if (!dni) throw new Error('El DNI es obligatorio.')
+  if (!nombre || !apellido) throw new Error('Nombre y apellido son obligatorios.')
+  const otro = await buscarPersonaPorDni(dni)
+  if (otro && otro.id !== docId) throw new Error('Ya existe otra persona con ese DNI.')
+  const db = getDb()
+  await updateDoc(doc(db, COL_PADRON, docId), { dni, nombre, apellido, empresa })
 }
 
 export async function crearCama(input: {
@@ -509,15 +616,15 @@ export async function checkInCamaTransaccion(input: {
   camaId: string
   personaId: string
   fecha: Date
-  fechaSalidaEstimada?: Date | null
+  fechaSalidaEstimada: Date
 }): Promise<string> {
+  validarFechaEgresoPlanificadaCheckIn(input.fecha, input.fechaSalidaEstimada)
   const db = getDb()
   const camaRef = doc(db, COL_CAMAS, input.camaId)
   const personaRef = doc(db, COL_PADRON, input.personaId)
   const histRef = doc(collection(db, COL_HISTORIAL_PERNOCTES))
   const fechaTs = Timestamp.fromDate(input.fecha)
-  const fseTs =
-    input.fechaSalidaEstimada != null ? Timestamp.fromDate(input.fechaSalidaEstimada) : null
+  const fseTs = Timestamp.fromDate(input.fechaSalidaEstimada)
 
   await runTransaction(db, async (t) => {
     const [cSnap, pSnap] = await Promise.all([t.get(camaRef), t.get(personaRef)])
@@ -592,18 +699,22 @@ export async function checkOutCamaTransaccion(input: {
 
 export async function actualizarFechaSalidaEstimadaTransaccion(input: {
   camaId: string
-  fechaSalidaEstimada: Date | null
+  fechaSalidaEstimada: Date
 }): Promise<void> {
   const db = getDb()
   const camaRef = doc(db, COL_CAMAS, input.camaId)
-  const fseTs = input.fechaSalidaEstimada != null ? Timestamp.fromDate(input.fechaSalidaEstimada) : null
+  const fseTs = Timestamp.fromDate(input.fechaSalidaEstimada)
 
   await runTransaction(db, async (t) => {
     const cSnap = await t.get(camaRef)
     if (!cSnap.exists()) throw new Error('La cama no existe.')
     const c = mapCama(cSnap.id, cSnap.data() as Record<string, unknown>)
     if (c.estado !== 'OCUPADA' || !c.historialAbiertoId) {
-      throw new Error('Solo se puede editar la salida estimada en una cama ocupada con historial activo.')
+      throw new Error('Solo se puede editar el egreso planificado en una cama ocupada con historial activo.')
+    }
+    const checkIn = c.fechaCheckIn
+    if (checkIn) {
+      validarFechaEgresoPlanificadaCheckIn(checkIn, input.fechaSalidaEstimada)
     }
     const hRef = doc(db, COL_HISTORIAL_PERNOCTES, c.historialAbiertoId)
     const hSnap = await t.get(hRef)
@@ -702,7 +813,7 @@ export type ItemCheckInMasivo = {
   empresa: string
   ocupanteNombre: string
   fecha: Date
-  fechaSalidaEstimada?: Date | null
+  fechaSalidaEstimada: Date
 }
 
 /** Check-in masivo: cada `writeBatch.commit()` es atómico (hasta ~225 camas por lote de 450 ops). */
@@ -723,11 +834,11 @@ export async function checkInCamasMasivoBatch(items: ItemCheckInMasivo[]): Promi
     ops = 0
   }
   for (const it of items) {
+    validarFechaEgresoPlanificadaCheckIn(it.fecha, it.fechaSalidaEstimada)
     const histRef = doc(collection(db, COL_HISTORIAL_PERNOCTES))
     const camaRef = doc(db, COL_CAMAS, it.camaId)
     const ts = Timestamp.fromDate(it.fecha)
-    const fseTs =
-      it.fechaSalidaEstimada != null ? Timestamp.fromDate(it.fechaSalidaEstimada) : null
+    const fseTs = Timestamp.fromDate(it.fechaSalidaEstimada)
     batch.update(camaRef, {
       estado: 'OCUPADA' as EstadoCama,
       personaId: it.personaId,
@@ -964,4 +1075,129 @@ export async function marcarCamaMantenimiento(camaId: string, activar: boolean):
       fechaSalidaEstimada: null,
     })
   })
+}
+
+function validarFechasAjustePernocte(fechaCheckIn: Date, fechaCheckOut: Date | null | undefined): void {
+  if (!fechaCheckOut) {
+    throw new Error('Indicá la fecha de egreso planificada.')
+  }
+  if (fechaCheckOut.getTime() <= fechaCheckIn.getTime()) {
+    throw new Error('La fecha de egreso debe ser posterior al ingreso.')
+  }
+}
+
+const patchCamaLibre = {
+  estado: 'LIBRE' as EstadoCama,
+  personaId: null,
+  fechaCheckIn: null,
+  historialAbiertoId: null,
+  ocupanteNombre: null,
+  ocupanteEmpresa: null,
+  fechaSalidaEstimada: null,
+}
+
+/** Alta manual de pernocte (sin transacción de cama; corrección histórica). */
+export async function crearAjusteManualPernocte(input: {
+  personaId: string
+  camaId: string
+  fechaCheckIn: Date
+  fechaCheckOut: Date
+}): Promise<string> {
+  const personaId = input.personaId.trim()
+  const camaId = input.camaId.trim()
+  if (!personaId) throw new Error('Seleccioná una persona del padrón.')
+  if (!camaId) throw new Error('Indicá la habitación / cama.')
+  validarFechasAjustePernocte(input.fechaCheckIn, input.fechaCheckOut)
+
+  const db = getDb()
+  const pSnap = await getDoc(doc(db, COL_PADRON, personaId))
+  if (!pSnap.exists()) throw new Error('La persona no está en el padrón.')
+  const p = mapPadron(pSnap.id, pSnap.data() as Record<string, unknown>)
+
+  const ref = doc(collection(db, COL_HISTORIAL_PERNOCTES))
+  await setDoc(ref, {
+    personaId,
+    camaId,
+    empresa: p.empresa.trim(),
+    fechaCheckIn: Timestamp.fromDate(input.fechaCheckIn),
+    fechaCheckOut: Timestamp.fromDate(input.fechaCheckOut),
+    fechaSalidaEstimada: null,
+    ajusteManual: true,
+  })
+  return ref.id
+}
+
+/** Actualiza fechas y cama de un pernocte existente. */
+export async function actualizarAjusteManualPernocte(input: {
+  historialId: string
+  personaId: string
+  camaId: string
+  fechaCheckIn: Date
+  fechaCheckOut: Date
+}): Promise<void> {
+  const historialId = input.historialId.trim()
+  const personaId = input.personaId.trim()
+  const camaId = input.camaId.trim()
+  if (!historialId) throw new Error('Registro inválido.')
+  if (!personaId) throw new Error('Seleccioná una persona del padrón.')
+  if (!camaId) throw new Error('Indicá la habitación / cama.')
+  validarFechasAjustePernocte(input.fechaCheckIn, input.fechaCheckOut)
+
+  const db = getDb()
+  const pSnap = await getDoc(doc(db, COL_PADRON, personaId))
+  if (!pSnap.exists()) throw new Error('La persona no está en el padrón.')
+  const p = mapPadron(pSnap.id, pSnap.data() as Record<string, unknown>)
+
+  await updateDoc(doc(db, COL_HISTORIAL_PERNOCTES, historialId), {
+    personaId,
+    camaId,
+    empresa: p.empresa.trim(),
+    fechaCheckIn: Timestamp.fromDate(input.fechaCheckIn),
+    fechaCheckOut: Timestamp.fromDate(input.fechaCheckOut),
+  })
+}
+
+/** Elimina un pernocte y desocupa la cama si estaba vinculada. */
+export async function eliminarAjusteManualPernocte(historialId: string): Promise<void> {
+  const id = historialId.trim()
+  if (!id) throw new Error('Registro inválido.')
+  const db = getDb()
+  const hRef = doc(db, COL_HISTORIAL_PERNOCTES, id)
+  const hSnap = await getDoc(hRef)
+  if (!hSnap.exists()) throw new Error('El registro ya no existe.')
+
+  const camasQ = query(
+    collection(db, COL_CAMAS),
+    where('historialAbiertoId', '==', id),
+    limit(10),
+  )
+  const camasSnap = await getDocs(camasQ)
+
+  await runTransaction(db, async (t) => {
+    for (const d of camasSnap.docs) {
+      t.update(doc(db, COL_CAMAS, d.id), patchCamaLibre)
+    }
+    t.delete(hRef)
+  })
+}
+
+/** Resuelve id de cama por etiqueta visible o fragmento de texto. */
+export function resolverCamaIdPorTexto(texto: string, camas: Cama[]): string {
+  const t = texto.trim().toLowerCase()
+  if (!t) return ''
+  for (const c of camas) {
+    const label = `${c.sector} · ${c.habitacion} · ${c.denominacion}`.trim().toLowerCase()
+    if (label === t) return c.id
+  }
+  for (const c of camas) {
+    const label = `${c.sector} · ${c.habitacion} · ${c.denominacion}`.trim().toLowerCase()
+    if (label.includes(t) || t.includes(c.denominacion.trim().toLowerCase())) return c.id
+  }
+  return ''
+}
+
+export function etiquetaCamaDesdeId(camaId: string, camas: Cama[]): string {
+  const c = camas.find((x) => x.id === camaId)
+  if (!c) return camaId
+  return `${c.sector} · ${c.habitacion} · ${c.denominacion}`
 }

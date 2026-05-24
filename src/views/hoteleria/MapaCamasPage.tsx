@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
 import { useToast } from '../../context/ToastContext'
 import type { Cama, PadronPersona } from '../../types/hoteleria'
 import {
@@ -50,6 +49,9 @@ function dateToYmdLocal(d: Date): string {
 function formatoSalidaPrevista(d: Date): string {
   return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`
 }
+
+const AYUDA_EGRESO_PLANIFICADO =
+  'Indica la fecha en la que finaliza su turno o baja del campamento.'
 
 function etiquetaNombrePersona(p: PadronPersona): string {
   const t = `${p.nombre} ${p.apellido}`.trim()
@@ -372,6 +374,10 @@ export function MapaCamasPage() {
       showToast('Buscá y seleccioná una persona del padrón por DNI.', 'error')
       return
     }
+    if (!fechaSalidaEstimadaCheckIn.trim()) {
+      showToast('Indicá la fecha de egreso planificada.', 'error')
+      return
+    }
     setBusy(true)
     try {
       const camaOcupada = await buscarCamaOcupadaPorPersona(personaCheckIn.id)
@@ -386,9 +392,7 @@ export function MapaCamasPage() {
         camaId: modal.cama.id,
         personaId: personaCheckIn.id,
         fecha: parseYmdToLocalDate(fechaCheckIn),
-        fechaSalidaEstimada: fechaSalidaEstimadaCheckIn.trim()
-          ? parseYmdToLocalDate(fechaSalidaEstimadaCheckIn.trim())
-          : null,
+        fechaSalidaEstimada: parseYmdToLocalDate(fechaSalidaEstimadaCheckIn.trim()),
       })
       showToast('Check-in registrado correctamente.', 'success')
       setModal(null)
@@ -406,15 +410,17 @@ export function MapaCamasPage() {
       showToast('Esta cama no tiene historial activo.', 'error')
       return
     }
+    if (!fechaSalidaEstimadaEdicion.trim()) {
+      showToast('Indicá la fecha de egreso planificada.', 'error')
+      return
+    }
     setBusy(true)
     try {
       await actualizarFechaSalidaEstimadaTransaccion({
         camaId: c.id,
-        fechaSalidaEstimada: fechaSalidaEstimadaEdicion.trim()
-          ? parseYmdToLocalDate(fechaSalidaEstimadaEdicion.trim())
-          : null,
+        fechaSalidaEstimada: parseYmdToLocalDate(fechaSalidaEstimadaEdicion.trim()),
       })
-      showToast('Fecha estimada de salida actualizada.', 'success')
+      showToast('Fecha de egreso planificada actualizada.', 'success')
     } catch (e) {
       showToast(e instanceof Error ? e.message : 'No se pudo guardar.', 'error')
     } finally {
@@ -626,10 +632,12 @@ export function MapaCamasPage() {
 
   async function confirmarMasivoCheckin() {
     setMasivoCheckinCamaIdsConError([])
+    if (!masivoFechaSalidaEstimada.trim()) {
+      showToast('Indicá la fecha de egreso planificada.', 'error')
+      return
+    }
     const fecha = parseYmdToLocalDate(fechaMasivo)
-    const fseMasivo = masivoFechaSalidaEstimada.trim()
-      ? parseYmdToLocalDate(masivoFechaSalidaEstimada.trim())
-      : null
+    const fseMasivo = parseYmdToLocalDate(masivoFechaSalidaEstimada.trim())
 
     type FilaMasiva = { cama: Cama; persona: PadronPersona }
     const filas: FilaMasiva[] = []
@@ -812,14 +820,8 @@ export function MapaCamasPage() {
       <div className="mx-auto w-full max-w-[1600px] flex-1 px-3 py-3 sm:px-5 sm:py-4">
         {camas.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-neutral-300 bg-white p-12 text-center text-sm text-neutral-600">
-            No hay camas cargadas. Configurá plazas en{' '}
-            <Link
-              to="/hoteleria/configuracion"
-              className="font-semibold text-[#CD1818] underline-offset-2 hover:underline"
-            >
-              Configuración de campamento
-            </Link>
-            .
+            No hay camas cargadas. Contactá al administrador para configurar plazas
+            de alojamiento.
           </div>
         ) : (
           <div className={`flex flex-col gap-4 ${selectedCamas.length > 0 ? 'pb-28' : ''}`}>
@@ -930,7 +932,7 @@ export function MapaCamasPage() {
                                     </span>
                                     {salidaPreviaTexto ? (
                                       <span className="mt-0.5 text-xs text-gray-700">
-                                        Salida previa: {salidaPreviaTexto}
+                                        Egreso planificado: {salidaPreviaTexto}
                                       </span>
                                     ) : null}
                                   </>
@@ -986,21 +988,20 @@ export function MapaCamasPage() {
                 className="mt-1 w-full min-h-10 rounded-xl border border-neutral-200 px-3 text-sm"
               />
             </label>
-            <label className="mt-4 block">
-              <span className="text-xs font-medium text-neutral-600">
-                Fecha estimada de salida (opcional)
-              </span>
+            <div className="mt-4 block">
+              <label htmlFor="checkin-egreso-planificado" className="text-xs font-medium text-neutral-600">
+                Fecha de Egreso Planificada <span className="text-[#CD1818]">*</span>
+              </label>
               <input
+                id="checkin-egreso-planificado"
                 type="date"
                 value={fechaSalidaEstimadaCheckIn}
                 onChange={(e) => setFechaSalidaEstimadaCheckIn(e.target.value)}
+                required
                 className="mt-1 w-full min-h-10 rounded-xl border border-neutral-200 px-3 text-sm"
               />
-              <span className="mt-1 block text-[11px] text-neutral-500">
-                Planificación: no ejecuta el check-out. Podés cambiarla después desde la cama
-                ocupada.
-              </span>
-            </label>
+              <p className="mt-1 text-xs text-gray-500">{AYUDA_EGRESO_PLANIFICADO}</p>
+            </div>
             <label className="mt-4 block">
               <span className="text-xs font-medium text-neutral-600">DNI (padrón)</span>
               <div className="mt-1 flex gap-2">
@@ -1059,7 +1060,7 @@ export function MapaCamasPage() {
               <button
                 type="button"
                 onClick={() => void confirmarCheckIn()}
-                disabled={busy}
+                disabled={busy || !fechaSalidaEstimadaCheckIn.trim() || !personaCheckIn}
                 className="rounded-xl bg-[#CD1818] px-4 py-2 text-sm font-semibold text-white hover:bg-[#b01414] disabled:opacity-50"
               >
                 Confirmar check-in
@@ -1124,20 +1125,23 @@ export function MapaCamasPage() {
 
             {modoOcupada === 'estadia' ? (
               <div className="mt-4 space-y-3">
-                <label className="block">
-                  <span className="text-xs font-medium text-neutral-600">
-                    Fecha estimada de salida (opcional)
-                  </span>
+                <div className="block">
+                  <label
+                    htmlFor="edicion-egreso-planificado"
+                    className="text-xs font-medium text-neutral-600"
+                  >
+                    Fecha de Egreso Planificada <span className="text-[#CD1818]">*</span>
+                  </label>
                   <input
+                    id="edicion-egreso-planificado"
                     type="date"
                     value={fechaSalidaEstimadaEdicion}
                     onChange={(e) => setFechaSalidaEstimadaEdicion(e.target.value)}
+                    required
                     className="mt-1 w-full min-h-10 rounded-xl border border-neutral-200 px-3 text-sm"
                   />
-                  <span className="mt-1 block text-[11px] text-neutral-500">
-                    Solo planificación: no libera la cama. Dejá vacío para quitar la estimación.
-                  </span>
-                </label>
+                  <p className="mt-1 text-xs text-gray-500">{AYUDA_EGRESO_PLANIFICADO}</p>
+                </div>
               </div>
             ) : null}
 
@@ -1211,10 +1215,10 @@ export function MapaCamasPage() {
                 <button
                   type="button"
                   onClick={() => void guardarFechaSalidaEstimadaEdicion()}
-                  disabled={busy}
+                  disabled={busy || !fechaSalidaEstimadaEdicion.trim()}
                   className="rounded-xl bg-[#CD1818] px-4 py-2 text-sm font-semibold text-white hover:bg-[#b01414] disabled:opacity-50"
                 >
-                  Guardar estimación
+                  Guardar egreso planificado
                 </button>
               ) : null}
               {modoOcupada === 'traslado' ? (
@@ -1396,17 +1400,23 @@ export function MapaCamasPage() {
                   className="mt-1 w-full min-h-10 rounded-xl border border-neutral-200 px-3 text-sm"
                 />
               </label>
-              <label className="mt-3 block max-w-xs">
-                <span className="text-xs font-medium text-neutral-600">
-                  Fecha estimada de salida (opcional, todas las camas)
-                </span>
+              <div className="mt-3 block max-w-xs">
+                <label
+                  htmlFor="masivo-egreso-planificado"
+                  className="text-xs font-medium text-neutral-600"
+                >
+                  Fecha de Egreso Planificada <span className="text-[#CD1818]">*</span>
+                </label>
                 <input
+                  id="masivo-egreso-planificado"
                   type="date"
                   value={masivoFechaSalidaEstimada}
                   onChange={(e) => setMasivoFechaSalidaEstimada(e.target.value)}
+                  required
                   className="mt-1 w-full min-h-10 rounded-xl border border-neutral-200 px-3 text-sm"
                 />
-              </label>
+                <p className="mt-1 text-xs text-gray-500">{AYUDA_EGRESO_PLANIFICADO}</p>
+              </div>
             </div>
             <div className="min-h-0 flex-1 overflow-auto px-6 py-4">
               {masivoCheckinCamaIdsConError.length > 0 ? (
@@ -1495,7 +1505,7 @@ export function MapaCamasPage() {
               <button
                 type="button"
                 onClick={() => void confirmarMasivoCheckin()}
-                disabled={busy}
+                disabled={busy || !masivoFechaSalidaEstimada.trim()}
                 className="rounded-xl bg-[#CD1818] px-4 py-2 text-sm font-semibold text-white hover:bg-[#b01414] disabled:opacity-50"
               >
                 Confirmar check-in masivo

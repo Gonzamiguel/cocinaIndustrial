@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { Download, Loader2 } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import { useToast } from '../../context/ToastContext'
 import type { PadronPersona } from '../../types/hoteleria'
@@ -7,7 +8,6 @@ import { SERVICIOS_COMEDOR_FORZABLES } from '../../types/comedor'
 import {
   buscarPersonaPadronPorDni,
   crearRegistroComedorRetroactivoSupervisor,
-  SERVICIOS_COMEDOR_PRINCIPALES,
   subscribeRegistrosComedorPorRango,
 } from '../../lib/comedor'
 import { etiquetaServicioComedor } from '../../lib/servicioComedor'
@@ -39,23 +39,59 @@ function formatFechaHora(d: Date | null): string {
   return `${day}/${mo}/${y} ${h}:${min}`
 }
 
-function maxPorClave(map: Map<string, number>): { clave: string; n: number } {
-  let clave = '—'
-  let n = 0
-  for (const [k, v] of map.entries()) {
-    const key = k.trim() || '(sin empresa)'
-    if (v > n || (v === n && key.localeCompare(clave, 'es', { sensitivity: 'base' }) < 0)) {
-      n = v
-      clave = key
-    }
-  }
-  return { clave, n }
-}
-
 function truncarUid(uid: string): string {
   const u = uid.trim()
   if (u.length <= 12) return u
   return `${u.slice(0, 8)}…${u.slice(-4)}`
+}
+
+/** Viandas en terminal: `MERIENDA` + observaciones «Vianda». */
+function esRegistroVianda(r: RegistroComedor): boolean {
+  if (r.servicio !== 'MERIENDA') return false
+  const obs = (r.observaciones ?? '').trim().toLowerCase()
+  return obs === 'vianda' || obs.includes('vianda')
+}
+
+type ConteosServiciosKpi = {
+  desayuno: number
+  almuerzo: number
+  refrigerioAlmuerzo: number
+  merienda: number
+  cena: number
+  cenaNochero: number
+  refrigerioNochero: number
+  viandas: number
+}
+
+const TARJETAS_KPI_SERVICIO: { key: keyof ConteosServiciosKpi; titulo: string }[] = [
+  { key: 'desayuno', titulo: 'Desayuno' },
+  { key: 'almuerzo', titulo: 'Almuerzo' },
+  { key: 'refrigerioAlmuerzo', titulo: 'Refrigerio almuerzo' },
+  { key: 'merienda', titulo: 'Merienda' },
+  { key: 'cena', titulo: 'Cena' },
+  { key: 'cenaNochero', titulo: 'Cena (nochero)' },
+  { key: 'refrigerioNochero', titulo: 'Refrigerio (nochero)' },
+  { key: 'viandas', titulo: 'Viandas' },
+]
+
+function KpiTarjetaServicio({
+  titulo,
+  valor,
+  cargando,
+}: {
+  titulo: string
+  valor: number
+  cargando: boolean
+}) {
+  return (
+    <div className="relative overflow-hidden rounded-xl border border-neutral-200 bg-white p-4 shadow-sm">
+      <div className="absolute left-0 top-0 h-full w-1 bg-[#CD1818]" aria-hidden />
+      <p className="pl-2 text-xs font-bold uppercase tracking-wide text-gray-500">{titulo}</p>
+      <p className="mt-2 pl-2 text-2xl font-black tabular-nums text-gray-800">
+        {cargando ? '…' : valor.toLocaleString('es-AR')}
+      </p>
+    </div>
+  )
 }
 
 export function DashboardComensalesPage() {
@@ -76,6 +112,7 @@ export function DashboardComensalesPage() {
   const [retroPersona, setRetroPersona] = useState<PadronPersona | null>(null)
   const [retroBuscando, setRetroBuscando] = useState(false)
   const [retroGuardando, setRetroGuardando] = useState(false)
+  const [exportando, setExportando] = useState(false)
 
   const rangoValido = useMemo(() => Boolean(desde && hasta && desde <= hasta), [desde, hasta])
 
@@ -154,6 +191,7 @@ export function DashboardComensalesPage() {
         servicio: retroServicio,
         diaOperativo: ymd,
         observaciones: obs,
+        registrosLocales: registros,
       })
       const fueraDeGrilla = ymd < desde || ymd > hasta
       showToast(
@@ -168,6 +206,13 @@ export function DashboardComensalesPage() {
     } finally {
       setRetroGuardando(false)
     }
+  }
+
+  function limpiarFiltros() {
+    setDesde(primerDiaMesYmd())
+    setHasta(hoyYmdLocal())
+    setEmpresaFiltro('')
+    setServicioFiltro('TODOS')
   }
 
   const empresasOpciones = useMemo(() => {
@@ -203,39 +248,46 @@ export function DashboardComensalesPage() {
     return filasOrdenadas.slice(start, start + PAGE_SIZE)
   }, [filasOrdenadas, paginaSegura])
 
-  const kpis = useMemo(() => {
-    const total = filtrados.length
-    const porEmpresa = new Map<string, number>()
-    const porServicio = new Map<string, number>()
+  const conteosPorServicio = useMemo((): ConteosServiciosKpi => {
+    const c: ConteosServiciosKpi = {
+      desayuno: 0,
+      almuerzo: 0,
+      refrigerioAlmuerzo: 0,
+      merienda: 0,
+      cena: 0,
+      cenaNochero: 0,
+      refrigerioNochero: 0,
+      viandas: 0,
+    }
     for (const r of filtrados) {
-      const emp = r.empresa.trim() || '(sin empresa)'
-      porEmpresa.set(emp, (porEmpresa.get(emp) ?? 0) + 1)
-      if (SERVICIOS_COMEDOR_PRINCIPALES.includes(r.servicio)) {
-        porServicio.set(r.servicio, (porServicio.get(r.servicio) ?? 0) + 1)
+      switch (r.servicio) {
+        case 'DESAYUNO':
+          c.desayuno++
+          break
+        case 'ALMUERZO':
+          c.almuerzo++
+          break
+        case 'MERIENDA':
+          if (esRegistroVianda(r)) c.viandas++
+          else c.merienda++
+          break
+        case 'CENA':
+          c.cena++
+          break
+        case 'CENA_NOCHERO':
+          c.cenaNochero++
+          break
+        default:
+          break
       }
     }
-    const topEmp = maxPorClave(porEmpresa)
-    let servicioPico = '—'
-    let servicioPicoN = 0
-    for (const s of SERVICIOS_COMEDOR_PRINCIPALES) {
-      const n = porServicio.get(s) ?? 0
-      if (n > servicioPicoN) {
-        servicioPicoN = n
-        servicioPico = s
-      }
-    }
-    return {
-      total,
-      empresaTop: topEmp.clave,
-      empresaTopN: topEmp.n,
-      servicioPicoLabel:
-        servicioPicoN > 0
-          ? `${servicioPico}: ${servicioPicoN.toLocaleString('es-AR')}`
-          : '—',
-    }
+    // Regla de negocio: refrigerio almuerzo / nochero = mismo conteo que el servicio principal.
+    c.refrigerioAlmuerzo = c.almuerzo
+    c.refrigerioNochero = c.cenaNochero
+    return c
   }, [filtrados])
 
-  function exportarExcel() {
+  async function handleExportExcel() {
     if (!rangoValido) {
       showToast('Indicá un rango de fechas válido.', 'error')
       return
@@ -244,38 +296,33 @@ export function DashboardComensalesPage() {
       showToast('No hay datos para exportar con los filtros actuales.', 'error')
       return
     }
-    const header = [
-      'Fecha y Hora',
-      'DNI',
-      'Nombre',
-      'Apellido',
-      'Empresa',
-      'Servicio',
-      'Día operativo',
-      'Usuario / dispositivo',
-      'Observaciones',
-    ]
-    const dataRows = filasOrdenadas.map((r) => [
-      formatFechaHora(r.fechaHora),
-      r.dni,
-      r.nombre,
-      r.apellido,
-      r.empresa,
-      etiquetaServicioComedor(r.servicio),
-      r.diaOperativo,
-      r.usuarioRegistro,
-      r.observaciones ?? '',
-    ])
-    const ws = XLSX.utils.aoa_to_sheet([header, ...dataRows])
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, 'Comensales')
-    const sufijoEmpresa = empresaFiltro ? `_${empresaFiltro.replace(/\s+/g, '_')}` : ''
-    const sufijoServ = servicioFiltro !== 'TODOS' ? `_${servicioFiltro}` : ''
-    XLSX.writeFile(
-      wb,
-      `control_comensales_${desde}_${hasta}${sufijoEmpresa}${sufijoServ}.xlsx`,
-    )
-    showToast('Reporte Excel generado.', 'success')
+    setExportando(true)
+    try {
+      await new Promise((resolve) => requestAnimationFrame(resolve))
+      const header = ['Fecha', 'DNI', 'Nombre', 'Apellido', 'Empresa', 'Servicio', 'Día operativo']
+      const dataRows = filasOrdenadas.map((r) => [
+        formatFechaHora(r.fechaHora),
+        r.dni,
+        r.nombre,
+        r.apellido,
+        r.empresa,
+        etiquetaServicioComedor(r.servicio),
+        r.diaOperativo,
+      ])
+      const ws = XLSX.utils.aoa_to_sheet([header, ...dataRows])
+      const wb = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(wb, ws, 'Registros')
+      const fechaArchivo = hasta || hoyYmdLocal()
+      XLSX.writeFile(wb, `Comensales_Export_${fechaArchivo}.xlsx`)
+      showToast(
+        `Excel generado (${filasOrdenadas.length.toLocaleString('es-AR')} registros filtrados).`,
+        'success',
+      )
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : 'No se pudo exportar el Excel.', 'error')
+    } finally {
+      setExportando(false)
+    }
   }
 
   return (
@@ -300,8 +347,7 @@ export function DashboardComensalesPage() {
             </button>
           </div>
 
-          <div className="mt-6 flex flex-col gap-4 xl:flex-row xl:flex-wrap xl:items-end xl:justify-between">
-            <div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap">
+          <div className="mt-6 flex flex-wrap items-end gap-4">
               <label className="block">
                 <span className="text-xs font-medium text-neutral-600">
                   Desde <span className="text-[#CD1818]">*</span>
@@ -355,15 +401,26 @@ export function DashboardComensalesPage() {
                   <option value="FUERA DE HORARIO">Fuera de horario</option>
                 </select>
               </label>
-            </div>
-            <button
-              type="button"
-              onClick={exportarExcel}
-              disabled={!rangoValido || !filasOrdenadas.length || cargando}
-              className="inline-flex min-h-11 items-center justify-center self-start rounded-xl bg-[#CD1818] px-5 text-sm font-semibold text-white shadow-sm transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-45"
-            >
-              Exportar reporte
-            </button>
+              <button
+                type="button"
+                onClick={limpiarFiltros}
+                className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-xl border border-neutral-200 bg-white px-4 text-sm font-semibold text-neutral-700 shadow-sm transition hover:bg-neutral-50"
+              >
+                Limpiar filtro
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleExportExcel()}
+                disabled={!rangoValido || !filasOrdenadas.length || cargando || exportando}
+                className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-[#CD1818] px-5 text-sm font-semibold text-white shadow-sm transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-45"
+              >
+                {exportando ? (
+                  <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
+                ) : (
+                  <Download className="h-4 w-4 shrink-0" aria-hidden />
+                )}
+                Excel
+              </button>
           </div>
 
           {!rangoValido && desde && hasta ? (
@@ -373,37 +430,15 @@ export function DashboardComensalesPage() {
           ) : null}
 
           {rangoValido ? (
-            <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              <div className="rounded-xl border border-neutral-200 bg-white p-5 shadow-sm">
-                <p className="text-3xl font-bold tabular-nums text-gray-900">
-                  {cargando ? '…' : kpis.total.toLocaleString('es-AR')}
-                </p>
-                <p className="mt-1 text-sm text-neutral-500">Total servicios servidos</p>
-                <p className="mt-2 text-xs text-neutral-400">
-                  Registros en el rango y filtros seleccionados.
-                </p>
-              </div>
-              <div className="rounded-xl border border-neutral-200 bg-white p-5 shadow-sm">
-                <p className="text-3xl font-bold tabular-nums text-gray-900">
-                  {cargando ? '…' : kpis.total > 0 ? kpis.empresaTopN.toLocaleString('es-AR') : '—'}
-                </p>
-                <p className="mt-1 text-sm text-neutral-500">Mayor consumidor</p>
-                <p
-                  className="mt-2 line-clamp-2 text-base font-semibold leading-snug text-gray-900"
-                  title={kpis.empresaTop !== '—' ? kpis.empresaTop : undefined}
-                >
-                  {kpis.total > 0 ? kpis.empresaTop : 'Sin datos en el período'}
-                </p>
-              </div>
-              <div className="rounded-xl border border-neutral-200 bg-white p-5 shadow-sm">
-                <p className="text-3xl font-bold tabular-nums text-gray-900">
-                  {cargando ? '…' : kpis.servicioPicoLabel}
-                </p>
-                <p className="mt-1 text-sm text-neutral-500">Servicio pico</p>
-                <p className="mt-2 text-xs text-neutral-400">
-                  Mayor volumen entre desayuno, almuerzo, merienda y cena.
-                </p>
-              </div>
+            <div className="mt-8 grid grid-cols-2 gap-4 md:grid-cols-4">
+              {TARJETAS_KPI_SERVICIO.map(({ key, titulo }) => (
+                <KpiTarjetaServicio
+                  key={key}
+                  titulo={titulo}
+                  valor={conteosPorServicio[key]}
+                  cargando={cargando}
+                />
+              ))}
             </div>
           ) : null}
 

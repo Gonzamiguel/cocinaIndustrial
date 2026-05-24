@@ -4,6 +4,7 @@ import { signInWithEmailAndPassword, signOut } from 'firebase/auth'
 import { doc, getDoc } from 'firebase/firestore'
 import { useAuth, type UserRole } from '../context/AuthContext'
 import { getAuthApp, getDb } from '../lib/firebase'
+import { rolPuedeAccederRuta, rutaHomePorRol } from '../lib/rbac'
 
 const LOGIN_SLIDES = [
   {
@@ -19,6 +20,9 @@ const LOGIN_SLIDES = [
     alt: 'Plato preparado en cocina industrial con packaging corporativo',
   },
 ] as const
+
+const MSG_MODULO_NO_DISPONIBLE =
+  'Tu rol no tiene acceso en esta versión del sistema. Contactá al administrador.'
 
 function parseRol(raw: unknown): UserRole | null {
   if (
@@ -55,20 +59,10 @@ export function LoginPage() {
   useEffect(() => {
     if (authLoading) return
     if (user && rol) {
-      navigate(
-        rol === 'admin_cocina'
-          ? '/admin/pedidos'
-          : rol === 'admin_deposito'
-            ? '/deposito/movimientos'
-            : rol === 'admin_campamento' || rol === 'jefe_campamento'
-              ? '/campamento/recepcion'
-              : rol === 'hoteleria_casposo'
-                ? '/hoteleria/mapa'
-                : rol === 'terminal_comedor'
-                  ? '/comedor'
-                  : '/analista/dashboard',
-        { replace: true },
-      )
+      const home = rutaHomePorRol(rol)
+      if (home) {
+        navigate(home, { replace: true })
+      }
     }
   }, [authLoading, user, rol, navigate])
 
@@ -79,6 +73,11 @@ export function LoginPage() {
     }, 7000)
     return () => window.clearInterval(intervalId)
   }, [])
+
+  async function rechazarRolSinModulo(auth = getAuthApp()) {
+    await signOut(auth)
+    setError(MSG_MODULO_NO_DISPONIBLE)
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -106,53 +105,14 @@ export function LoginPage() {
         return
       }
 
-      if (from === '/admin' || from?.startsWith('/admin/')) {
-        if (rolLeído !== 'admin_cocina') {
-          await signOut(auth)
-          setError('No tenés permiso para acceder a esa sección.')
-          return
-        }
-        navigate(from, { replace: true })
+      const home = rutaHomePorRol(rolLeído)
+      if (!home) {
+        await rechazarRolSinModulo(auth)
         return
       }
-      if (from === '/deposito' || from?.startsWith('/deposito/')) {
-        if (rolLeído !== 'admin_deposito') {
-          await signOut(auth)
-          setError('No tenés permiso para acceder a esa sección.')
-          return
-        }
-        navigate(from, { replace: true })
-        return
-      }
-      if (from === '/analista' || from?.startsWith('/analista/')) {
-        if (rolLeído !== 'analista' && rolLeído !== 'gerencia') {
-          await signOut(auth)
-          setError('No tenés permiso para acceder a esa sección.')
-          return
-        }
-        navigate(from, { replace: true })
-        return
-      }
-      if (from === '/campamento' || from?.startsWith('/campamento/')) {
-        if (rolLeído !== 'admin_campamento' && rolLeído !== 'jefe_campamento') {
-          await signOut(auth)
-          setError('No tenés permiso para acceder a esa sección.')
-          return
-        }
-        navigate(from, { replace: true })
-        return
-      }
-      if (from === '/hoteleria' || from?.startsWith('/hoteleria/')) {
-        if (rolLeído !== 'hoteleria_casposo' && rolLeído !== 'jefe_campamento') {
-          await signOut(auth)
-          setError('No tenés permiso para acceder a esa sección.')
-          return
-        }
-        navigate(from, { replace: true })
-        return
-      }
-      if (from === '/comedor' || from?.startsWith('/comedor/')) {
-        if (rolLeído !== 'terminal_comedor') {
+
+      if (from && (from === '/control' || from.startsWith('/control/'))) {
+        if (!rolPuedeAccederRuta(rolLeído, from)) {
           await signOut(auth)
           setError('No tenés permiso para acceder a esa sección.')
           return
@@ -161,19 +121,17 @@ export function LoginPage() {
         return
       }
 
-      if (rolLeído === 'admin_cocina') {
-        navigate('/admin/pedidos', { replace: true })
-      } else if (rolLeído === 'admin_deposito') {
-        navigate('/deposito/movimientos', { replace: true })
-      } else if (rolLeído === 'admin_campamento' || rolLeído === 'jefe_campamento') {
-        navigate('/campamento/recepcion', { replace: true })
-      } else if (rolLeído === 'hoteleria_casposo') {
-        navigate('/hoteleria/mapa', { replace: true })
-      } else if (rolLeído === 'terminal_comedor') {
-        navigate('/comedor', { replace: true })
-      } else {
-        navigate('/analista/dashboard', { replace: true })
+      if (from && (from === '/terminal' || from.startsWith('/terminal/'))) {
+        if (!rolPuedeAccederRuta(rolLeído, from)) {
+          await signOut(auth)
+          setError('No tenés permiso para acceder a esa sección.')
+          return
+        }
+        navigate(from, { replace: true })
+        return
       }
+
+      navigate(home, { replace: true })
     } catch (err) {
       const code =
         err && typeof err === 'object' && 'code' in err
@@ -232,13 +190,34 @@ export function LoginPage() {
     )
   }
 
-  if (user && rol) {
+  if (user && rol && rutaHomePorRol(rol)) {
     return (
       <div className="flex min-h-dvh items-center justify-center bg-neutral-50">
         <div
           className="h-10 w-10 animate-spin rounded-full border-2 border-[#CD1818] border-t-transparent"
           aria-hidden
         />
+      </div>
+    )
+  }
+
+  if (user && rol && !rutaHomePorRol(rol)) {
+    return (
+      <div className="flex min-h-dvh flex-col items-center justify-center gap-4 bg-neutral-50 px-6">
+        <p className="max-w-sm text-center text-sm text-[#171717]">{MSG_MODULO_NO_DISPONIBLE}</p>
+        <button
+          type="button"
+          onClick={() => void logout()}
+          className="rounded-xl bg-[#CD1818] px-6 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:brightness-110"
+        >
+          Cerrar sesión
+        </button>
+        <Link
+          to="/"
+          className="text-sm font-medium text-[#CD1818] underline-offset-2 hover:underline"
+        >
+          Ir al inicio público
+        </Link>
       </div>
     )
   }

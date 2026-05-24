@@ -1,13 +1,23 @@
 import { lazy, Suspense } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
+import { ControlLayout } from './components/layouts/ControlLayout'
 import { ProtectedRoute } from './components/ProtectedRoute'
+import { LayoutComedor } from './layouts/LayoutComedor'
+// import { AdminMenuPage } from './views/admin/AdminMenuPage'
+import { DashboardComensalesPage } from './views/campamento/DashboardComensalesPage'
+// import { ClientView } from './views/ClientView'
+import { LoginPage } from './views/LoginPage'
+import { DashboardHoteleriaPage } from './views/hoteleria/DashboardHoteleriaPage'
+import { MapaCamasPage } from './views/hoteleria/MapaCamasPage'
+import { PadronEmpresasPage } from './views/hoteleria/PadronEmpresasPage'
+import { PadronPage } from './views/hoteleria/PadronPage'
+
+/* MVP: módulos logísticos y legacy comentados (archivos intactos)
 import { LayoutAdmin } from './layouts/LayoutAdmin'
 import { LayoutAnalista } from './layouts/LayoutAnalista'
 import { LayoutCampamento } from './layouts/LayoutCampamento'
 import { LayoutDeposito } from './layouts/LayoutDeposito'
 import { LayoutHoteleria } from './layouts/LayoutHoteleria'
-import { LayoutComedor } from './layouts/LayoutComedor'
-import { AdminMenuPage } from './views/admin/AdminMenuPage'
 import { AdminPedidosPage } from './views/admin/AdminPedidosPage'
 import { AdminRecetarioPage } from './views/admin/AdminRecetarioPage'
 import { AdminMercaderiaPage } from './views/admin/AdminMercaderiaPage'
@@ -16,8 +26,6 @@ import { AnalistaDashboardPage } from './views/analista/AnalistaDashboardPage'
 import { AnalistaLiquidacionesPage } from './views/analista/AnalistaLiquidacionesPage'
 import { AnalistaMovimientosPage } from './views/analista/AnalistaMovimientosPage'
 import { DashboardPage } from './views/admin/DashboardPage'
-import { ClientView } from './views/ClientView'
-import { LoginPage } from './views/LoginPage'
 import { DepositoConfiguracionPage } from './views/deposito/DepositoConfiguracionPage'
 import { DepositoDashboardPage } from './views/deposito/DepositoDashboardPage'
 import { DepositoInsumosPage } from './views/deposito/DepositoInsumosPage'
@@ -29,25 +37,73 @@ import { CampamentoNuevaComandaPage } from './views/campamento/CampamentoNuevaCo
 import { CampamentoInventarioPage } from './views/campamento/CampamentoInventarioPage'
 import { CampamentoRecepcionPage } from './views/campamento/CampamentoRecepcionPage'
 import { CampamentoSolicitudPage } from './views/campamento/CampamentoSolicitudPage'
-import { DashboardComensalesPage } from './views/campamento/DashboardComensalesPage'
 import { SolicitudMercaderiaDetallePage } from './views/SolicitudMercaderiaDetallePage'
 import { ConfiguracionHoteleriaPage } from './views/hoteleria/ConfiguracionHoteleriaPage'
-import { MapaCamasPage } from './views/hoteleria/MapaCamasPage'
-import { PadronPage } from './views/hoteleria/PadronPage'
 import { PernoctesPage } from './views/hoteleria/PernoctesPage'
 import { ReporteLimpiezaPage } from './views/hoteleria/ReporteLimpiezaPage'
+*/
+
 const TerminalComensalesPage = lazy(() =>
   import('./views/comedor/TerminalComensalesPage').then((m) => ({
     default: m.TerminalComensalesPage,
   })),
 )
 
+const terminalFallback = (
+  <div className="flex h-dvh items-center justify-center bg-neutral-900 text-neutral-400">
+    Cargando terminal…
+  </div>
+)
+
 export default function App() {
   return (
     <Routes>
-      <Route path="/" element={<ClientView />} />
+      <Route path="/" element={<Navigate to="/login" replace />} />
       <Route path="/login" element={<LoginPage />} />
 
+      <Route
+        path="/control"
+        element={
+          <ProtectedRoute
+            rolesPermitidos={['admin_campamento', 'hoteleria_casposo', 'gerencia', 'analista']}
+          >
+            <ControlLayout />
+          </ProtectedRoute>
+        }
+      >
+        <Route index element={<DashboardComensalesPage />} />
+        <Route path="padron" element={<PadronPage />} />
+        <Route path="empresas" element={<PadronEmpresasPage />} />
+        <Route path="hoteleria" element={<DashboardHoteleriaPage />} />
+        <Route path="alojamiento" element={<MapaCamasPage />} />
+        {/* MVP: gestión de menú oculta
+        <Route path="menu" element={<AdminMenuPage />} />
+        */}
+        <Route path="menu" element={<Navigate to="/control" replace />} />
+      </Route>
+
+      <Route
+        path="/terminal"
+        element={
+          <ProtectedRoute rolesPermitidos={['jefe_campamento', 'terminal_comedor']}>
+            <LayoutComedor />
+          </ProtectedRoute>
+        }
+      >
+        <Route
+          index
+          element={
+            <Suspense fallback={terminalFallback}>
+              <TerminalComensalesPage />
+            </Suspense>
+          }
+        />
+      </Route>
+
+      <Route path="/comedor" element={<Navigate to="/terminal" replace />} />
+      <Route path="/comedor/*" element={<Navigate to="/terminal" replace />} />
+
+      {/* Legacy — reactivar cuando vuelvan módulos logísticos
       <Route
         path="/admin"
         element={
@@ -144,34 +200,12 @@ export default function App() {
       </Route>
 
       <Route
-        path="/comedor"
-        element={
-          <ProtectedRoute rolesPermitidos={['terminal_comedor']}>
-            <LayoutComedor />
-          </ProtectedRoute>
-        }
-      >
-        <Route
-          index
-          element={
-            <Suspense
-              fallback={
-                <div className="flex h-dvh items-center justify-center bg-neutral-900 text-neutral-400">
-                  Cargando terminal…
-                </div>
-              }
-            >
-              <TerminalComensalesPage />
-            </Suspense>
-          }
-        />
-      </Route>
-
-      <Route
         path="/admin-cocina"
         element={<Navigate to="/admin/pedidos" replace />}
       />
-      <Route path="*" element={<Navigate to="/" replace />} />
+      */}
+
+      <Route path="*" element={<Navigate to="/login" replace />} />
     </Routes>
   )
 }

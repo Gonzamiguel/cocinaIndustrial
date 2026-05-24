@@ -63,6 +63,15 @@
         { "fieldPath": "diaOperativo", "order": "ASCENDING" },
         { "fieldPath": "usuarioRegistro", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "registros_comedor",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "diaOperativo", "order": "ASCENDING" },
+        { "fieldPath": "dni", "order": "ASCENDING" },
+        { "fieldPath": "servicio", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

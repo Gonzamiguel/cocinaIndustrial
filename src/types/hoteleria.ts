@@ -61,3 +61,16 @@ export interface FilaImportPadron {
   apellido: string
   empresa: string
 }
+
+/** Fila normalizada para carga masiva (Excel/CSV → batch por DNI). */
+export interface FilaCargaMasivaPadron {
+  dni: string
+  nombre: string
+  apellido: string
+  nombreCompleto: string
+  empresa: string
+  legajo?: string
+  posicion?: string
+  sector?: string
+  estado: string
+}
