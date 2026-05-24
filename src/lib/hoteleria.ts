@@ -1,5 +1,6 @@
 import {
   collection,
+  deleteDoc,
   doc,
   getDoc,
   getDocs,
@@ -61,7 +62,7 @@ function logErrorSuscripcion(coleccion: string, err: FirestoreErrorish) {
       `[Firestore] ${coleccion}: permiso denegado. ` +
         'Publicá las reglas del repositorio en tu proyecto: `firebase deploy --only firestore:rules` ' +
         '(desde la raíz del proyecto, con firebase.json). ' +
-        'Comprobá `usuarios/{tuUID}.rol` (`admin_campamento`, `hoteleria_casposo`, `gerencia` o `analista` para `/control`).',
+        'Comprobá `usuarios/{tuUID}.rol` (`admin_campamento`, `hoteleria_casposo`, `gerencia` o `analista` para `/control` con escritura).',
     )
     return
   }
@@ -530,6 +531,20 @@ export async function actualizarPersonaPadron(
   if (otro && otro.id !== docId) throw new Error('Ya existe otra persona con ese DNI.')
   const db = getDb()
   await updateDoc(doc(db, COL_PADRON, docId), { dni, nombre, apellido, empresa })
+}
+
+/** Elimina una persona del padrón si no tiene check-in activo. */
+export async function eliminarPersonaPadron(id: string): Promise<void> {
+  const docId = id.trim()
+  if (!docId) throw new Error('Registro inválido.')
+  const cama = await buscarCamaOcupadaPorPersona(docId)
+  if (cama) {
+    throw new Error(
+      'No se puede eliminar: la persona tiene un check-in activo. Hacé check-out primero.',
+    )
+  }
+  const db = getDb()
+  await deleteDoc(doc(db, COL_PADRON, docId))
 }
 
 export async function crearCama(input: {

@@ -11,6 +11,7 @@ import { DashboardHoteleriaPage } from './views/hoteleria/DashboardHoteleriaPage
 import { MapaCamasPage } from './views/hoteleria/MapaCamasPage'
 import { PadronEmpresasPage } from './views/hoteleria/PadronEmpresasPage'
 import { PadronPage } from './views/hoteleria/PadronPage'
+import { ConfiguracionHoteleriaPage } from './views/hoteleria/ConfiguracionHoteleriaPage'
 
 /* MVP: módulos logísticos y legacy comentados (archivos intactos)
 import { LayoutAdmin } from './layouts/LayoutAdmin'
@@ -76,6 +77,7 @@ export default function App() {
         <Route path="empresas" element={<PadronEmpresasPage />} />
         <Route path="hoteleria" element={<DashboardHoteleriaPage />} />
         <Route path="alojamiento" element={<MapaCamasPage />} />
+        <Route path="configuracion" element={<ConfiguracionHoteleriaPage />} />
         {/* MVP: gestión de menú oculta
         <Route path="menu" element={<AdminMenuPage />} />
         */}

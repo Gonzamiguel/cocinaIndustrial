@@ -1,5 +1,6 @@
 import {
   collection,
+  deleteDoc,
   doc,
   getDocs,
   onSnapshot,
@@ -209,4 +210,12 @@ export async function actualizarEmpresaPadron(
   if (otro && otro.id !== docId) throw new Error('Ya existe otra empresa con ese nombre.')
   const db = getDb()
   await updateDoc(doc(db, COL_PADRON_EMPRESAS, docId), { nombre, cuit })
+}
+
+/** Elimina una empresa del padrón corporativo. */
+export async function eliminarEmpresaPadron(id: string): Promise<void> {
+  const docId = id.trim()
+  if (!docId) throw new Error('Registro inválido.')
+  const db = getDb()
+  await deleteDoc(doc(db, COL_PADRON_EMPRESAS, docId))
 }

@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Download, Loader2, Pencil, Plus, Trash2 } from 'lucide-react'
-import * as XLSX from 'xlsx'
+import { Download, Loader2, Pencil, Plus, Trash2, TriangleAlert } from 'lucide-react'
 import { AjusteEstadiaModal, toDatetimeLocalValue } from '../../components/hoteleria/AjusteEstadiaModal'
 import { useToast } from '../../context/ToastContext'
 import type { RegistroAjusteEstadia } from '../../types/ajusteEstadia'
@@ -12,6 +11,7 @@ import {
   type FilaMovimientoHoteleria,
   type FiltrosHoteleriaDashboard,
 } from '../../lib/hoteleriaDashboard'
+import { exportarHoteleriaExcel } from '../../lib/hoteleriaExcelExport'
 import {
   actualizarAjusteManualPernocte,
   crearAjusteManualPernocte,
@@ -23,6 +23,8 @@ import {
 } from '../../lib/hoteleria'
 
 const PAGE_SIZE_MOV = 10
+const PAGE_SIZE_CUAD = 20
+const MAX_DIAS_VISTA_CUADRILLA = 31
 
 function hoyYmdLocal(): string {
   const d = new Date()
@@ -105,6 +107,12 @@ function KpiTarjeta({
   )
 }
 
+function claseCeldaEstancia(v: string): string {
+  if (v === '1') return 'font-bold text-emerald-600'
+  if (v === 'S') return 'font-black text-amber-500'
+  return 'font-medium text-gray-300'
+}
+
 export function DashboardHoteleriaPage() {
   const { showToast } = useToast()
   const [historial, setHistorial] = useState<HistorialPernocte[]>([])
@@ -116,6 +124,7 @@ export function DashboardHoteleriaPage() {
   const [empresaFiltro, setEmpresaFiltro] = useState('')
   const [sectorFiltro, setSectorFiltro] = useState('')
   const [paginaMov, setPaginaMov] = useState(1)
+  const [paginaCuad, setPaginaCuad] = useState(1)
   const [exportando, setExportando] = useState(false)
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [registroSeleccionado, setRegistroSeleccionado] = useState<RegistroAjusteEstadia | null>(
@@ -151,6 +160,7 @@ export function DashboardHoteleriaPage() {
 
   useEffect(() => {
     setPaginaMov(1)
+    setPaginaCuad(1)
   }, [desde, hasta, empresaFiltro, sectorFiltro])
 
   const rangoValido = useMemo(() => Boolean(desde && hasta && desde <= hasta), [desde, hasta])
@@ -238,6 +248,27 @@ export function DashboardHoteleriaPage() {
     })
   }, [historial, padronPorId, camaPorId, filtros, rangoValido])
 
+  const diasDelRango = cuadrilla.dias
+  const diasRender = useMemo(
+    () =>
+      diasDelRango.length > MAX_DIAS_VISTA_CUADRILLA
+        ? diasDelRango.slice(0, MAX_DIAS_VISTA_CUADRILLA)
+        : diasDelRango,
+    [diasDelRango],
+  )
+  const cuadrillaVistaRecortada = diasDelRango.length > MAX_DIAS_VISTA_CUADRILLA
+
+  const totalPaginasCuad = Math.max(1, Math.ceil(cuadrilla.filas.length / PAGE_SIZE_CUAD))
+  const paginaCuadSegura = Math.min(paginaCuad, totalPaginasCuad)
+  const filasCuadrillaPagina = useMemo(() => {
+    const start = (paginaCuadSegura - 1) * PAGE_SIZE_CUAD
+    return cuadrilla.filas.slice(start, start + PAGE_SIZE_CUAD)
+  }, [cuadrilla.filas, paginaCuadSegura])
+
+  useEffect(() => {
+    if (paginaCuad > totalPaginasCuad) setPaginaCuad(totalPaginasCuad)
+  }, [paginaCuad, totalPaginasCuad])
+
   const totalPaginasMov = Math.max(1, Math.ceil(movimientos.length / PAGE_SIZE_MOV))
   const paginaMovSegura = Math.min(paginaMov, totalPaginasMov)
   const movimientosPagina = useMemo(() => {
@@ -264,46 +295,14 @@ export function DashboardHoteleriaPage() {
     setExportando(true)
     try {
       await new Promise((resolve) => requestAnimationFrame(resolve))
-      const wb = XLSX.utils.book_new()
-
-      const headerMov = [
-        'Fecha y hora',
-        'DNI',
-        'Persona',
-        'Empresa',
-        'Tipo de movimiento',
-        'Habitación / cama',
-      ]
-      const rowsMov = movimientos.map((m) => [
-        formatFechaHora(m.fechaHora),
-        m.dni,
-        m.persona,
-        m.empresa,
-        m.tipo,
-        m.habitacionCama,
-      ])
-      const wsMov = XLSX.utils.aoa_to_sheet([headerMov, ...rowsMov])
-      XLSX.utils.book_append_sheet(wb, wsMov, 'Movimientos')
-
-      const headerCuad = [
-        'DNI',
-        'Empresa',
-        'Nombre',
-        'Apellido',
-        ...cuadrilla.dias.map(etiquetaDiaColumna),
-      ]
-      const rowsCuad = cuadrilla.filas.map((f) => [
-        f.dni,
-        f.empresa,
-        f.nombre,
-        f.apellido,
-        ...cuadrilla.dias.map((ymd) => f.nochesPorDia[ymd] ?? 0),
-      ])
-      const wsCuad = XLSX.utils.aoa_to_sheet([headerCuad, ...rowsCuad])
-      XLSX.utils.book_append_sheet(wb, wsCuad, 'Control_Estancia')
-
       const fechaArchivo = hasta || hoyYmdLocal()
-      XLSX.writeFile(wb, `Hoteleria_Export_${fechaArchivo}.xlsx`)
+      await exportarHoteleriaExcel({
+        movimientos,
+        cuadrilla,
+        etiquetaDiaColumna,
+        formatFechaHora,
+        nombreArchivo: `Hoteleria_Export_${fechaArchivo}.xlsx`,
+      })
       showToast(
         `Excel generado: ${movimientos.length.toLocaleString('es-AR')} movimientos, ${cuadrilla.filas.length.toLocaleString('es-AR')} personas en cuadrilla.`,
         'success',
@@ -649,14 +648,30 @@ export function DashboardHoteleriaPage() {
                 <div>
                   <h2 className="text-base font-semibold text-gray-900">Control de estancia</h2>
                   <p className="mt-0.5 text-xs text-[#8997A6]">
-                    Cuadrilla por persona: 1 = pernoctó esa noche · 0 = no pernoctó
+                    Cuadrilla por persona: 1 = pernocte · S = día de salida · 0 = ausente
                   </p>
                 </div>
                 <p className="text-xs text-neutral-500">
                   {cuadrilla.filas.length.toLocaleString('es-AR')} personas ·{' '}
-                  {cuadrilla.dias.length} días
+                  {diasDelRango.length} días
+                  {cuadrillaVistaRecortada
+                    ? ` (vista: ${diasRender.length} días)`
+                    : null}
                 </p>
               </div>
+              {cuadrillaVistaRecortada ? (
+                <div
+                  role="status"
+                  className="mb-3 flex gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800"
+                >
+                  <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+                  <p>
+                    El rango seleccionado supera los 31 días. Por rendimiento, esta vista previa solo
+                    muestra el primer mes. Utilice el botón [Exportar a Excel] para ver y analizar la
+                    cuadrilla completa.
+                  </p>
+                </div>
+              ) : null}
               <div className="overflow-x-auto rounded-xl border border-neutral-100">
                 <table className="min-w-max divide-y divide-neutral-100 text-left text-sm">
                   <thead className="bg-neutral-50 text-xs font-semibold uppercase tracking-wide text-neutral-600">
@@ -673,7 +688,7 @@ export function DashboardHoteleriaPage() {
                       <th className="sticky left-[21.5rem] z-20 min-w-[7rem] border-r border-neutral-200 bg-neutral-50 px-3 py-2.5 shadow-[4px_0_8px_-4px_rgba(0,0,0,0.08)]">
                         Apellido
                       </th>
-                      {cuadrilla.dias.map((ymd) => (
+                      {diasRender.map((ymd) => (
                         <th
                           key={ymd}
                           className="min-w-[2.25rem] px-1 py-2.5 text-center font-mono text-[10px] normal-case"
@@ -688,7 +703,7 @@ export function DashboardHoteleriaPage() {
                     {cargando ? (
                       <tr>
                         <td
-                          colSpan={4 + cuadrilla.dias.length}
+                          colSpan={4 + diasRender.length}
                           className="px-4 py-10 text-center text-neutral-500"
                         >
                           Cargando datos de hotelería…
@@ -697,14 +712,14 @@ export function DashboardHoteleriaPage() {
                     ) : cuadrilla.filas.length === 0 ? (
                       <tr>
                         <td
-                          colSpan={4 + Math.max(cuadrilla.dias.length, 1)}
+                          colSpan={4 + Math.max(diasRender.length, 1)}
                           className="px-4 py-10 text-center text-neutral-500"
                         >
                           No hay pernoctes en el rango y filtros seleccionados.
                         </td>
                       </tr>
                     ) : (
-                      cuadrilla.filas.map((f) => (
+                      filasCuadrillaPagina.map((f) => (
                         <tr key={`${f.personaId}-${f.dni}`} className="hover:bg-neutral-50/60">
                           <td className="sticky left-0 z-10 bg-white px-3 py-1.5 font-mono text-[11px]">
                             {f.dni}
@@ -718,16 +733,12 @@ export function DashboardHoteleriaPage() {
                           <td className="sticky left-[21.5rem] z-10 border-r border-neutral-100 bg-white px-3 py-1.5 text-xs font-medium shadow-[4px_0_8px_-4px_rgba(0,0,0,0.06)]">
                             {f.apellido}
                           </td>
-                          {cuadrilla.dias.map((ymd) => {
-                            const v = f.nochesPorDia[ymd] ?? 0
+                          {diasRender.map((ymd) => {
+                            const v = f.nochesPorDia[ymd] ?? '0'
                             return (
                               <td key={ymd} className="px-0.5 py-1 text-center">
                                 <span
-                                  className={`inline-flex h-7 w-7 items-center justify-center text-xs tabular-nums ${
-                                    v === 1
-                                      ? 'font-bold text-emerald-600'
-                                      : 'font-medium text-gray-300'
-                                  }`}
+                                  className={`inline-flex h-7 w-7 items-center justify-center text-xs tabular-nums ${claseCeldaEstancia(v)}`}
                                 >
                                   {v}
                                 </span>
@@ -739,6 +750,43 @@ export function DashboardHoteleriaPage() {
                     )}
                   </tbody>
                 </table>
+                {!cargando && cuadrilla.filas.length > 0 ? (
+                  <div className="flex flex-wrap items-center justify-between gap-3 border-t border-neutral-100 bg-neutral-50/80 px-4 py-3">
+                    <p className="text-xs text-neutral-600">
+                      Mostrando {(paginaCuadSegura - 1) * PAGE_SIZE_CUAD + 1}–
+                      {Math.min(paginaCuadSegura * PAGE_SIZE_CUAD, cuadrilla.filas.length)} de{' '}
+                      {cuadrilla.filas.length.toLocaleString('es-AR')} personas
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        disabled={paginaCuadSegura <= 1}
+                        onClick={() => setPaginaCuad((p) => Math.max(1, p - 1))}
+                        className="rounded-lg border border-neutral-200 bg-white px-3 py-1.5 text-xs font-medium text-neutral-700 disabled:opacity-40"
+                      >
+                        Anterior
+                      </button>
+                      <span className="text-xs tabular-nums text-neutral-600">
+                        Pág. {paginaCuadSegura} / {totalPaginasCuad}
+                      </span>
+                      <button
+                        type="button"
+                        disabled={paginaCuadSegura >= totalPaginasCuad}
+                        onClick={() => setPaginaCuad((p) => Math.min(totalPaginasCuad, p + 1))}
+                        className="rounded-lg border border-neutral-200 bg-white px-3 py-1.5 text-xs font-medium text-neutral-700 disabled:opacity-40"
+                      >
+                        Siguiente
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+              <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-neutral-600">
+                <span>🟩 1: Pernocte facturable.</span>
+                <span>
+                  🟧 S: Día de salida / tránsito (justifica consumos en comedor, libera cama).
+                </span>
+                <span>⬜ 0: Ausente.</span>
               </div>
             </div>
           ) : null}

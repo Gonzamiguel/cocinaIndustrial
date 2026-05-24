@@ -1,16 +1,25 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Download, Loader2, Pencil, Upload } from 'lucide-react'
+import { Download, Loader2, Pencil, Trash2, Upload } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import { PadronFormModal, inputClass, labelClass } from '../../components/padron/PadronFormModal'
+import { CredencialDigitalModal } from '../../components/padron/CredencialDigitalModal'
+import { ConfirmDialog } from '../../components/ui/ConfirmDialog'
 import { useToast } from '../../context/ToastContext'
 import type { PadronPersona } from '../../types/hoteleria'
 import { filasCargaMasivaDesdeWorkbook } from '../../lib/padronImport'
 import {
   actualizarPersonaPadron,
   crearPersonaPadron,
+  eliminarPersonaPadron,
   importarPadronCargaMasiva,
   subscribePadronPersonas,
 } from '../../lib/hoteleria'
+import {
+  MAX_LENGTH_DNI_PADRON,
+  sanitizarDniInput,
+  sanitizarEmpresaInput,
+  sanitizarNombreApellidoInput,
+} from '../../lib/padronFormInput'
 
 function normalizarTextoBusqueda(s: string): string {
   return s.trim().toLowerCase()
@@ -41,6 +50,9 @@ export function PadronPage() {
   const [exportando, setExportando] = useState(false)
   const [modal, setModal] = useState<ModalPersona>(null)
   const [guardando, setGuardando] = useState(false)
+  const [personaAEliminar, setPersonaAEliminar] = useState<PadronPersona | null>(null)
+  const [personaCredencial, setPersonaCredencial] = useState<PadronPersona | null>(null)
+  const [eliminando, setEliminando] = useState(false)
   const [fDni, setFDni] = useState('')
   const [fNombre, setFNombre] = useState('')
   const [fApellido, setFApellido] = useState('')
@@ -100,10 +112,10 @@ export function PadronPage() {
   }
 
   function abrirEditar(persona: PadronPersona) {
-    setFDni(persona.dni)
-    setFNombre(persona.nombre)
-    setFApellido(persona.apellido)
-    setFEmpresa(persona.empresa)
+    setFDni(sanitizarDniInput(persona.dni))
+    setFNombre(sanitizarNombreApellidoInput(persona.nombre))
+    setFApellido(sanitizarNombreApellidoInput(persona.apellido))
+    setFEmpresa(sanitizarEmpresaInput(persona.empresa))
     setModal({ modo: 'editar', persona })
   }
 
@@ -163,6 +175,20 @@ export function PadronPage() {
       showToast(msg, 'error')
     } finally {
       setCargandoMasiva(false)
+    }
+  }
+
+  async function confirmarEliminarPersona() {
+    if (!personaAEliminar) return
+    setEliminando(true)
+    try {
+      await eliminarPersonaPadron(personaAEliminar.id)
+      showToast('Persona eliminada del padrón.', 'success')
+      setPersonaAEliminar(null)
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : 'No se pudo eliminar.', 'error')
+    } finally {
+      setEliminando(false)
     }
   }
 
@@ -276,8 +302,8 @@ export function PadronPage() {
                   <th className="px-4 py-3">Nombre</th>
                   <th className="px-4 py-3">Apellido</th>
                   <th className="px-4 py-3">Empresa</th>
-                  <th className="w-14 px-4 py-3 text-center">
-                    <span className="sr-only">Editar</span>
+                  <th className="min-w-[11rem] px-4 py-3 text-center">
+                    <span className="sr-only">Acciones</span>
                   </th>
                 </tr>
               </thead>
@@ -298,14 +324,32 @@ export function PadronPage() {
                       <td className="px-4 py-3">{p.apellido}</td>
                       <td className="px-4 py-3 text-neutral-600">{p.empresa || '—'}</td>
                       <td className="px-4 py-3 text-center">
-                        <button
-                          type="button"
-                          onClick={() => abrirEditar(p)}
-                          aria-label={`Editar ${p.apellido}, ${p.nombre}`}
-                          className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-neutral-500 transition hover:bg-[#CD1818]/10 hover:text-[#CD1818]"
-                        >
-                          <Pencil className="h-4 w-4" aria-hidden />
-                        </button>
+                        <div className="flex flex-wrap items-center justify-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => setPersonaCredencial(p)}
+                            aria-label={`Ver credencial de ${p.apellido}, ${p.nombre}`}
+                            className="inline-flex min-h-9 items-center justify-center rounded-lg border border-neutral-200 bg-white px-2.5 text-xs font-semibold text-neutral-700 transition hover:border-[#CD1818]/30 hover:bg-[#CD1818]/5 hover:text-[#CD1818]"
+                          >
+                            🪪 Credencial
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => abrirEditar(p)}
+                            aria-label={`Editar ${p.apellido}, ${p.nombre}`}
+                            className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-neutral-500 transition hover:bg-[#CD1818]/10 hover:text-[#CD1818]"
+                          >
+                            <Pencil className="h-4 w-4" aria-hidden />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setPersonaAEliminar(p)}
+                            aria-label={`Eliminar ${p.apellido}, ${p.nombre}`}
+                            className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-neutral-500 transition hover:bg-red-50 hover:text-red-700"
+                          >
+                            <Trash2 className="h-4 w-4" aria-hidden />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))
@@ -347,6 +391,29 @@ export function PadronPage() {
         </section>
       </div>
 
+      <CredencialDigitalModal
+        open={personaCredencial !== null}
+        persona={personaCredencial}
+        onClose={() => setPersonaCredencial(null)}
+      />
+
+      <ConfirmDialog
+        open={personaAEliminar !== null}
+        title="Eliminar persona"
+        description={
+          personaAEliminar
+            ? `¿Estás seguro que deseas eliminar «${personaAEliminar.apellido}, ${personaAEliminar.nombre}»?`
+            : ''
+        }
+        confirmLabel="Sí"
+        cancelLabel="No"
+        isWorking={eliminando}
+        onCancel={() => {
+          if (!eliminando) setPersonaAEliminar(null)
+        }}
+        onConfirm={() => void confirmarEliminarPersona()}
+      />
+
       <PadronFormModal
         open={modal !== null}
         title={tituloModal}
@@ -362,35 +429,43 @@ export function PadronPage() {
             <span className={labelClass}>DNI</span>
             <input
               value={fDni}
-              onChange={(e) => setFDni(e.target.value)}
-              className={`${inputClass} font-mono`}
+              onChange={(e) => setFDni(sanitizarDniInput(e.target.value))}
+              className={`${inputClass} font-mono uppercase`}
               placeholder="Sin puntos"
               autoComplete="off"
+              inputMode="numeric"
+              maxLength={MAX_LENGTH_DNI_PADRON}
+              required
             />
           </label>
           <label className="block">
             <span className={labelClass}>Nombre</span>
             <input
               value={fNombre}
-              onChange={(e) => setFNombre(e.target.value)}
-              className={inputClass}
+              onChange={(e) => setFNombre(sanitizarNombreApellidoInput(e.target.value))}
+              className={`${inputClass} uppercase`}
+              autoComplete="given-name"
+              required
             />
           </label>
           <label className="block">
             <span className={labelClass}>Apellido</span>
             <input
               value={fApellido}
-              onChange={(e) => setFApellido(e.target.value)}
-              className={inputClass}
+              onChange={(e) => setFApellido(sanitizarNombreApellidoInput(e.target.value))}
+              className={`${inputClass} uppercase`}
+              autoComplete="family-name"
+              required
             />
           </label>
           <label className="block">
             <span className={labelClass}>Empresa</span>
             <input
               value={fEmpresa}
-              onChange={(e) => setFEmpresa(e.target.value)}
-              className={inputClass}
+              onChange={(e) => setFEmpresa(sanitizarEmpresaInput(e.target.value))}
+              className={`${inputClass} uppercase`}
               placeholder="Opcional"
+              autoComplete="organization"
             />
           </label>
         </div>

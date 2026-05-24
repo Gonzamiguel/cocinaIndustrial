@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Pencil } from 'lucide-react'
+import { Pencil, Trash2 } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import { PadronFormModal, inputClass, labelClass } from '../../components/padron/PadronFormModal'
+import { ConfirmDialog } from '../../components/ui/ConfirmDialog'
 import { useToast } from '../../context/ToastContext'
 import type { FilaImportPadronEmpresa, PadronEmpresa } from '../../types/padronEmpresa'
 import {
   actualizarEmpresaPadron,
   crearEmpresaPadron,
+  eliminarEmpresaPadron,
   importarPadronEmpresasDesdeFilas,
   subscribePadronEmpresas,
 } from '../../lib/padronEmpresas'
@@ -62,6 +64,8 @@ export function PadronEmpresasPage() {
   const [importing, setImporting] = useState(false)
   const [modal, setModal] = useState<ModalEmpresa>(null)
   const [guardando, setGuardando] = useState(false)
+  const [empresaAEliminar, setEmpresaAEliminar] = useState<PadronEmpresa | null>(null)
+  const [eliminando, setEliminando] = useState(false)
   const [fNombre, setFNombre] = useState('')
   const [fCuit, setFCuit] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
@@ -132,6 +136,20 @@ export function PadronEmpresasPage() {
       showToast(msg, 'error')
     } finally {
       setImporting(false)
+    }
+  }
+
+  async function confirmarEliminarEmpresa() {
+    if (!empresaAEliminar) return
+    setEliminando(true)
+    try {
+      await eliminarEmpresaPadron(empresaAEliminar.id)
+      showToast('Empresa eliminada del padrón.', 'success')
+      setEmpresaAEliminar(null)
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : 'No se pudo eliminar.', 'error')
+    } finally {
+      setEliminando(false)
     }
   }
 
@@ -207,8 +225,8 @@ export function PadronEmpresasPage() {
                 <tr>
                   <th className="px-4 py-3">Nombre de empresa</th>
                   <th className="px-4 py-3">CUIT</th>
-                  <th className="w-14 px-4 py-3 text-center">
-                    <span className="sr-only">Editar</span>
+                  <th className="w-24 px-4 py-3 text-center">
+                    <span className="sr-only">Acciones</span>
                   </th>
                 </tr>
               </thead>
@@ -229,14 +247,24 @@ export function PadronEmpresasPage() {
                         {e.cuit || '—'}
                       </td>
                       <td className="px-4 py-3 text-center">
-                        <button
-                          type="button"
-                          onClick={() => abrirEditar(e)}
-                          aria-label={`Editar ${e.nombre}`}
-                          className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-neutral-500 transition hover:bg-[#CD1818]/10 hover:text-[#CD1818]"
-                        >
-                          <Pencil className="h-4 w-4" aria-hidden />
-                        </button>
+                        <div className="flex items-center justify-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => abrirEditar(e)}
+                            aria-label={`Editar ${e.nombre}`}
+                            className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-neutral-500 transition hover:bg-[#CD1818]/10 hover:text-[#CD1818]"
+                          >
+                            <Pencil className="h-4 w-4" aria-hidden />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setEmpresaAEliminar(e)}
+                            aria-label={`Eliminar ${e.nombre}`}
+                            className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-neutral-500 transition hover:bg-red-50 hover:text-red-700"
+                          >
+                            <Trash2 className="h-4 w-4" aria-hidden />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))
@@ -249,6 +277,23 @@ export function PadronEmpresasPage() {
           </p>
         </section>
       </div>
+
+      <ConfirmDialog
+        open={empresaAEliminar !== null}
+        title="Eliminar empresa"
+        description={
+          empresaAEliminar
+            ? `¿Estás seguro que deseas eliminar «${empresaAEliminar.nombre}»?`
+            : ''
+        }
+        confirmLabel="Sí"
+        cancelLabel="No"
+        isWorking={eliminando}
+        onCancel={() => {
+          if (!eliminando) setEmpresaAEliminar(null)
+        }}
+        onConfirm={() => void confirmarEliminarEmpresa()}
+      />
 
       <PadronFormModal
         open={modal !== null}

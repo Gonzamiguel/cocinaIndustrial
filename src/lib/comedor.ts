@@ -42,7 +42,7 @@ export function mensajePermisosTerminalComedor(): string {
 export function mensajePermisosRegistrosComedor(): string {
   return (
     'Permiso denegado en `registros_comedor`. Publicá las reglas: `npm run deploy:firestore-rules`. ' +
-    'Roles con lectura en `/control`: `admin_campamento`, `hoteleria_casposo`, `gerencia`, `analista`; ' +
+    'Roles con acceso en `/control`: `admin_campamento`, `hoteleria_casposo`, `gerencia`, `analista` (escritura); ' +
     'en terminal: `terminal_comedor`, `jefe_campamento`.'
   )
 }

@@ -60,9 +60,9 @@ service cloud.firestore {
       return isAdminCampamento() || isHoteleriaCasposo() || isGerencia() || isAnalista();
     }
 
-    /** Escritura operativa en `/control` (sin rol analista, solo lectura global). */
+    /** Escritura operativa en `/control` (hotelería, padrón, comensales, menú). */
     function panelControlEscritura() {
-      return isAdminCampamento() || isHoteleriaCasposo() || isGerencia();
+      return isAdminCampamento() || isHoteleriaCasposo() || isGerencia() || isAnalista();
     }
 
     /** Hotelería / campamento: mismo literal que en `AuthContext` y en el documento `usuarios/{uid}`. */

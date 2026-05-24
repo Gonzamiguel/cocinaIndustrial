@@ -65,6 +65,27 @@ export function esRolVisionGlobalLectura(rol: string | null | undefined): rol is
   return rol === 'analista' || rol === 'gerencia'
 }
 
+/** Escritura operativa en `/control` (hotelería, padrón, comensales). Incluye analista y gerencia. */
+export const ROLES_PANEL_CONTROL_ESCRITURA = [
+  'admin_campamento',
+  'hoteleria_casposo',
+  'gerencia',
+  'analista',
+] as const satisfies readonly UserRole[]
+
+export type RolPanelControlEscritura = (typeof ROLES_PANEL_CONTROL_ESCRITURA)[number]
+
+export function esRolPanelControlEscritura(
+  rol: string | null | undefined,
+): rol is RolPanelControlEscritura {
+  return (
+    rol === 'admin_campamento' ||
+    rol === 'hoteleria_casposo' ||
+    rol === 'gerencia' ||
+    rol === 'analista'
+  )
+}
+
 /** Jefe de campamento: acceso UI a módulos campamento + hotelería (mismas operaciones que cada rol de silo). */
 export function esJefeCampamento(rol: string | null | undefined): boolean {
   return rol === 'jefe_campamento'

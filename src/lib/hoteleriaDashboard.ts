@@ -10,14 +10,17 @@ export type FiltrosHoteleriaDashboard = {
   sector: string
 }
 
+export type EstadoDiaEstancia = '0' | '1' | 'S'
+
 export type FilaCuadrillaEstancia = {
   personaId: string
   dni: string
   empresa: string
   nombre: string
   apellido: string
-  /** Clave YYYY-MM-DD → 1 durmió, 0 no. */
-  nochesPorDia: Record<string, 0 | 1>
+  /** Clave YYYY-MM-DD → 1 pernocte, S día de salida, 0 ausente. */
+  nochesPorDia: Record<string, EstadoDiaEstancia>
+  /** Solo noches facturables (`1`), sin contar días de salida (`S`). */
   totalNoches: number
 }
 
@@ -124,24 +127,38 @@ function historialSolapaRango(
   if (!checkInYmd) return false
   const checkOutYmd = ymdDeFecha(h.fechaCheckOut)
   if (checkInYmd > hastaYmd) return false
-  if (checkOutYmd && checkOutYmd <= desdeYmd) return false
+  if (checkOutYmd && checkOutYmd < desdeYmd) return false
   return true
 }
 
+function combinarEstadosDia(
+  a: EstadoDiaEstancia,
+  b: EstadoDiaEstancia,
+): EstadoDiaEstancia {
+  if (a === '1' || b === '1') return '1'
+  if (a === 'S' || b === 'S') return 'S'
+  return '0'
+}
+
 /**
- * ¿La persona pernoctó la noche del día `ymd`?
- * Intervalo [check-in, check-out): el día de check-out no cuenta (salida matutina).
- * Estadía abierta: hasta `hastaYmd` inclusive dentro del filtro.
+ * Valor de celda para un día del mes según intervalo [check-in, check-out).
+ * Comparación solo por YYYY-MM-DD (sin horas).
  */
-function diaDentroDeIntervalo(
+function valorDiaEnIntervalo(
   ymd: string,
   intervalo: IntervaloEstadia,
   hastaYmd: string,
-): boolean {
-  if (ymd < intervalo.checkInYmd) return false
-  if (ymd > hastaYmd) return false
-  if (intervalo.checkOutYmd && ymd >= intervalo.checkOutYmd) return false
-  return true
+): EstadoDiaEstancia {
+  if (ymd < intervalo.checkInYmd || ymd > hastaYmd) return '0'
+
+  if (intervalo.checkOutYmd) {
+    if (ymd === intervalo.checkOutYmd) return 'S'
+    if (ymd >= intervalo.checkInYmd && ymd < intervalo.checkOutYmd) return '1'
+    return '0'
+  }
+
+  if (ymd >= intervalo.checkInYmd) return '1'
+  return '0'
 }
 
 /** Intervalos de estadía por persona a partir de todo el historial filtrado. */
@@ -237,7 +254,7 @@ export function calcularKpisHoteleria(input: {
 }
 
 /**
- * Grilla 1/0: agrupa por DNI, arma intervalos de estadía desde historial y marca cada día del rango.
+ * Grilla 1 / S / 0: agrupa por DNI, arma intervalos de estadía desde historial y marca cada día del rango.
  */
 export function filasCuadrillaEstancia(input: {
   historial: HistorialPernocte[]
@@ -252,16 +269,19 @@ export function filasCuadrillaEstancia(input: {
   const filas: FilaCuadrillaEstancia[] = []
 
   for (const { intervalos, meta } of porDni.values()) {
-    const nochesPorDia: Record<string, 0 | 1> = {}
+    const nochesPorDia: Record<string, EstadoDiaEstancia> = {}
     let totalNoches = 0
+    let tieneActividad = false
     for (const ymd of dias) {
-      const durmio = intervalos.some((iv) =>
-        diaDentroDeIntervalo(ymd, iv, filtros.hastaYmd),
-      )
-      nochesPorDia[ymd] = durmio ? 1 : 0
-      if (durmio) totalNoches++
+      let valor: EstadoDiaEstancia = '0'
+      for (const iv of intervalos) {
+        valor = combinarEstadosDia(valor, valorDiaEnIntervalo(ymd, iv, filtros.hastaYmd))
+      }
+      nochesPorDia[ymd] = valor
+      if (valor === '1') totalNoches++
+      if (valor !== '0') tieneActividad = true
     }
-    if (totalNoches > 0) {
+    if (tieneActividad) {
       filas.push({ ...meta, nochesPorDia, totalNoches })
     }
   }
