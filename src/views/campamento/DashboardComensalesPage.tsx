@@ -10,11 +10,15 @@ import {
   crearRegistroComedorRetroactivoSupervisor,
   subscribeRegistrosComedorPorRango,
 } from '../../lib/comedor'
-import { etiquetaServicioComedor } from '../../lib/servicioComedor'
+import {
+  esRegistroViandaComedor,
+  etiquetaServicioComedor,
+  OPCIONES_FILTRO_SERVICIO_COMENSALES,
+  registroCoincideFiltroServicioComensales,
+} from '../../lib/servicioComedor'
+import type { FiltroServicioComensales } from '../../lib/servicioComedor'
 
 const PAGE_SIZE = 40
-
-type FiltroServicio = 'TODOS' | ServicioComedor
 
 function hoyYmdLocal(): string {
   const d = new Date()
@@ -43,13 +47,6 @@ function truncarUid(uid: string): string {
   const u = uid.trim()
   if (u.length <= 12) return u
   return `${u.slice(0, 8)}…${u.slice(-4)}`
-}
-
-/** Viandas en terminal: `MERIENDA` + observaciones «Vianda». */
-function esRegistroVianda(r: RegistroComedor): boolean {
-  if (r.servicio !== 'MERIENDA') return false
-  const obs = (r.observaciones ?? '').trim().toLowerCase()
-  return obs === 'vianda' || obs.includes('vianda')
 }
 
 type ConteosServiciosKpi = {
@@ -101,7 +98,7 @@ export function DashboardComensalesPage() {
   const [desde, setDesde] = useState(primerDiaMesYmd())
   const [hasta, setHasta] = useState(hoyYmdLocal())
   const [empresaFiltro, setEmpresaFiltro] = useState('')
-  const [servicioFiltro, setServicioFiltro] = useState<FiltroServicio>('TODOS')
+  const [servicioFiltro, setServicioFiltro] = useState<FiltroServicioComensales>('TODOS')
   const [pagina, setPagina] = useState(1)
 
   const [modalRetroAbierto, setModalRetroAbierto] = useState(false)
@@ -225,12 +222,12 @@ export function DashboardComensalesPage() {
   }, [registros])
 
   const filtrados = useMemo(() => {
+    if (!rangoValido) return []
     return registros.filter((r) => {
       if (empresaFiltro && r.empresa.trim() !== empresaFiltro) return false
-      if (servicioFiltro !== 'TODOS' && r.servicio !== servicioFiltro) return false
-      return true
+      return registroCoincideFiltroServicioComensales(r, servicioFiltro)
     })
-  }, [registros, empresaFiltro, servicioFiltro])
+  }, [registros, empresaFiltro, servicioFiltro, rangoValido])
 
   const filasOrdenadas = useMemo(() => {
     return [...filtrados].sort((a, b) => {
@@ -268,7 +265,7 @@ export function DashboardComensalesPage() {
           c.almuerzo++
           break
         case 'MERIENDA':
-          if (esRegistroVianda(r)) c.viandas++
+          if (esRegistroViandaComedor(r)) c.viandas++
           else c.merienda++
           break
         case 'CENA':
@@ -389,16 +386,14 @@ export function DashboardComensalesPage() {
                 <span className="text-xs font-medium text-neutral-600">Servicio</span>
                 <select
                   value={servicioFiltro}
-                  onChange={(e) => setServicioFiltro(e.target.value as FiltroServicio)}
+                  onChange={(e) => setServicioFiltro(e.target.value as FiltroServicioComensales)}
                   className="mt-1 block min-h-11 w-full rounded-xl border border-neutral-200 bg-white px-3 text-sm outline-none focus:border-[#CD1818]/40 focus:ring-2 focus:ring-[#CD1818]/15"
                 >
-                  <option value="TODOS">Todos</option>
-                  <option value="DESAYUNO">Desayuno</option>
-                  <option value="ALMUERZO">Almuerzo</option>
-                  <option value="MERIENDA">Merienda</option>
-                  <option value="CENA">Cena</option>
-                  <option value="CENA_NOCHERO">Cena nochera</option>
-                  <option value="FUERA DE HORARIO">Fuera de horario</option>
+                  {OPCIONES_FILTRO_SERVICIO_COMENSALES.map(({ value, label }) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
                 </select>
               </label>
               <button

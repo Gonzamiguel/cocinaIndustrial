@@ -1,4 +1,62 @@
-import type { ServicioComedor } from '../types/comedor'
+import type { RegistroComedor, ServicioComedor } from '../types/comedor'
+
+/** Categorías del filtro de servicio en el dashboard de comensales (alineadas a KPIs / facturación). */
+export type FiltroServicioComensales =
+  | 'TODOS'
+  | 'DESAYUNO'
+  | 'ALMUERZO'
+  | 'REFRIGERIO'
+  | 'MERIENDA'
+  | 'VIANDA'
+  | 'CENA'
+  | 'CENA_NOCHERO'
+
+export const OPCIONES_FILTRO_SERVICIO_COMENSALES: {
+  value: FiltroServicioComensales
+  label: string
+}[] = [
+  { value: 'TODOS', label: 'Todos' },
+  { value: 'DESAYUNO', label: 'Desayuno' },
+  { value: 'ALMUERZO', label: 'Almuerzo' },
+  { value: 'REFRIGERIO', label: 'Refrigerio' },
+  { value: 'MERIENDA', label: 'Merienda' },
+  { value: 'VIANDA', label: 'Vianda' },
+  { value: 'CENA', label: 'Cena' },
+  { value: 'CENA_NOCHERO', label: 'Cena Nochero' },
+]
+
+/** Viandas en terminal: `MERIENDA` + observaciones «Vianda». */
+export function esRegistroViandaComedor(r: RegistroComedor): boolean {
+  if (r.servicio !== 'MERIENDA') return false
+  const obs = (r.observaciones ?? '').trim().toLowerCase()
+  return obs === 'vianda' || obs.includes('vianda')
+}
+
+/** Coincidencia de filtro contra `servicio` y flags derivados (refrigerio / vianda). */
+export function registroCoincideFiltroServicioComensales(
+  r: RegistroComedor,
+  filtro: FiltroServicioComensales,
+): boolean {
+  if (filtro === 'TODOS') return true
+  switch (filtro) {
+    case 'DESAYUNO':
+      return r.servicio === 'DESAYUNO'
+    case 'ALMUERZO':
+      return r.servicio === 'ALMUERZO'
+    case 'REFRIGERIO':
+      return r.contieneRefrigerio === true
+    case 'MERIENDA':
+      return r.servicio === 'MERIENDA' && !esRegistroViandaComedor(r)
+    case 'VIANDA':
+      return esRegistroViandaComedor(r)
+    case 'CENA':
+      return r.servicio === 'CENA'
+    case 'CENA_NOCHERO':
+      return r.servicio === 'CENA_NOCHERO'
+    default:
+      return false
+  }
+}
 
 /** Minutos desde medianoche (hora local). */
 function minutosDesdeMedianoche(date: Date): number {
