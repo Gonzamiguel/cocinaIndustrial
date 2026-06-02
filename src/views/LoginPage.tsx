@@ -131,6 +131,21 @@ export function LoginPage() {
         return
       }
 
+      if (
+        from &&
+        (from === '/admin' ||
+          from.startsWith('/admin/') ||
+          from === '/admin-cocina')
+      ) {
+        if (!rolPuedeAccederRuta(rolLeído, from)) {
+          await signOut(auth)
+          setError('No tenés permiso para acceder a esa sección.')
+          return
+        }
+        navigate(from, { replace: true })
+        return
+      }
+
       navigate(home, { replace: true })
     } catch (err) {
       const code =

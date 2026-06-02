@@ -36,10 +36,15 @@ export function esRolTerminalCampo(rol: string | null | undefined): rol is RolTe
   return rol === 'jefe_campamento' || rol === 'terminal_comedor'
 }
 
+export function esRolAdminCocina(rol: string | null | undefined): boolean {
+  return rol === 'admin_cocina'
+}
+
 /** Ruta de inicio post-login en el MVP; `null` si el rol no tiene módulo activo. */
 export function rutaHomePorRol(rol: UserRole): string | null {
   if (esRolPanelControl(rol)) return '/control'
   if (esRolTerminalCampo(rol)) return '/terminal'
+  if (esRolAdminCocina(rol)) return '/admin/pedidos'
   return null
 }
 
@@ -52,6 +57,9 @@ export function rolPuedeAccederRuta(
   }
   if (pathname === '/terminal' || pathname.startsWith('/terminal/')) {
     return esRolTerminalCampo(rol)
+  }
+  if (pathname === '/admin' || pathname.startsWith('/admin/') || pathname === '/admin-cocina') {
+    return esRolAdminCocina(rol)
   }
   return false
 }

@@ -2,8 +2,13 @@ import { lazy, Suspense } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { ControlLayout } from './components/layouts/ControlLayout'
 import { ProtectedRoute } from './components/ProtectedRoute'
+import { LayoutAdmin } from './layouts/LayoutAdmin'
 import { LayoutComedor } from './layouts/LayoutComedor'
-// import { AdminMenuPage } from './views/admin/AdminMenuPage'
+import { AdminMenuPage } from './views/admin/AdminMenuPage'
+import { AdminMercaderiaPage } from './views/admin/AdminMercaderiaPage'
+import { AdminPedidosPage } from './views/admin/AdminPedidosPage'
+import { AdminRecetarioPage } from './views/admin/AdminRecetarioPage'
+import { DashboardPage } from './views/admin/DashboardPage'
 import { DashboardComensalesPage } from './views/campamento/DashboardComensalesPage'
 // import { ClientView } from './views/ClientView'
 import { LoginPage } from './views/LoginPage'
@@ -14,6 +19,7 @@ import { PadronPage } from './views/hoteleria/PadronPage'
 import { ConfiguracionHoteleriaPage } from './views/hoteleria/ConfiguracionHoteleriaPage'
 import { ReporteLimpiezaPage } from './views/hoteleria/ReporteLimpiezaPage'
 import { DashboardFacturacionPage } from './views/control/DashboardFacturacionPage'
+import { SolicitudMercaderiaDetallePage } from './views/SolicitudMercaderiaDetallePage'
 
 /* MVP: módulos logísticos y legacy comentados (archivos intactos)
 import { LayoutAdmin } from './layouts/LayoutAdmin'
@@ -109,7 +115,6 @@ export default function App() {
       <Route path="/comedor" element={<Navigate to="/terminal" replace />} />
       <Route path="/comedor/*" element={<Navigate to="/terminal" replace />} />
 
-      {/* Legacy — reactivar cuando vuelvan módulos logísticos
       <Route
         path="/admin"
         element={
@@ -127,7 +132,9 @@ export default function App() {
         <Route path="mercaderia" element={<AdminMercaderiaPage />} />
       </Route>
 
-      <Route
+      <Route path="/admin-cocina" element={<Navigate to="/admin/pedidos" replace />} />
+
+      {/* Legacy — reactivar cuando vuelvan otros módulos logísticos
         path="/deposito"
         element={
           <ProtectedRoute rolesPermitidos={['admin_deposito']}>
