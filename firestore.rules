@@ -243,6 +243,331 @@ service cloud.firestore {
         && request.resource.data.stock < resource.data.stock;
     }
 
+    // ─── Módulo A: Compras (Procurement) ───────────────────────────────────
+
+    /** Comprador corporativo (hoy = gerencia; extensible a rol dedicado). */
+    function isComprador() {
+      return isGerencia();
+    }
+
+    function puedeLeerCompras() {
+      return isGerencia() || isAdminDeposito() || isAnalista();
+    }
+
+    function estadoOrdenCompraValido(s) {
+      return s == 'BORRADOR' || s == 'PENDIENTE_APROBACION' || s == 'APROBADA'
+        || s == 'RECIBIDA_PARCIAL' || s == 'COMPLETADA' || s == 'CANCELADA';
+    }
+
+    function creacionOrdenCompraValida() {
+      return request.resource.data.keys().hasAll([
+          'numero', 'anio', 'secuencial', 'estado', 'proveedorId',
+          'proveedorNombre', 'proveedorCuit', 'ubicacionDestinoId',
+          'fechaEmision', 'fechaEntregaEstimada', 'moneda', 'plazoPagoDias',
+          'condicionPago', 'subtotalNeto', 'montoIva', 'montoPercepciones',
+          'total', 'items', 'historialEstados', 'creadoPorUid', 'creadoPorNombre',
+          'movimientosIngresoIds', 'recepcionCompleta'
+        ])
+        && request.resource.data.estado == 'BORRADOR'
+        && request.resource.data.creadoPorUid == request.auth.uid
+        && request.resource.data.recepcionCompleta == false
+        && request.resource.data.movimientosIngresoIds.size() == 0
+        && request.resource.data.items is list
+        && request.resource.data.items.size() > 0
+        && estadoOrdenCompraValido(request.resource.data.estado)
+        && (
+          !request.resource.data.keys().hasAny(['solicitudMercaderiaId'])
+          || (
+            request.resource.data.solicitudMercaderiaId is string
+            && request.resource.data.solicitudMercaderiaId.size() > 0
+          )
+        );
+    }
+
+    /** Comprador: edición de borrador o ajuste pre-aprobación. */
+    function gerenciaActualizaOcBorrador() {
+      return isComprador()
+        && resource.data.estado in ['BORRADOR', 'PENDIENTE_APROBACION']
+        && request.resource.data.estado in ['BORRADOR', 'PENDIENTE_APROBACION'];
+    }
+
+    /** Comprador: enviar OC a bandeja de aprobación. */
+    function gerenciaEnviaOcAprobacion() {
+      return isComprador()
+        && resource.data.estado == 'BORRADOR'
+        && request.resource.data.estado == 'PENDIENTE_APROBACION'
+        && request.resource.data.diff(resource.data).changedKeys().hasOnly([
+          'estado', 'historialEstados', 'enviadoAprobacionEn', 'enviadoAprobacionPorUid',
+          'actualizadoEn'
+        ]);
+    }
+
+    /** Gerencia: aprobar OC (PENDIENTE_APROBACION → APROBADA). */
+    function gerenciaApruebaOrdenCompra() {
+      return isGerencia()
+        && resource.data.estado == 'PENDIENTE_APROBACION'
+        && request.resource.data.estado == 'APROBADA'
+        && request.resource.data.diff(resource.data).changedKeys().hasOnly([
+          'estado', 'items', 'subtotalNeto', 'montoIva', 'montoPercepciones', 'total',
+          'historialEstados', 'aprobadoPorUid', 'aprobadoPorNombre', 'aprobadoEn',
+          'recepcionCompleta', 'actualizadoEn'
+        ]);
+    }
+
+    /** Depósito: recepción física cruzada con OC (registrarRecepcionOcEnIngreso). */
+    function depositoActualizaOcRecepcion() {
+      return isAdminDeposito()
+        && resource.data.estado in ['APROBADA', 'RECIBIDA_PARCIAL']
+        && request.resource.data.estado in ['RECIBIDA_PARCIAL', 'COMPLETADA']
+        && request.resource.data.diff(resource.data).changedKeys().hasOnly([
+          'estado', 'items', 'movimientosIngresoIds', 'recepcionCompleta',
+          'historialEstados', 'actualizadoEn'
+        ]);
+    }
+
+    /** Gerencia: registrar factura de proveedor contra OC recibida. */
+    function gerenciaActualizaOcPorFactura() {
+      return isGerencia()
+        && resource.data.estado in ['RECIBIDA_PARCIAL', 'COMPLETADA']
+        && request.resource.data.estado == resource.data.estado
+        && request.resource.data.diff(resource.data).changedKeys().hasOnly([
+          'facturaCargada', 'deudaGenerada', 'facturasAsociadasIds',
+          'montoFacturadoAcumulado', 'actualizadoEn'
+        ]);
+    }
+
+    function puedeLeerPadronEmpresas() {
+      return panelControlLectura() || isTerminalComedor() || isJefeCampamento()
+        || isAdminDeposito() || isGerencia();
+    }
+
+    function puedeEscribirPadronEmpresas() {
+      return panelControlEscritura() || isJefeCampamento() || isAdminDeposito() || isGerencia();
+    }
+
+    /** INGRESO de depósito (incluye recepción vinculada a OC). */
+    function creacionIngresoDepositoValido() {
+      return isAdminDeposito()
+        && request.resource.data.tipo == 'INGRESO'
+        && request.resource.data.keys().hasAll([
+          'tipo', 'fecha', 'proveedor', 'tipoDocumento', 'numeroDocumento', 'items', 'creadoEn'
+        ])
+        && request.resource.data.proveedor is string
+        && request.resource.data.numeroDocumento is string
+        && request.resource.data.items is list
+        && request.resource.data.items.size() > 0
+        && (
+          !request.resource.data.keys().hasAny(['ordenCompraId'])
+          || (
+            request.resource.data.ordenCompraId is string
+            && request.resource.data.ordenCompraId.size() > 0
+            && request.resource.data.keys().hasAny(['ordenCompraNumero'])
+            && request.resource.data.ordenCompraNumero is string
+          )
+        );
+    }
+
+    // ─── Módulo B: Tesorería (Cuentas por Pagar) ───────────────────────────
+
+    function puedeLeerTesoreria() {
+      return isGerencia() || isAnalista();
+    }
+
+    function estadoFacturaProveedorValido(s) {
+      return s == 'PENDIENTE_PAGO' || s == 'PAGO_PARCIAL' || s == 'PAGADA' || s == 'ANULADA';
+    }
+
+    function creacionFacturaProveedorValida() {
+      return request.resource.data.keys().hasAll([
+          'numeroFactura', 'proveedorId', 'proveedorNombre', 'proveedorCuit',
+          'ordenCompraId', 'ordenCompraNumero', 'fechaEmision', 'fechaVencimiento',
+          'neto', 'montoIva', 'montoPercepciones', 'total', 'saldoPendiente',
+          'estado', 'moneda', 'creadoPorUid', 'creadoPorNombre', 'creadoEn', 'actualizadoEn'
+        ])
+        && request.resource.data.estado == 'PENDIENTE_PAGO'
+        && request.resource.data.saldoPendiente == request.resource.data.total
+        && request.resource.data.creadoPorUid == request.auth.uid
+        && request.resource.data.numeroFactura is string
+        && request.resource.data.fechaVencimiento is string
+        && request.resource.data.fechaVencimiento.size() == 10
+        && estadoFacturaProveedorValido(request.resource.data.estado);
+    }
+
+    function gerenciaActualizaFacturaProveedor() {
+      return isGerencia()
+        && estadoFacturaProveedorValido(request.resource.data.estado)
+        && request.resource.data.estado != 'ANULADA'
+        && request.resource.data.diff(resource.data).changedKeys().hasOnly([
+          'estado', 'saldoPendiente', 'actualizadoEn'
+        ]);
+    }
+
+    /** Gerencia: anular factura sin pagos (reverso de deuda). */
+    function gerenciaAnulaFacturaProveedor() {
+      return isGerencia()
+        && resource.data.estado != 'ANULADA'
+        && request.resource.data.estado == 'ANULADA'
+        && request.resource.data.saldoPendiente == 0
+        && request.resource.data.anuladoPorUid == request.auth.uid
+        && request.resource.data.motivoAnulacion is string
+        && request.resource.data.motivoAnulacion.size() > 0
+        && request.resource.data.diff(resource.data).changedKeys().hasOnly([
+          'estado', 'saldoPendiente', 'anuladoPorUid', 'anuladoPorNombre',
+          'motivoAnulacion', 'fechaAnulacion', 'actualizadoEn'
+        ]);
+    }
+
+    /** Gerencia: revertir OC al anular factura. */
+    function gerenciaRevertOcPorAnulacionFactura() {
+      return isGerencia()
+        && request.resource.data.diff(resource.data).changedKeys().hasOnly([
+          'facturaCargada', 'deudaGenerada', 'facturasAsociadasIds',
+          'montoFacturadoAcumulado', 'actualizadoEn'
+        ]);
+    }
+
+    /** Depósito: alta de requisición interna de compra. */
+    function creacionRequisicionCompraDeposito() {
+      return isAdminDeposito()
+        && request.resource.data.tipoSolicitud == 'REQUISICION_COMPRA'
+        && request.resource.data.estado == 'Pendiente'
+        && request.resource.data.keys().hasAll([
+          'fechaCreacion', 'fechaEntregaEsperada', 'prioridad', 'estado',
+          'tipoSolicitud', 'items', 'observacionesDeposito', 'observacionesRecepcion'
+        ])
+        && request.resource.data.items is list
+        && request.resource.data.items.size() > 0;
+    }
+
+    /** Comprador: vincula requisición interna al emitir OC. */
+    function gerenciaVinculaRequisicionOc() {
+      return isComprador()
+        && resource.data.tipoSolicitud == 'REQUISICION_COMPRA'
+        && resource.data.estado == 'Pendiente'
+        && request.resource.data.estado == 'En Compras'
+        && request.resource.data.diff(resource.data).changedKeys().hasOnly([
+          'estado', 'ordenCompraId', 'ordenCompraNumero', 'actualizadoEn'
+        ])
+        && request.resource.data.ordenCompraId is string
+        && request.resource.data.ordenCompraId.size() > 0
+        && request.resource.data.ordenCompraNumero is string;
+    }
+
+    // ─── Módulo C: Cuentas por Cobrar (liquidaciones contratistas) ────────
+
+    function puedeLeerLiquidaciones() {
+      return isGerencia() || isAnalista();
+    }
+
+    function estadoLiquidacionValido(s) {
+      return s == 'BORRADOR' || s == 'EMITIDA' || s == 'ANULADA';
+    }
+
+    function creacionLiquidacionContratistaValida() {
+      return isGerencia()
+        && request.resource.data.keys().hasAll([
+          'numero', 'anio', 'secuencial', 'empresaId', 'empresaNombre', 'empresaCuit',
+          'fechaInicio', 'fechaFin', 'totalViandas', 'totalNoches', 'detalles',
+          'subtotalNeto', 'montoIva', 'totalFacturado', 'estado',
+          'registrosComedorIds', 'historialPernocteIds',
+          'creadoPorUid', 'creadoPorNombre', 'creadoEn'
+        ])
+        && request.resource.data.estado == 'EMITIDA'
+        && request.resource.data.creadoPorUid == request.auth.uid
+        && request.resource.data.numero is string
+        && request.resource.data.detalles is list
+        && request.resource.data.registrosComedorIds is list
+        && request.resource.data.historialPernocteIds is list
+        && estadoLiquidacionValido(request.resource.data.estado);
+    }
+
+    function gerenciaAnulaLiquidacionContratista() {
+      return isGerencia()
+        && resource.data.estado == 'EMITIDA'
+        && request.resource.data.estado == 'ANULADA'
+        && request.resource.data.diff(resource.data).changedKeys().hasOnly([
+          'estado', 'actualizadoEn', 'anuladoPorUid', 'anuladoEn', 'motivoAnulacion'
+        ]);
+    }
+
+    /** Marca consumos incluidos en una liquidación EMITIDA (batch billing). */
+    function gerenciaMarcaConsumoLiquidado() {
+      return isGerencia()
+        && resource.data.liquidado != true
+        && request.resource.data.liquidado == true
+        && request.resource.data.liquidacionId is string
+        && request.resource.data.liquidacionId.size() > 0
+        && request.resource.data.diff(resource.data).changedKeys().hasOnly([
+          'liquidado', 'liquidacionId'
+        ]);
+    }
+
+    /** Revierte bloqueo de consumos al anular liquidación. */
+    function gerenciaDesmarcaConsumoLiquidado() {
+      return isGerencia()
+        && resource.data.liquidado == true
+        && request.resource.data.liquidado == false
+        && !request.resource.data.keys().hasAny(['liquidacionId'])
+        && request.resource.data.diff(resource.data).changedKeys().hasOnly([
+          'liquidado', 'liquidacionId'
+        ]);
+    }
+
+    function creacionClaveFacturaProveedorValida() {
+      return request.resource.data.keys().hasAll([
+          'proveedorId', 'numeroFactura', 'facturaId', 'ordenCompraId', 'anulada', 'creadoEn'
+        ])
+        && request.resource.data.anulada == false
+        && request.resource.data.facturaId is string
+        && request.resource.data.proveedorId is string
+        && request.resource.data.numeroFactura is string;
+    }
+
+    function metodoPagoValido(m) {
+      return m == 'TRANSFERENCIA' || m == 'CHEQUE' || m == 'EFECTIVO';
+    }
+
+    function estadoOrdenPagoValido(s) {
+      return s == 'EMITIDA' || s == 'ANULADA';
+    }
+
+    function creacionOrdenPagoValida() {
+      return request.resource.data.keys().hasAll([
+          'numero', 'anio', 'secuencial', 'proveedorId', 'proveedorNombre',
+          'fechaPago', 'montoTotal', 'metodoPago', 'referenciaPago',
+          'facturasAplicadas', 'estado', 'creadoPorUid', 'creadoPorNombre',
+          'creadoEn', 'actualizadoEn'
+        ])
+        && request.resource.data.estado == 'EMITIDA'
+        && request.resource.data.creadoPorUid == request.auth.uid
+        && request.resource.data.montoTotal is number
+        && request.resource.data.montoTotal > 0
+        && request.resource.data.facturasAplicadas is list
+        && request.resource.data.facturasAplicadas.size() > 0
+        && metodoPagoValido(request.resource.data.metodoPago)
+        && estadoOrdenPagoValido(request.resource.data.estado)
+        && request.resource.data.referenciaPago is string
+        && request.resource.data.referenciaPago.size() > 0;
+    }
+
+    /** Gerencia: anular OP y registrar auditoría. */
+    function gerenciaAnulaOrdenPago() {
+      return isGerencia()
+        && resource.data.estado == 'EMITIDA'
+        && request.resource.data.estado == 'ANULADA'
+        && request.resource.data.anuladoPorUid == request.auth.uid
+        && request.resource.data.motivoAnulacion is string
+        && request.resource.data.motivoAnulacion.size() > 0
+        && request.resource.data.diff(resource.data).changedKeys().hasOnly([
+          'estado', 'anuladoPorUid', 'anuladoPorNombre', 'motivoAnulacion',
+          'fechaAnulacion', 'actualizadoEn'
+        ]);
+    }
+
+    function puedeLeerContadorOp() {
+      return isGerencia() || isAnalista();
+    }
+
     match /usuarios/{userId} {
       allow read: if signedIn() && request.auth.uid == userId;
       allow write: if false;
@@ -279,14 +604,23 @@ service cloud.firestore {
 
     match /solicitudes_mercaderia/{id} {
       allow read: if signedIn() && (isAdminCocina() || isAdminDeposito() || isAdminCampamento() || isJefeCampamento() || isAnalista() || isGerencia());
-      allow create: if isAdminCocina() || isAdminCampamento() || isJefeCampamento();
-      allow update: if isAdminCocina() || isAdminDeposito() || isAdminCampamento() || isJefeCampamento();
+      allow create: if signedIn() && (
+        isAdminCocina() || isAdminCampamento() || isJefeCampamento()
+        || creacionRequisicionCompraDeposito()
+      );
+      allow update: if signedIn() && (
+        isAdminCocina() || isAdminDeposito() || isAdminCampamento() || isJefeCampamento()
+        || gerenciaVinculaRequisicionOc()
+      );
       allow delete: if isAdminDeposito();
     }
 
     match /movimientos_inventario/{movId} {
       allow read: if signedIn() && puedeLeerMovimientos();
-      allow create: if signedIn() && puedeCrearMovimiento();
+      allow create: if signedIn() && (
+        creacionIngresoDepositoValido()
+        || (puedeCrearMovimiento() && !(isAdminDeposito() && request.resource.data.tipo == 'INGRESO'))
+      );
       allow update: if signedIn() && (
           isAdminDeposito()
           || (
@@ -322,8 +656,8 @@ service cloud.firestore {
     }
 
     match /padron_empresas/{id} {
-      allow read: if signedIn() && (panelControlLectura() || isTerminalComedor() || isJefeCampamento());
-      allow create, update, delete: if signedIn() && (panelControlEscritura() || isJefeCampamento());
+      allow read: if signedIn() && puedeLeerPadronEmpresas();
+      allow create, update, delete: if signedIn() && puedeEscribirPadronEmpresas();
     }
 
     match /registros_comedor/{id} {
@@ -331,7 +665,10 @@ service cloud.firestore {
       allow create: if signedIn() && (
         creacionRegistroComedorTerminal() || creacionRegistroComedorSupervisor()
       );
-      allow update, delete: if false;
+      allow update: if signedIn() && (
+        gerenciaMarcaConsumoLiquidado() || gerenciaDesmarcaConsumoLiquidado()
+      );
+      allow delete: if false;
     }
 
     match /camas/{id} {
@@ -347,7 +684,76 @@ service cloud.firestore {
 
     match /historial_pernoctes/{id} {
       allow read: if signedIn() && (panelControlLectura() || isJefeCampamento());
-      allow create, update, delete: if signedIn() && (panelControlEscritura() || isJefeCampamento());
+      allow create, delete: if signedIn() && (panelControlEscritura() || isJefeCampamento());
+      allow update: if signedIn() && (
+        panelControlEscritura() || isJefeCampamento()
+        || gerenciaMarcaConsumoLiquidado() || gerenciaDesmarcaConsumoLiquidado()
+      );
+    }
+
+    // ─── Módulo A: Compras ─────────────────────────────────────────────────
+
+    match /contadores/{contadorId} {
+      allow read: if signedIn() && (
+        (contadorId == 'numeracion_oc' && (isGerencia() || isAdminDeposito()))
+        || (contadorId == 'numeracion_op' && puedeLeerContadorOp())
+        || (contadorId == 'numeracion_liq' && puedeLeerLiquidaciones())
+      );
+      allow create, update: if signedIn() && (
+        (contadorId == 'numeracion_oc' && isComprador())
+        || (contadorId == 'numeracion_op' && isGerencia())
+        || (contadorId == 'numeracion_liq' && isGerencia())
+      );
+      allow delete: if false;
+    }
+
+    match /ordenes_compra/{ocId} {
+      allow read: if signedIn() && puedeLeerCompras();
+      allow create: if signedIn() && isComprador() && creacionOrdenCompraValida();
+      allow update: if signedIn() && (
+        gerenciaActualizaOcBorrador()
+        || gerenciaEnviaOcAprobacion()
+        || gerenciaApruebaOrdenCompra()
+        || depositoActualizaOcRecepcion()
+        || gerenciaActualizaOcPorFactura()
+        || gerenciaRevertOcPorAnulacionFactura()
+      );
+      allow delete: if false;
+    }
+
+    // ─── Módulo B: Tesorería ───────────────────────────────────────────────
+
+    match /facturas_proveedores/{facturaId} {
+      allow read: if signedIn() && puedeLeerTesoreria();
+      allow create: if signedIn() && isGerencia() && creacionFacturaProveedorValida();
+      allow update: if signedIn() && (
+        gerenciaActualizaFacturaProveedor()
+        || gerenciaAnulaFacturaProveedor()
+      );
+      allow delete: if false;
+    }
+
+    match /facturas_proveedores_claves/{claveId} {
+      allow read: if signedIn() && isGerencia();
+      allow create: if signedIn() && isGerencia() && creacionClaveFacturaProveedorValida();
+      allow delete: if signedIn() && isGerencia();
+      allow update: if false;
+    }
+
+    match /ordenes_pago/{opId} {
+      allow read: if signedIn() && puedeLeerTesoreria();
+      allow create: if signedIn() && isGerencia() && creacionOrdenPagoValida();
+      allow update: if signedIn() && gerenciaAnulaOrdenPago();
+      allow delete: if false;
+    }
+
+    // ─── Módulo C: Liquidaciones contratistas ──────────────────────────────
+
+    match /liquidaciones_contratistas/{liqId} {
+      allow read: if signedIn() && puedeLeerLiquidaciones();
+      allow create: if signedIn() && creacionLiquidacionContratistaValida();
+      allow update: if signedIn() && gerenciaAnulaLiquidacionContratista();
+      allow delete: if false;
     }
 
     match /{document=**} {

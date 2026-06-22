@@ -103,8 +103,8 @@ export function acumularServicioComedorEnFila(
       fila.totalDesayunos += 1
       break
     case 'ALMUERZO':
+      fila.totalAlmuerzos += 1
       if (registro.contieneRefrigerio === true) fila.totalRefrigerios += 1
-      else fila.totalAlmuerzos += 1
       break
     case 'MERIENDA':
       if (esRegistroVianda(registro)) fila.totalViandas += 1
@@ -115,6 +115,7 @@ export function acumularServicioComedorEnFila(
       break
     case 'CENA_NOCHERO':
       fila.totalCenasNocheros += 1
+      if (registro.contieneRefrigerio === true) fila.totalRefrigerios += 1
       break
     default:
       break

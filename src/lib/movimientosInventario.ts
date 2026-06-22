@@ -189,6 +189,9 @@ function refSaldoLote(
   )
 }
 
+/** Expuesto para integración Módulo Compras → recepción OC. */
+export { refSaldoLote as refSaldoLoteInventario }
+
 type AgregadoSaldoEgreso = {
   ref: ReturnType<typeof doc>
   cantidad: number
@@ -301,6 +304,12 @@ interface MovimientoBase {
   ubicacionId?: string
 }
 
+export interface RecepcionLineaOrdenCompra {
+  lineaId: string
+  insumoId: string
+  cantidadRecibida: number
+}
+
 export interface MovimientoIngreso extends MovimientoBase {
   tipo: 'INGRESO'
   proveedor: string
@@ -308,6 +317,10 @@ export interface MovimientoIngreso extends MovimientoBase {
   numeroDocumento: string
   /** Egreso de origen si este ingreso cierra un traslado interno. */
   egresoTrasladoOrigenId?: string
+  /** Vínculo con Módulo A (Compras). */
+  ordenCompraId?: string
+  ordenCompraNumero?: string
+  recepcionLineas?: RecepcionLineaOrdenCompra[]
 }
 
 /** Egreso por consumo diario en campamento (comanda). */
@@ -632,6 +645,28 @@ function mapMovimientoDoc(
         ? data.numeroDocumento.trim()
         : ''
     const egresoOrigen = mapEgresoTrasladoOrigenId(data)
+    const ordenCompraId =
+      typeof data.ordenCompraId === 'string' && data.ordenCompraId.trim()
+        ? data.ordenCompraId.trim()
+        : undefined
+    const ordenCompraNumero =
+      typeof data.ordenCompraNumero === 'string' && data.ordenCompraNumero.trim()
+        ? data.ordenCompraNumero.trim()
+        : undefined
+    const recepcionLineasRaw = data.recepcionLineas
+    const recepcionLineas = Array.isArray(recepcionLineasRaw)
+      ? recepcionLineasRaw
+          .map((row) => {
+            if (!row || typeof row !== 'object') return null
+            const r = row as Record<string, unknown>
+            const lineaId = typeof r.lineaId === 'string' ? r.lineaId.trim() : ''
+            const insumoId = typeof r.insumoId === 'string' ? r.insumoId.trim() : ''
+            const cantidadRecibida = Number(r.cantidadRecibida)
+            if (!lineaId || !insumoId || !Number.isFinite(cantidadRecibida)) return null
+            return { lineaId, insumoId, cantidadRecibida }
+          })
+          .filter((x): x is RecepcionLineaOrdenCompra => x != null)
+      : undefined
     return {
       id,
       tipo: 'INGRESO',
@@ -643,6 +678,9 @@ function mapMovimientoDoc(
       ...extraUbicacion,
       ...(transporte ? { transporte } : {}),
       ...(egresoOrigen ? { egresoTrasladoOrigenId: egresoOrigen } : {}),
+      ...(ordenCompraId ? { ordenCompraId } : {}),
+      ...(ordenCompraNumero ? { ordenCompraNumero } : {}),
+      ...(recepcionLineas && recepcionLineas.length > 0 ? { recepcionLineas } : {}),
     }
   }
 
@@ -1424,6 +1462,22 @@ function normalizarItems(
     out.push(row)
   }
   return out
+}
+
+/** Integración Módulo Compras → recepción OC en depósito. */
+export function serializarItemMovimientoInventario(
+  it: ItemMovimientoInventario,
+  incluirPrecio: boolean,
+) {
+  return itemToFirestore(it, incluirPrecio)
+}
+
+/** Integración Módulo Compras → recepción OC en depósito. */
+export function normalizarItemsMovimientoInventario(
+  rawItems: ItemMovimientoInventario[],
+  movTipo: TipoMovimientoInventario,
+): ItemMovimientoInventario[] {
+  return normalizarItems(rawItems, movTipo)
 }
 
 /** @deprecated Usar crearMovimiento */

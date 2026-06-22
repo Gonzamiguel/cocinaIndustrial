@@ -53,6 +53,10 @@ export interface HistorialPernocte {
   fechaCheckOut: Date | null
   /** Fecha de egreso programada; al llegar el día se procesa check-out automático. */
   fechaSalidaEstimada?: Date | null
+  /** true cuando ya fue incluido en una liquidación EMITIDA. */
+  liquidado?: boolean
+  /** ID en `liquidaciones_contratistas`. */
+  liquidacionId?: string
 }
 
 export interface FilaImportPadron {

@@ -50,7 +50,7 @@ function onSnapshotDeferred(
 }
 
 export function normalizarNombreEmpresa(nombre: string): string {
-  return nombre.trim().replace(/\s+/g, ' ')
+  return nombre.trim().replace(/\s+/g, ' ').toUpperCase()
 }
 
 export function claveNombreEmpresa(nombre: string): string {
@@ -114,6 +114,29 @@ export async function buscarEmpresaPadronPorNombre(
     }
   }
   return null
+}
+
+/** Mapa clave normalizada → nombre canónico en MAYÚSCULAS (padrón de empresas). */
+export async function obtenerMapaEmpresasPadronPorClave(): Promise<Map<string, string>> {
+  const snap = await getDocs(collection(getDb(), COL_PADRON_EMPRESAS))
+  const mapa = new Map<string, string>()
+  snap.forEach((d) => {
+    const raw = d.data() as Record<string, unknown>
+    const nombre = normalizarNombreEmpresa(String(raw.nombre ?? ''))
+    if (!nombre) return
+    mapa.set(claveNombreEmpresa(nombre), nombre)
+  })
+  return mapa
+}
+
+/** Resuelve el nombre canónico si la empresa existe en el padrón (sin distinguir mayúsculas). */
+export function resolverEmpresaEnPadron(
+  empresa: string,
+  mapa: Map<string, string>,
+): string | null {
+  const nombre = normalizarNombreEmpresa(empresa)
+  if (!nombre) return null
+  return mapa.get(claveNombreEmpresa(nombre)) ?? null
 }
 
 export interface ResultadoImportPadronEmpresas {

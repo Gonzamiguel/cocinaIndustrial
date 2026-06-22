@@ -55,6 +55,15 @@ function IconTrace(props: IconProps) {
   )
 }
 
+function IconOrdenCompra(props: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" {...props}>
+      <path d="M8 4.75h8a2 2 0 0 1 2 2v12.5a1.75 1.75 0 0 1-1.75 1.75H7.75A1.75 1.75 0 0 1 6 19.25V6.75a2 2 0 0 1 2-2Z" />
+      <path d="M9 9.5h6M9 13h6M9 16.5h4" />
+    </svg>
+  )
+}
+
 function IconSettings(props: IconProps) {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" {...props}>
@@ -144,6 +153,20 @@ export function DepositoSidebar() {
             </span>
             <span className="min-w-0 flex-1 whitespace-nowrap overflow-hidden truncate">
               Movimientos
+            </span>
+          </span>
+        </NavLink>
+
+        <NavLink to="/deposito/ordenes-compra" className={linkClass}>
+          <span className="flex min-w-0 items-center gap-3">
+            <span
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand-accent/12 text-brand-accent"
+              aria-hidden
+            >
+              <IconOrdenCompra className="h-[18px] w-[18px]" />
+            </span>
+            <span className="min-w-0 flex-1 whitespace-nowrap overflow-hidden truncate">
+              Requisiciones y OC
             </span>
           </span>
         </NavLink>

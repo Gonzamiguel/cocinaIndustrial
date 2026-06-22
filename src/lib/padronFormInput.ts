@@ -10,7 +10,21 @@ export function sanitizarNombreApellidoInput(valor: string): string {
 
 /** Cualquier carácter permitido; forzado a mayúsculas. */
 export function sanitizarEmpresaInput(valor: string): string {
-  return valor.toUpperCase()
+  return valor.trim().replace(/\s+/g, ' ').toUpperCase()
+}
+
+export function normalizarPersonaPadronInput(input: {
+  dni: string
+  nombre: string
+  apellido: string
+  empresa: string
+}): { dni: string; nombre: string; apellido: string; empresa: string } {
+  return {
+    dni: sanitizarDniInput(input.dni),
+    nombre: sanitizarNombreApellidoInput(input.nombre),
+    apellido: sanitizarNombreApellidoInput(input.apellido),
+    empresa: sanitizarEmpresaInput(input.empresa),
+  }
 }
 
 export const MAX_LENGTH_DNI_PADRON = 9

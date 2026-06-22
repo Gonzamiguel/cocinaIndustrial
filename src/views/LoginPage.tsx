@@ -131,6 +131,16 @@ export function LoginPage() {
         return
       }
 
+      if (from && (from === '/deposito' || from.startsWith('/deposito/'))) {
+        if (!rolPuedeAccederRuta(rolLeído, from)) {
+          await signOut(auth)
+          setError('No tenés permiso para acceder a esa sección.')
+          return
+        }
+        navigate(from, { replace: true })
+        return
+      }
+
       if (
         from &&
         (from === '/admin' ||

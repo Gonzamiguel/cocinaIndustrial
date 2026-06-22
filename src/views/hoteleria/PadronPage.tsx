@@ -182,11 +182,27 @@ export function PadronPage() {
       const buf = await file.arrayBuffer()
       const wb = XLSX.read(buf, { type: 'array' })
       const filas = filasCargaMasivaDesdeWorkbook(wb)
-      const { procesados } = await importarPadronCargaMasiva(filas)
-      showToast(
-        `Carga masiva finalizada: ${procesados.toLocaleString('es-AR')} registros procesados.`,
-        'success',
-      )
+      const res = await importarPadronCargaMasiva(filas)
+      if (res.procesados === 0) {
+        const detalle =
+          res.empresasDesconocidas.length > 0
+            ? ` Empresas no registradas: ${res.empresasDesconocidas.slice(0, 5).join(', ')}${res.empresasDesconocidas.length > 5 ? '…' : ''}.`
+            : ''
+        showToast(
+          `Ninguna fila se importó.${detalle} Cargá las empresas en Padrón de Empresas primero.`,
+          'error',
+        )
+        return
+      }
+      let msg = `Carga masiva: ${res.procesados.toLocaleString('es-AR')} registros procesados.`
+      if (res.omitidos > 0) {
+        msg += ` ${res.omitidos.toLocaleString('es-AR')} omitidos.`
+      }
+      if (res.empresasDesconocidas.length > 0) {
+        msg += ` Empresas no registradas: ${res.empresasDesconocidas.slice(0, 4).join(', ')}`
+        if (res.empresasDesconocidas.length > 4) msg += '…'
+      }
+      showToast(msg, res.omitidos > 0 ? 'info' : 'success')
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'No se pudo procesar el archivo.'
       showToast(msg, 'error')

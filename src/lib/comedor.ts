@@ -83,6 +83,11 @@ export function mapRegistroComedor(id: string, data: Record<string, unknown>): R
       typeof data.observaciones === 'string' && data.observaciones.trim()
         ? data.observaciones.trim()
         : undefined,
+    liquidado: data.liquidado === true ? true : undefined,
+    liquidacionId:
+      typeof data.liquidacionId === 'string' && data.liquidacionId.trim()
+        ? data.liquidacionId.trim()
+        : undefined,
   }
 }
 

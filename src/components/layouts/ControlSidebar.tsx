@@ -1,8 +1,21 @@
-import { BarChart3, BedDouble, Brush, Building2, FileSpreadsheet, Hotel, Settings, Users } from 'lucide-react'
+import {
+  BarChart3,
+  BedDouble,
+  Brush,
+  Building2,
+  FileSpreadsheet,
+  Hotel,
+  Settings,
+  Users,
+  Wallet,
+  ClipboardList,
+  Receipt,
+} from 'lucide-react'
 // import { ChefHat } from 'lucide-react'
 import type { SVGProps } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
+import { esRolTesoreria } from '../../lib/rbac'
 import { ConnectionStatus } from '../layout/ConnectionStatus'
 
 type IconProps = SVGProps<SVGSVGElement>
@@ -24,22 +37,66 @@ const linkClass = ({ isActive }: { isActive: boolean }) =>
       : 'text-neutral-600 hover:bg-neutral-50 hover:text-[#CD1818]'
   }`
 
-const navItems = [
+const navItemsOperativos = [
   { to: '/control', label: 'Dashboard Comensales', Icon: BarChart3, end: true },
   { to: '/control/hoteleria', label: 'Dashboard Hotelería', Icon: Hotel, end: false },
   { to: '/control/padron', label: 'Padrón de Personas', Icon: Users, end: false },
   { to: '/control/empresas', label: 'Padrón de Empresas', Icon: Building2, end: false },
   { to: '/control/alojamiento', label: 'Mapa de camas', Icon: BedDouble, end: false },
   { to: '/control/reporte-limpieza', label: 'Auditoría de limpieza', Icon: Brush, end: false },
-  { to: '/control/facturacion', label: 'Sábana de facturación', Icon: FileSpreadsheet, end: false },
-  { to: '/control/configuracion', label: 'Configuración', Icon: Settings, end: false },
-  // MVP: gestión de menú oculta
-  // { to: '/control/menu', label: 'Gestión de Menú', Icon: ChefHat, end: false },
+  { to: '/control/facturacion', label: 'Facturación', Icon: FileSpreadsheet, end: false },
 ] as const
 
+const navItemsFinanzas = [
+  { to: '/control/compras', label: 'Compras (OC)', Icon: ClipboardList, end: false },
+  { to: '/control/liquidaciones', label: 'Liquidaciones', Icon: Receipt, end: false },
+  { to: '/control/tesoreria', label: 'Tesorería', Icon: Wallet, end: false },
+] as const
+
+const navItemsConfig = [
+  { to: '/control/configuracion', label: 'Configuración', Icon: Settings, end: false },
+] as const
+
+function NavSection({
+  title,
+  items,
+}: {
+  title?: string
+  items: readonly {
+    to: string
+    label: string
+    Icon: typeof BarChart3
+    end: boolean
+  }[]
+}) {
+  return (
+    <>
+      {title ? (
+        <p className="mb-1 mt-3 px-4 text-[10px] font-semibold uppercase tracking-[0.18em] text-neutral-400 first:mt-0">
+          {title}
+        </p>
+      ) : null}
+      {items.map(({ to, label, Icon, end }) => (
+        <NavLink key={to} to={to} end={end} className={linkClass}>
+          <span className="flex min-w-0 items-center gap-3">
+            <span
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#CD1818]/12 text-[#CD1818]"
+              aria-hidden
+            >
+              <Icon className="h-[18px] w-[18px]" strokeWidth={1.8} />
+            </span>
+            <span className="truncate">{label}</span>
+          </span>
+        </NavLink>
+      ))}
+    </>
+  )
+}
+
 export function ControlSidebar() {
-  const { logout, ubicacionId } = useAuth()
+  const { logout, ubicacionId, rol } = useAuth()
   const navigate = useNavigate()
+  const muestraFinanzas = esRolTesoreria(rol)
 
   async function handleCerrarSesion() {
     await logout()
@@ -64,22 +121,14 @@ export function ControlSidebar() {
       </div>
 
       <nav
-        className="flex flex-1 gap-1 overflow-x-auto px-2 py-4 md:flex-col md:overflow-visible md:px-3"
+        className="flex flex-1 flex-col gap-1 overflow-x-auto px-2 py-4 md:overflow-visible md:px-3"
         aria-label="Panel de control"
       >
-        {navItems.map(({ to, label, Icon, end }) => (
-          <NavLink key={to} to={to} end={end} className={linkClass}>
-            <span className="flex min-w-0 items-center gap-3">
-              <span
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#CD1818]/12 text-[#CD1818]"
-                aria-hidden
-              >
-                <Icon className="h-[18px] w-[18px]" strokeWidth={1.8} />
-              </span>
-              <span className="truncate">{label}</span>
-            </span>
-          </NavLink>
-        ))}
+        <NavSection items={navItemsOperativos} />
+        {muestraFinanzas ? (
+          <NavSection title="Finanzas" items={navItemsFinanzas} />
+        ) : null}
+        <NavSection title="Administración" items={navItemsConfig} />
       </nav>
 
       <div className="mt-auto border-t border-neutral-100 p-3">

@@ -4,6 +4,14 @@ import { ControlLayout } from './components/layouts/ControlLayout'
 import { ProtectedRoute } from './components/ProtectedRoute'
 import { LayoutAdmin } from './layouts/LayoutAdmin'
 import { LayoutComedor } from './layouts/LayoutComedor'
+import { LayoutDeposito } from './layouts/LayoutDeposito'
+import { DepositoConfiguracionPage } from './views/deposito/DepositoConfiguracionPage'
+import { DepositoDashboardPage } from './views/deposito/DepositoDashboardPage'
+import { DepositoInsumosPage } from './views/deposito/DepositoInsumosPage'
+import { DepositoInventarioPage } from './views/deposito/DepositoInventarioPage'
+import { DepositoMovimientosPage } from './views/deposito/DepositoMovimientosPage'
+import { DepositoTrazabilidadPage } from './views/deposito/DepositoTrazabilidadPage'
+import { DepositoOrdenesCompraPage } from './views/deposito/DepositoOrdenesCompraPage'
 import { AdminMenuPage } from './views/admin/AdminMenuPage'
 import { AdminMercaderiaPage } from './views/admin/AdminMercaderiaPage'
 import { AdminPedidosPage } from './views/admin/AdminPedidosPage'
@@ -19,6 +27,9 @@ import { PadronPage } from './views/hoteleria/PadronPage'
 import { ConfiguracionHoteleriaPage } from './views/hoteleria/ConfiguracionHoteleriaPage'
 import { ReporteLimpiezaPage } from './views/hoteleria/ReporteLimpiezaPage'
 import { DashboardFacturacionPage } from './views/control/DashboardFacturacionPage'
+import { TesoreriaDashboardPage } from './views/control/TesoreriaDashboardPage'
+import { ComprasAprobacionPage } from './views/control/ComprasAprobacionPage'
+import { LiquidacionesPage } from './views/control/LiquidacionesPage'
 import { SolicitudMercaderiaDetallePage } from './views/SolicitudMercaderiaDetallePage'
 
 /* MVP: módulos logísticos y legacy comentados (archivos intactos)
@@ -87,6 +98,30 @@ export default function App() {
         <Route path="alojamiento" element={<MapaCamasPage />} />
         <Route path="reporte-limpieza" element={<ReporteLimpiezaPage />} />
         <Route path="facturacion" element={<DashboardFacturacionPage />} />
+        <Route
+          path="tesoreria"
+          element={
+            <ProtectedRoute rolesPermitidos={['gerencia', 'analista']}>
+              <TesoreriaDashboardPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="compras"
+          element={
+            <ProtectedRoute rolesPermitidos={['gerencia', 'analista']}>
+              <ComprasAprobacionPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="liquidaciones"
+          element={
+            <ProtectedRoute rolesPermitidos={['gerencia', 'analista']}>
+              <LiquidacionesPage />
+            </ProtectedRoute>
+          }
+        />
         <Route path="configuracion" element={<ConfiguracionHoteleriaPage />} />
         {/* MVP: gestión de menú oculta
         <Route path="menu" element={<AdminMenuPage />} />
@@ -115,6 +150,33 @@ export default function App() {
       <Route path="/comedor" element={<Navigate to="/terminal" replace />} />
       <Route path="/comedor/*" element={<Navigate to="/terminal" replace />} />
 
+      <Route
+        path="/deposito"
+        element={
+          <ProtectedRoute rolesPermitidos={['admin_deposito']}>
+            <LayoutDeposito />
+          </ProtectedRoute>
+        }
+      >
+        <Route index element={<Navigate to="/deposito/dashboard" replace />} />
+        <Route
+          path="solicitudes"
+          element={<Navigate to="/deposito/movimientos" replace />}
+        />
+        <Route path="dashboard" element={<DepositoDashboardPage />} />
+        <Route path="ordenes-compra" element={<DepositoOrdenesCompraPage />} />
+        <Route path="insumos" element={<DepositoInsumosPage />} />
+        <Route path="configuracion" element={<DepositoConfiguracionPage />} />
+        <Route path="movimientos" element={<DepositoMovimientosPage />} />
+        <Route path="inventario" element={<DepositoInventarioPage />} />
+        <Route path="trazabilidad" element={<DepositoTrazabilidadPage />} />
+        <Route
+          path="recepcion"
+          element={<Navigate to="/deposito/movimientos" replace />}
+        />
+      </Route>
+
+      {/* Legacy — reactivar cuando vuelvan el resto de módulos logísticos
       <Route
         path="/admin"
         element={

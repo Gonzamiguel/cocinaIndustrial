@@ -10,8 +10,10 @@ import {
   crearEmpresaPadron,
   eliminarEmpresaPadron,
   importarPadronEmpresasDesdeFilas,
+  normalizarNombreEmpresa,
   subscribePadronEmpresas,
 } from '../../lib/padronEmpresas'
+import { sanitizarEmpresaInput } from '../../lib/padronFormInput'
 
 function normalizarTextoBusqueda(s: string): string {
   return s.trim().toLowerCase()
@@ -44,7 +46,7 @@ function filasDesdeSheet(ws: XLSX.WorkSheet): FilaImportPadronEmpresa[] {
   const out: FilaImportPadronEmpresa[] = []
   for (let r = 1; r < rows.length; r++) {
     const row = rows[r] ?? []
-    const nombre = String(row[col] ?? '').trim()
+    const nombre = normalizarNombreEmpresa(String(row[col] ?? ''))
     if (!nombre) continue
     const cuit = iCuit >= 0 ? String(row[iCuit] ?? '').trim() : undefined
     out.push({ nombre, cuit })
@@ -96,7 +98,7 @@ export function PadronEmpresasPage() {
   }
 
   function abrirEditar(empresa: PadronEmpresa) {
-    setFNombre(empresa.nombre)
+    setFNombre(sanitizarEmpresaInput(empresa.nombre))
     setFCuit(empresa.cuit)
     setModal({ modo: 'editar', empresa })
   }
@@ -310,9 +312,9 @@ export function PadronEmpresasPage() {
             <span className={labelClass}>Nombre de empresa</span>
             <input
               value={fNombre}
-              onChange={(e) => setFNombre(e.target.value)}
-              className={inputClass}
-              placeholder="Ej. Contratista ABC S.A."
+              onChange={(e) => setFNombre(sanitizarEmpresaInput(e.target.value))}
+              className={`${inputClass} uppercase`}
+              placeholder="Ej. CONTRATISTA ABC S.A."
             />
           </label>
           <label className="block">

@@ -14,6 +14,7 @@ import { getAuthApp, getDb } from '../lib/firebase'
 import {
   UBICACION_CAMPAMENTO_CASPOSO,
   UBICACION_COCINA_CENTRAL,
+  UBICACION_DEPOSITO_CENTRAL,
 } from '../lib/movimientosInventario'
 
 export type UserRole =
@@ -120,6 +121,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setUbicacionId(ubic ?? UBICACION_CAMPAMENTO_CASPOSO)
         } else if (r === 'admin_cocina') {
           setUbicacionId(ubic ?? UBICACION_COCINA_CENTRAL)
+        } else if (r === 'admin_deposito') {
+          setUbicacionId(ubic ?? UBICACION_DEPOSITO_CENTRAL)
         } else {
           setUbicacionId(ubic)
         }

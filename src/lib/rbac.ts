@@ -23,6 +23,15 @@ export const ROLES_TERMINAL_CAMPO = [
 
 export type RolTerminalCampo = (typeof ROLES_TERMINAL_CAMPO)[number]
 
+/** Depósito central — inventario, movimientos y compras (Módulo A operativo). */
+export const ROLES_DEPOSITO = ['admin_deposito'] as const satisfies readonly UserRole[]
+
+export type RolDeposito = (typeof ROLES_DEPOSITO)[number]
+
+export function esRolDeposito(rol: string | null | undefined): rol is RolDeposito {
+  return rol === 'admin_deposito'
+}
+
 export function esRolPanelControl(rol: string | null | undefined): rol is RolPanelControl {
   return (
     rol === 'admin_campamento' ||
@@ -44,6 +53,7 @@ export function esRolAdminCocina(rol: string | null | undefined): boolean {
 export function rutaHomePorRol(rol: UserRole): string | null {
   if (esRolPanelControl(rol)) return '/control'
   if (esRolTerminalCampo(rol)) return '/terminal'
+  if (esRolDeposito(rol)) return '/deposito'
   if (esRolAdminCocina(rol)) return '/admin/pedidos'
   return null
 }
@@ -58,10 +68,22 @@ export function rolPuedeAccederRuta(
   if (pathname === '/terminal' || pathname.startsWith('/terminal/')) {
     return esRolTerminalCampo(rol)
   }
+  if (pathname === '/deposito' || pathname.startsWith('/deposito/')) {
+    return esRolDeposito(rol)
+  }
   if (pathname === '/admin' || pathname.startsWith('/admin/') || pathname === '/admin-cocina') {
     return esRolAdminCocina(rol)
   }
   return false
+}
+
+/** Módulo B — Tesorería y cuentas por pagar (`/control/tesoreria`). */
+export const ROLES_TESORERIA = ['gerencia', 'analista'] as const satisfies readonly UserRole[]
+
+export type RolTesoreria = (typeof ROLES_TESORERIA)[number]
+
+export function esRolTesoreria(rol: string | null | undefined): rol is RolTesoreria {
+  return rol === 'gerencia' || rol === 'analista'
 }
 
 /** Roles con lectura global de datos operativos (sin silo por `ubicacionId` en consultas). */

@@ -16,13 +16,17 @@ export const COLLECTION_SOLICITUDES = 'solicitudes_mercaderia'
 
 export type PrioridadSolicitud = 'Normal' | 'Alta' | 'Urgente'
 
-/** Estados del ciclo logístico (cocina ↔ depósito). */
+/** Traslado cocina↔depósito vs pedido de compra al área de Compras. */
+export type TipoSolicitudMercaderia = 'TRASLADO_INTERNO' | 'REQUISICION_COMPRA'
+
+/** Estados del ciclo logístico (cocina ↔ depósito) y requisiciones de compra. */
 export type EstadoSolicitud =
   | 'Pendiente'
   | 'En Preparación'
   | 'Enviado'
   | 'Recibido'
   | 'Rechazado'
+  | 'En Compras'
 
 /** Estados que el depósito puede asignar (no puede marcar Recibido). */
 export type EstadoSolicitudDeposito = Exclude<EstadoSolicitud, 'Recibido'>
@@ -50,6 +54,8 @@ export function estiloBadgeEstadoSolicitud(estado: EstadoSolicitud): {
       return { backgroundColor: '#f5f5f5', color: '#525252' }
     case 'Rechazado':
       return { backgroundColor: '#fee2e2', color: '#991b1b' }
+    case 'En Compras':
+      return { backgroundColor: '#eff6ff', color: '#1d4ed8' }
     default:
       return { backgroundColor: '#f3f4f6', color: '#374151' }
   }
@@ -72,11 +78,16 @@ export interface SolicitudMercaderia {
   fechaEntregaEsperada: string
   prioridad: PrioridadSolicitud
   estado: EstadoSolicitud
+  /** Default legacy: TRASLADO_INTERNO */
+  tipoSolicitud: TipoSolicitudMercaderia
   observacionesDeposito: string
   /** Notas de cocina al confirmar recepción (opcional). */
   observacionesRecepcion: string
-  /** Quién pidió (COCINA, CASPOSO, etc.); define destino del egreso. */
+  /** Quién pidió (COCINA, CASPOSO, CENTRAL, etc.). */
   ubicacionSolicitanteId?: string
+  /** OC generada por Compras/Gerencia a partir de esta requisición. */
+  ordenCompraId?: string
+  ordenCompraNumero?: string
   items: ItemSolicitudMercaderia[]
 }
 
@@ -86,6 +97,7 @@ export interface CrearSolicitudMercaderiaInput {
   items: ItemSolicitudMercaderia[]
   /** Ubicación operativa del usuario que envía la solicitud. */
   ubicacionSolicitanteId?: string | null
+  tipoSolicitud?: TipoSolicitudMercaderia
 }
 
 function mapItem(raw: unknown): ItemSolicitudMercaderia | null {
@@ -142,6 +154,20 @@ function mapDoc(id: string, data: Record<string, unknown>): SolicitudMercaderia 
   else if (estadoRaw === 'Rechazado') estado = 'Rechazado'
   else if (estadoRaw === 'Entregado')
     estado = 'Recibido'
+  else if (estadoRaw === 'En Compras') estado = 'En Compras'
+
+  const tipoRaw = data.tipoSolicitud
+  const tipoSolicitud: TipoSolicitudMercaderia =
+    tipoRaw === 'REQUISICION_COMPRA' ? 'REQUISICION_COMPRA' : 'TRASLADO_INTERNO'
+
+  const ordenCompraId =
+    typeof data.ordenCompraId === 'string' && data.ordenCompraId.trim()
+      ? data.ordenCompraId.trim()
+      : undefined
+  const ordenCompraNumero =
+    typeof data.ordenCompraNumero === 'string' && data.ordenCompraNumero.trim()
+      ? data.ordenCompraNumero.trim()
+      : undefined
 
   const observacionesDeposito =
     typeof data.observacionesDeposito === 'string'
@@ -174,9 +200,12 @@ function mapDoc(id: string, data: Record<string, unknown>): SolicitudMercaderia 
     fechaEntregaEsperada,
     prioridad,
     estado,
+    tipoSolicitud,
     observacionesDeposito,
     observacionesRecepcion,
     ...(ubicacionSolicitanteId ? { ubicacionSolicitanteId } : {}),
+    ...(ordenCompraId ? { ordenCompraId } : {}),
+    ...(ordenCompraNumero ? { ordenCompraNumero } : {}),
     items,
   }
 }
@@ -262,16 +291,32 @@ export async function crearSolicitudMercaderia(
 
   const db = getDb()
   const ubicSol = input.ubicacionSolicitanteId?.trim().toUpperCase()
+  const tipoSolicitud = input.tipoSolicitud ?? 'TRASLADO_INTERNO'
   await addDoc(collection(db, COLLECTION_SOLICITUDES), {
     fechaCreacion: serverTimestamp(),
     fechaEntregaEsperada: input.fechaEntregaEsperada.trim(),
     prioridad: input.prioridad,
     estado: 'Pendiente' as EstadoSolicitud,
+    tipoSolicitud,
     observacionesDeposito: '',
     observacionesRecepcion: '',
     ...(ubicSol ? { ubicacionSolicitanteId: ubicSol } : {}),
     items,
   })
+}
+
+/** Requisición interna de compra (depósito → área Compras/Gerencia). */
+export async function crearRequisicionCompraInterna(
+  input: Omit<CrearSolicitudMercaderiaInput, 'tipoSolicitud'>,
+): Promise<void> {
+  return crearSolicitudMercaderia({
+    ...input,
+    tipoSolicitud: 'REQUISICION_COMPRA',
+  })
+}
+
+export function esRequisicionCompra(s: SolicitudMercaderia): boolean {
+  return s.tipoSolicitud === 'REQUISICION_COMPRA'
 }
 
 /**

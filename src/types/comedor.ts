@@ -35,4 +35,8 @@ export interface RegistroComedor {
   usuarioRegistro: string
   /** Motivo o nota (p. ej. carga manual desde dashboard). */
   observaciones?: string
+  /** true cuando ya fue incluido en una liquidación EMITIDA. */
+  liquidado?: boolean
+  /** ID en `liquidaciones_contratistas`. */
+  liquidacionId?: string
 }

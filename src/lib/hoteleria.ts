@@ -20,6 +20,11 @@ import {
   type Unsubscribe,
 } from 'firebase/firestore'
 import { getDb } from './firebase'
+import { normalizarPersonaPadronInput } from './padronFormInput'
+import {
+  obtenerMapaEmpresasPadronPorClave,
+  resolverEmpresaEnPadron,
+} from './padronEmpresas'
 import type {
   Cama,
   EstadoCama,
@@ -262,6 +267,11 @@ export function mapHistorial(id: string, data: Record<string, unknown>): Histori
     fechaCheckIn: tsToDate(data.fechaCheckIn),
     fechaCheckOut: tsToDate(data.fechaCheckOut),
     fechaSalidaEstimada: tsToDate(data.fechaSalidaEstimada),
+    liquidado: data.liquidado === true ? true : undefined,
+    liquidacionId:
+      typeof data.liquidacionId === 'string' && data.liquidacionId.trim()
+        ? data.liquidacionId.trim()
+        : undefined,
   }
 }
 
@@ -433,11 +443,14 @@ export async function importarPadronDesdeFilas(
   }
 
   for (const f of filas) {
-    const dni = f.dni.trim().toUpperCase()
+    const norm = normalizarPersonaPadronInput({
+      dni: f.dni,
+      nombre: f.nombre,
+      apellido: f.apellido,
+      empresa: f.empresa,
+    })
+    const { dni, nombre, apellido, empresa } = norm
     if (!dni) continue
-    const nombre = f.nombre.trim()
-    const apellido = f.apellido.trim()
-    const empresa = f.empresa.trim()
     if (!nombre && !apellido) continue
 
     const exist = porDni.get(dni)
@@ -471,13 +484,22 @@ const BATCH_PADRON_MAX = 500
 
 /**
  * Carga masiva: un documento por DNI en `padron_personas` con `merge: true`.
- * Columnas esperadas: DNI, Apellido, Nombre, Empresa (+ Legajo, Posición opcionales).
+ * La empresa debe existir en `padron_empresas` (coincidencia sin distinguir mayúsculas).
  */
 export async function importarPadronCargaMasiva(
   filas: FilaCargaMasivaPadron[],
-): Promise<{ procesados: number }> {
+): Promise<{ procesados: number; omitidos: number; empresasDesconocidas: string[] }> {
   const db = getDb()
+  const mapaEmpresas = await obtenerMapaEmpresasPadronPorClave()
+  if (mapaEmpresas.size === 0) {
+    throw new Error(
+      'No hay empresas en el Padrón de Empresas. Cargá empresas antes de importar personas.',
+    )
+  }
+
   let procesados = 0
+  let omitidos = 0
+  const empresasDesconocidasSet = new Set<string>()
 
   for (let i = 0; i < filas.length; i += BATCH_PADRON_MAX) {
     const chunk = filas.slice(i, i + BATCH_PADRON_MAX)
@@ -485,18 +507,35 @@ export async function importarPadronCargaMasiva(
     let ops = 0
 
     for (const f of chunk) {
-      const dni = String(f.dni).trim().toUpperCase()
-      if (!dni) continue
+      const norm = normalizarPersonaPadronInput({
+        dni: f.dni,
+        nombre: f.nombre,
+        apellido: f.apellido,
+        empresa: f.empresa,
+      })
+      const dni = norm.dni
+      if (!dni) {
+        omitidos++
+        continue
+      }
+
+      const empresaCanonica = resolverEmpresaEnPadron(norm.empresa, mapaEmpresas)
+      if (!empresaCanonica) {
+        omitidos++
+        if (norm.empresa) empresasDesconocidasSet.add(norm.empresa)
+        continue
+      }
 
       const docId = idDocumentoPadronPorDni(dni)
       const ref = doc(db, COL_PADRON, docId)
+      const nombreCompleto = `${norm.nombre} ${norm.apellido}`.trim()
 
       const payload: Record<string, unknown> = {
         dni,
-        nombre: f.nombre,
-        apellido: f.apellido,
-        nombreCompleto: f.nombreCompleto,
-        empresa: f.empresa,
+        nombre: norm.nombre,
+        apellido: norm.apellido,
+        nombreCompleto,
+        empresa: empresaCanonica,
         estado: f.estado,
       }
       if (f.legajo) payload.legajo = f.legajo
@@ -511,7 +550,13 @@ export async function importarPadronCargaMasiva(
     if (ops > 0) await batch.commit()
   }
 
-  return { procesados }
+  return {
+    procesados,
+    omitidos,
+    empresasDesconocidas: [...empresasDesconocidasSet].sort((a, b) =>
+      a.localeCompare(b, 'es', { sensitivity: 'base' }),
+    ),
+  }
 }
 
 /** Alta manual en padrón; falla si el DNI ya existe. */
@@ -521,12 +566,19 @@ export async function crearPersonaPadron(input: {
   apellido: string
   empresa: string
 }): Promise<string> {
-  const dni = input.dni.trim().toUpperCase()
-  const nombre = input.nombre.trim()
-  const apellido = input.apellido.trim()
-  const empresa = input.empresa.trim()
+  let { dni, nombre, apellido, empresa } = normalizarPersonaPadronInput(input)
   if (!dni) throw new Error('El DNI es obligatorio.')
   if (!nombre || !apellido) throw new Error('Nombre y apellido son obligatorios.')
+  if (empresa) {
+    const mapa = await obtenerMapaEmpresasPadronPorClave()
+    const canonica = resolverEmpresaEnPadron(empresa, mapa)
+    if (!canonica) {
+      throw new Error(
+        `La empresa «${empresa}» no está en el Padrón de Empresas. Cargala primero o elegila del listado.`,
+      )
+    }
+    empresa = canonica
+  }
   const exist = await buscarPersonaPorDni(dni)
   if (exist) throw new Error('Ya existe una persona con ese DNI.')
   const db = getDb()
@@ -553,12 +605,19 @@ export async function actualizarPersonaPadron(
 ): Promise<void> {
   const docId = id.trim()
   if (!docId) throw new Error('Registro inválido.')
-  const dni = input.dni.trim().toUpperCase()
-  const nombre = input.nombre.trim()
-  const apellido = input.apellido.trim()
-  const empresa = input.empresa.trim()
+  let { dni, nombre, apellido, empresa } = normalizarPersonaPadronInput(input)
   if (!dni) throw new Error('El DNI es obligatorio.')
   if (!nombre || !apellido) throw new Error('Nombre y apellido son obligatorios.')
+  if (empresa) {
+    const mapa = await obtenerMapaEmpresasPadronPorClave()
+    const canonica = resolverEmpresaEnPadron(empresa, mapa)
+    if (!canonica) {
+      throw new Error(
+        `La empresa «${empresa}» no está en el Padrón de Empresas. Cargala primero o elegila del listado.`,
+      )
+    }
+    empresa = canonica
+  }
   const otro = await buscarPersonaPorDni(dni)
   if (otro && otro.id !== docId) throw new Error('Ya existe otra persona con ese DNI.')
   const db = getDb()

@@ -1,5 +1,10 @@
 import * as XLSX from 'xlsx'
 import type { FilaCargaMasivaPadron } from '../types/hoteleria'
+import {
+  sanitizarDniInput,
+  sanitizarEmpresaInput,
+  sanitizarNombreApellidoInput,
+} from './padronFormInput'
 
 function valorCelda(row: Record<string, unknown>, ...nombresColumna: string[]): string {
   for (const nombre of nombresColumna) {
@@ -11,14 +16,14 @@ function valorCelda(row: Record<string, unknown>, ...nombresColumna: string[]): 
   return ''
 }
 
-/** Texto seguro: vacío/undefined → '' y MAYÚSCULAS. */
-function textoMayusculas(val: unknown): string {
-  return String(val ?? '').trim().toUpperCase()
+/** Texto seguro: vacío/undefined → '' y MAYÚSCULAS (nombres de persona). */
+function textoMayusculasPersona(val: unknown): string {
+  return sanitizarNombreApellidoInput(String(val ?? ''))
 }
 
 /**
  * Lee la primera hoja con `sheet_to_json` y normaliza filas para carga masiva.
- * DNI sin mayúsculas forzadas (solo trim); nombres, apellidos y empresa en MAYÚSCULAS.
+ * DNI solo dígitos; nombres, apellidos y empresa en MAYÚSCULAS.
  */
 export function filasCargaMasivaDesdeWorkbook(wb: XLSX.WorkBook): FilaCargaMasivaPadron[] {
   const sheetName = wb.SheetNames[0]
@@ -35,24 +40,22 @@ export function filasCargaMasivaDesdeWorkbook(wb: XLSX.WorkBook): FilaCargaMasiv
   const vistos = new Set<string>()
 
   for (const row of rows) {
-    const dni = String(valorCelda(row, 'DNI') || '').trim()
+    const dni = sanitizarDniInput(String(valorCelda(row, 'DNI') || ''))
     if (!dni) continue
-    const dniClave = dni.toUpperCase()
+    const dniClave = dni
     if (vistos.has(dniClave)) continue
     vistos.add(dniClave)
 
-    const nombreRaw = valorCelda(row, 'Nombre')
-    const apellidoRaw = valorCelda(row, 'Apellido')
-    const nombre = textoMayusculas(nombreRaw)
-    const apellido = textoMayusculas(apellidoRaw)
-    const nombreCompleto = `${nombreRaw || ''} ${apellidoRaw || ''}`.trim().toUpperCase()
-    const empresa = textoMayusculas(valorCelda(row, 'Empresa') || 'NO ESPECIFICADA')
+    const nombre = textoMayusculasPersona(valorCelda(row, 'Nombre'))
+    const apellido = textoMayusculasPersona(valorCelda(row, 'Apellido'))
+    const nombreCompleto = `${nombre} ${apellido}`.trim()
+    const empresa = sanitizarEmpresaInput(valorCelda(row, 'Empresa'))
 
     if (!nombreCompleto) continue
 
     const legajo = String(valorCelda(row, 'Legajo') || '').trim()
-    const posicion = textoMayusculas(valorCelda(row, 'Posición', 'Posicion'))
-    const sector = textoMayusculas(valorCelda(row, 'Sector'))
+    const posicion = sanitizarEmpresaInput(valorCelda(row, 'Posición', 'Posicion'))
+    const sector = sanitizarEmpresaInput(valorCelda(row, 'Sector'))
 
     const fila: FilaCargaMasivaPadron = {
       dni: dniClave,

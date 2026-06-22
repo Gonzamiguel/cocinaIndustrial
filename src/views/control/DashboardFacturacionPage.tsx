@@ -43,7 +43,7 @@ function CeldaNumero({ valor }: { valor: number }) {
   )
 }
 
-function exportarSabanaFacturacionExcel(
+function exportarFacturacionExcel(
   filas: FilaFacturacionOperario[],
   totales: ReturnType<typeof sumarTotalesFacturacion>,
   desde: string,
@@ -52,7 +52,7 @@ function exportarSabanaFacturacionExcel(
 ): void {
   const empresaEtiqueta = empresaFiltro.trim() || 'Todas'
   const aoa: (string | number)[][] = [
-    ['Sábana de Facturación — Comedor y Hotelería'],
+    ['Facturación — Comedor y Hotelería'],
     [`Período exportado: ${formatYmdLegible(desde)} al ${formatYmdLegible(hasta)}`],
     [`Empresa: ${empresaEtiqueta}`],
     [],
@@ -82,7 +82,7 @@ function exportarSabanaFacturacionExcel(
   const slugEmpresa = empresaFiltro.trim()
     ? empresaFiltro.trim().replace(/[^\w\-]+/g, '_').slice(0, 40)
     : 'todas'
-  XLSX.writeFile(wb, `Sabana_facturacion_${desde}_${hasta}_${slugEmpresa}.xlsx`)
+  XLSX.writeFile(wb, `Facturacion_${desde}_${hasta}_${slugEmpresa}.xlsx`)
 }
 
 export function DashboardFacturacionPage() {
@@ -161,14 +161,14 @@ export function DashboardFacturacionPage() {
       return
     }
     try {
-      exportarSabanaFacturacionExcel(
+      exportarFacturacionExcel(
         filasVisibles,
         totalesGenerales,
         desde,
         hasta,
         empresaFiltro,
       )
-      showToast('Sábana de facturación descargada.', 'success')
+      showToast('Facturación exportada.', 'success')
     } catch (e) {
       showToast(e instanceof Error ? e.message : 'No se pudo exportar el Excel.', 'error')
     }
@@ -183,7 +183,7 @@ export function DashboardFacturacionPage() {
               Área contable
             </p>
             <h1 className="mt-1 text-xl font-semibold tracking-tight text-neutral-900">
-              Sábana de facturación
+              Facturación
             </h1>
             <p className="mt-1 max-w-2xl text-sm text-neutral-600">
               Consolidación por operario con desglose de servicios de comedor (cada categoría con
@@ -197,7 +197,7 @@ export function DashboardFacturacionPage() {
             className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-[#CD1818] px-6 text-sm font-semibold text-white shadow-sm transition hover:bg-[#b01515] disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Download className="h-5 w-5" aria-hidden />
-            📥 Descargar Sábana de Facturación
+            📥 Descargar Excel
           </button>
         </div>
 
