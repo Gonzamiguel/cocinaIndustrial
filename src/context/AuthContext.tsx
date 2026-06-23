@@ -17,15 +17,14 @@ import {
   UBICACION_DEPOSITO_CENTRAL,
 } from '../lib/movimientosInventario'
 
+/** Seis roles activos — segregación de funciones (SoD). */
 export type UserRole =
-  | 'admin_cocina'
+  | 'administrativo_campamento'
   | 'admin_deposito'
-  | 'admin_campamento'
-  | 'jefe_campamento'
-  | 'hoteleria_casposo'
-  | 'terminal_comedor'
-  | 'analista'
+  | 'admin_cocina'
+  | 'administrativo_finanzas'
   | 'gerencia'
+  | 'analista'
 
 const USUARIOS_COLLECTION = 'usuarios'
 
@@ -34,14 +33,12 @@ const MSG_ERROR_PERFIL_USUARIO =
 
 function parseRol(raw: unknown): UserRole | null {
   if (
-    raw === 'admin_cocina' ||
+    raw === 'administrativo_campamento' ||
     raw === 'admin_deposito' ||
-    raw === 'admin_campamento' ||
-    raw === 'jefe_campamento' ||
-    raw === 'hoteleria_casposo' ||
-    raw === 'terminal_comedor' ||
-    raw === 'analista' ||
-    raw === 'gerencia'
+    raw === 'admin_cocina' ||
+    raw === 'administrativo_finanzas' ||
+    raw === 'gerencia' ||
+    raw === 'analista'
   ) {
     return raw
   }
@@ -117,7 +114,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         setRol(r)
         const ubic = parseUbicacionId(data.ubicacionId)
-        if (r === 'admin_campamento' || r === 'jefe_campamento' || r === 'hoteleria_casposo') {
+        if (r === 'administrativo_campamento') {
           setUbicacionId(ubic ?? UBICACION_CAMPAMENTO_CASPOSO)
         } else if (r === 'admin_cocina') {
           setUbicacionId(ubic ?? UBICACION_COCINA_CENTRAL)

@@ -1,7 +1,7 @@
 import { Building2, Tent } from 'lucide-react'
 import { NavLink, useLocation } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
-import { esJefeCampamento } from '../../lib/rbac'
+import { esAdministrativoCampamentoLegacy } from '../../lib/rbac'
 
 const baseBtn =
   'inline-flex min-h-10 flex-1 items-center justify-center gap-2 rounded-lg px-3 text-sm font-semibold transition sm:flex-none sm:px-5'
@@ -10,7 +10,7 @@ export function JefeCampamentoModuleSwitcher() {
   const { rol } = useAuth()
   const location = useLocation()
 
-  if (!esJefeCampamento(rol)) return null
+  if (!esAdministrativoCampamentoLegacy(rol)) return null
 
   const enCampamento = location.pathname.startsWith('/campamento')
   const enHoteleria = location.pathname.startsWith('/hoteleria')

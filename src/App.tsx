@@ -3,8 +3,11 @@ import { Navigate, Route, Routes } from 'react-router-dom'
 import { ControlLayout } from './components/layouts/ControlLayout'
 import { ProtectedRoute } from './components/ProtectedRoute'
 import { LayoutAdmin } from './layouts/LayoutAdmin'
+import { LayoutAnalista } from './layouts/LayoutAnalista'
+import { LayoutCampamento } from './layouts/LayoutCampamento'
 import { LayoutComedor } from './layouts/LayoutComedor'
 import { LayoutDeposito } from './layouts/LayoutDeposito'
+import { LayoutHoteleria } from './layouts/LayoutHoteleria'
 import { DepositoConfiguracionPage } from './views/deposito/DepositoConfiguracionPage'
 import { DepositoDashboardPage } from './views/deposito/DepositoDashboardPage'
 import { DepositoInsumosPage } from './views/deposito/DepositoInsumosPage'
@@ -18,6 +21,15 @@ import { AdminPedidosPage } from './views/admin/AdminPedidosPage'
 import { AdminRecetarioPage } from './views/admin/AdminRecetarioPage'
 import { DashboardPage } from './views/admin/DashboardPage'
 import { DashboardComensalesPage } from './views/campamento/DashboardComensalesPage'
+import { CampamentoComandasPage } from './views/campamento/CampamentoComandasPage'
+import { CampamentoNuevaComandaPage } from './views/campamento/CampamentoNuevaComandaPage'
+import { CampamentoInventarioPage } from './views/campamento/CampamentoInventarioPage'
+import { CampamentoRecepcionPage } from './views/campamento/CampamentoRecepcionPage'
+import { CampamentoSolicitudPage } from './views/campamento/CampamentoSolicitudPage'
+import { AnalistaAuditoriaPage } from './views/analista/AnalistaAuditoriaPage'
+import { AnalistaDashboardPage } from './views/analista/AnalistaDashboardPage'
+import { AnalistaLiquidacionesPage } from './views/analista/AnalistaLiquidacionesPage'
+import { AnalistaMovimientosPage } from './views/analista/AnalistaMovimientosPage'
 // import { ClientView } from './views/ClientView'
 import { LoginPage } from './views/LoginPage'
 import { DashboardHoteleriaPage } from './views/hoteleria/DashboardHoteleriaPage'
@@ -25,43 +37,20 @@ import { MapaCamasPage } from './views/hoteleria/MapaCamasPage'
 import { PadronEmpresasPage } from './views/hoteleria/PadronEmpresasPage'
 import { PadronPage } from './views/hoteleria/PadronPage'
 import { ConfiguracionHoteleriaPage } from './views/hoteleria/ConfiguracionHoteleriaPage'
+import { PernoctesPage } from './views/hoteleria/PernoctesPage'
 import { ReporteLimpiezaPage } from './views/hoteleria/ReporteLimpiezaPage'
 import { DashboardFacturacionPage } from './views/control/DashboardFacturacionPage'
 import { TesoreriaDashboardPage } from './views/control/TesoreriaDashboardPage'
 import { ComprasAprobacionPage } from './views/control/ComprasAprobacionPage'
 import { LiquidacionesPage } from './views/control/LiquidacionesPage'
 import { SolicitudMercaderiaDetallePage } from './views/SolicitudMercaderiaDetallePage'
-
-/* MVP: módulos logísticos y legacy comentados (archivos intactos)
-import { LayoutAdmin } from './layouts/LayoutAdmin'
-import { LayoutAnalista } from './layouts/LayoutAnalista'
-import { LayoutCampamento } from './layouts/LayoutCampamento'
-import { LayoutDeposito } from './layouts/LayoutDeposito'
-import { LayoutHoteleria } from './layouts/LayoutHoteleria'
-import { AdminPedidosPage } from './views/admin/AdminPedidosPage'
-import { AdminRecetarioPage } from './views/admin/AdminRecetarioPage'
-import { AdminMercaderiaPage } from './views/admin/AdminMercaderiaPage'
-import { AnalistaAuditoriaPage } from './views/analista/AnalistaAuditoriaPage'
-import { AnalistaDashboardPage } from './views/analista/AnalistaDashboardPage'
-import { AnalistaLiquidacionesPage } from './views/analista/AnalistaLiquidacionesPage'
-import { AnalistaMovimientosPage } from './views/analista/AnalistaMovimientosPage'
-import { DashboardPage } from './views/admin/DashboardPage'
-import { DepositoConfiguracionPage } from './views/deposito/DepositoConfiguracionPage'
-import { DepositoDashboardPage } from './views/deposito/DepositoDashboardPage'
-import { DepositoInsumosPage } from './views/deposito/DepositoInsumosPage'
-import { DepositoInventarioPage } from './views/deposito/DepositoInventarioPage'
-import { DepositoMovimientosPage } from './views/deposito/DepositoMovimientosPage'
-import { DepositoTrazabilidadPage } from './views/deposito/DepositoTrazabilidadPage'
-import { CampamentoComandasPage } from './views/campamento/CampamentoComandasPage'
-import { CampamentoNuevaComandaPage } from './views/campamento/CampamentoNuevaComandaPage'
-import { CampamentoInventarioPage } from './views/campamento/CampamentoInventarioPage'
-import { CampamentoRecepcionPage } from './views/campamento/CampamentoRecepcionPage'
-import { CampamentoSolicitudPage } from './views/campamento/CampamentoSolicitudPage'
-import { SolicitudMercaderiaDetallePage } from './views/SolicitudMercaderiaDetallePage'
-import { ConfiguracionHoteleriaPage } from './views/hoteleria/ConfiguracionHoteleriaPage'
-import { PernoctesPage } from './views/hoteleria/PernoctesPage'
-import { ReporteLimpiezaPage } from './views/hoteleria/ReporteLimpiezaPage'
-*/
+import {
+  ROLES_CONTROL,
+  ROLES_DEPOSITO,
+  ROLES_FINANZAS_LECTURA,
+  ROLES_PANEL_CONTROL,
+  ROLES_TERMINAL,
+} from './lib/rbac'
 
 const TerminalComensalesPage = lazy(() =>
   import('./views/comedor/TerminalComensalesPage').then((m) => ({
@@ -84,24 +73,71 @@ export default function App() {
       <Route
         path="/control"
         element={
-          <ProtectedRoute
-            rolesPermitidos={['admin_campamento', 'hoteleria_casposo', 'gerencia', 'analista']}
-          >
+          <ProtectedRoute rolesPermitidos={[...ROLES_CONTROL]}>
             <ControlLayout />
           </ProtectedRoute>
         }
       >
-        <Route index element={<DashboardComensalesPage />} />
-        <Route path="padron" element={<PadronPage />} />
-        <Route path="empresas" element={<PadronEmpresasPage />} />
-        <Route path="hoteleria" element={<DashboardHoteleriaPage />} />
-        <Route path="alojamiento" element={<MapaCamasPage />} />
-        <Route path="reporte-limpieza" element={<ReporteLimpiezaPage />} />
-        <Route path="facturacion" element={<DashboardFacturacionPage />} />
+        <Route
+          index
+          element={
+            <ProtectedRoute rolesPermitidos={[...ROLES_PANEL_CONTROL]}>
+              <DashboardComensalesPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="padron"
+          element={
+            <ProtectedRoute rolesPermitidos={[...ROLES_PANEL_CONTROL]}>
+              <PadronPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="empresas"
+          element={
+            <ProtectedRoute rolesPermitidos={[...ROLES_PANEL_CONTROL]}>
+              <PadronEmpresasPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="hoteleria"
+          element={
+            <ProtectedRoute rolesPermitidos={[...ROLES_PANEL_CONTROL]}>
+              <DashboardHoteleriaPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="alojamiento"
+          element={
+            <ProtectedRoute rolesPermitidos={[...ROLES_PANEL_CONTROL]}>
+              <MapaCamasPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="reporte-limpieza"
+          element={
+            <ProtectedRoute rolesPermitidos={[...ROLES_PANEL_CONTROL]}>
+              <ReporteLimpiezaPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="facturacion"
+          element={
+            <ProtectedRoute rolesPermitidos={[...ROLES_PANEL_CONTROL]}>
+              <DashboardFacturacionPage />
+            </ProtectedRoute>
+          }
+        />
         <Route
           path="tesoreria"
           element={
-            <ProtectedRoute rolesPermitidos={['gerencia', 'analista']}>
+            <ProtectedRoute rolesPermitidos={[...ROLES_FINANZAS_LECTURA]}>
               <TesoreriaDashboardPage />
             </ProtectedRoute>
           }
@@ -109,7 +145,7 @@ export default function App() {
         <Route
           path="compras"
           element={
-            <ProtectedRoute rolesPermitidos={['gerencia', 'analista']}>
+            <ProtectedRoute rolesPermitidos={[...ROLES_FINANZAS_LECTURA]}>
               <ComprasAprobacionPage />
             </ProtectedRoute>
           }
@@ -117,22 +153,26 @@ export default function App() {
         <Route
           path="liquidaciones"
           element={
-            <ProtectedRoute rolesPermitidos={['gerencia', 'analista']}>
+            <ProtectedRoute rolesPermitidos={[...ROLES_FINANZAS_LECTURA]}>
               <LiquidacionesPage />
             </ProtectedRoute>
           }
         />
-        <Route path="configuracion" element={<ConfiguracionHoteleriaPage />} />
-        {/* MVP: gestión de menú oculta
-        <Route path="menu" element={<AdminMenuPage />} />
-        */}
+        <Route
+          path="configuracion"
+          element={
+            <ProtectedRoute rolesPermitidos={[...ROLES_PANEL_CONTROL]}>
+              <ConfiguracionHoteleriaPage />
+            </ProtectedRoute>
+          }
+        />
         <Route path="menu" element={<Navigate to="/control" replace />} />
       </Route>
 
       <Route
         path="/terminal"
         element={
-          <ProtectedRoute rolesPermitidos={['jefe_campamento', 'terminal_comedor']}>
+          <ProtectedRoute rolesPermitidos={[...ROLES_TERMINAL]}>
             <LayoutComedor />
           </ProtectedRoute>
         }
@@ -153,7 +193,7 @@ export default function App() {
       <Route
         path="/deposito"
         element={
-          <ProtectedRoute rolesPermitidos={['admin_deposito']}>
+          <ProtectedRoute rolesPermitidos={[...ROLES_DEPOSITO]}>
             <LayoutDeposito />
           </ProtectedRoute>
         }
@@ -176,7 +216,6 @@ export default function App() {
         />
       </Route>
 
-      {/* Legacy — reactivar cuando vuelvan el resto de módulos logísticos
       <Route
         path="/admin"
         element={
@@ -186,7 +225,10 @@ export default function App() {
         }
       >
         <Route index element={<Navigate to="/admin/pedidos" replace />} />
-        <Route path="mercaderia/solicitud/:solicitudId" element={<SolicitudMercaderiaDetallePage />} />
+        <Route
+          path="mercaderia/solicitud/:solicitudId"
+          element={<SolicitudMercaderiaDetallePage />}
+        />
         <Route path="pedidos" element={<AdminPedidosPage />} />
         <Route path="dashboard" element={<DashboardPage />} />
         <Route path="menu" element={<AdminMenuPage />} />
@@ -196,35 +238,10 @@ export default function App() {
 
       <Route path="/admin-cocina" element={<Navigate to="/admin/pedidos" replace />} />
 
-      {/* Legacy — reactivar cuando vuelvan otros módulos logísticos
-        path="/deposito"
-        element={
-          <ProtectedRoute rolesPermitidos={['admin_deposito']}>
-            <LayoutDeposito />
-          </ProtectedRoute>
-        }
-      >
-        <Route index element={<Navigate to="/deposito/dashboard" replace />} />
-        <Route
-          path="solicitudes"
-          element={<Navigate to="/deposito/movimientos" replace />}
-        />
-        <Route path="dashboard" element={<DepositoDashboardPage />} />
-        <Route path="insumos" element={<DepositoInsumosPage />} />
-        <Route path="configuracion" element={<DepositoConfiguracionPage />} />
-        <Route path="movimientos" element={<DepositoMovimientosPage />} />
-        <Route path="inventario" element={<DepositoInventarioPage />} />
-        <Route path="trazabilidad" element={<DepositoTrazabilidadPage />} />
-        <Route
-          path="recepcion"
-          element={<Navigate to="/deposito/movimientos" replace />}
-        />
-      </Route>
-
       <Route
         path="/analista"
         element={
-          <ProtectedRoute rolesPermitidos={['analista', 'gerencia']}>
+          <ProtectedRoute rolesPermitidos={['gerencia', 'analista']}>
             <LayoutAnalista />
           </ProtectedRoute>
         }
@@ -243,13 +260,16 @@ export default function App() {
       <Route
         path="/campamento"
         element={
-          <ProtectedRoute rolesPermitidos={['admin_campamento', 'jefe_campamento']}>
+          <ProtectedRoute rolesPermitidos={['administrativo_campamento']}>
             <LayoutCampamento />
           </ProtectedRoute>
         }
       >
         <Route index element={<Navigate to="/campamento/recepcion" replace />} />
-        <Route path="solicitud-mercaderia/:solicitudId" element={<SolicitudMercaderiaDetallePage />} />
+        <Route
+          path="solicitud-mercaderia/:solicitudId"
+          element={<SolicitudMercaderiaDetallePage />}
+        />
         <Route path="recepcion" element={<CampamentoRecepcionPage />} />
         <Route path="solicitud-mercaderia" element={<CampamentoSolicitudPage />} />
         <Route path="inventario" element={<CampamentoInventarioPage />} />
@@ -261,7 +281,7 @@ export default function App() {
       <Route
         path="/hoteleria"
         element={
-          <ProtectedRoute rolesPermitidos={['hoteleria_casposo', 'jefe_campamento']}>
+          <ProtectedRoute rolesPermitidos={['administrativo_campamento']}>
             <LayoutHoteleria />
           </ProtectedRoute>
         }
@@ -273,12 +293,6 @@ export default function App() {
         <Route path="reporte-limpieza" element={<ReporteLimpiezaPage />} />
         <Route path="configuracion" element={<ConfiguracionHoteleriaPage />} />
       </Route>
-
-      <Route
-        path="/admin-cocina"
-        element={<Navigate to="/admin/pedidos" replace />}
-      />
-      */}
 
       <Route path="*" element={<Navigate to="/login" replace />} />
     </Routes>

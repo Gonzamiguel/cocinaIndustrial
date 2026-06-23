@@ -15,7 +15,7 @@ import {
 import type { SVGProps } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
-import { esRolTesoreria } from '../../lib/rbac'
+import { esRolFinanzasLectura, esRolPanelControl } from '../../lib/rbac'
 import { ConnectionStatus } from '../layout/ConnectionStatus'
 
 type IconProps = SVGProps<SVGSVGElement>
@@ -96,7 +96,8 @@ function NavSection({
 export function ControlSidebar() {
   const { logout, ubicacionId, rol } = useAuth()
   const navigate = useNavigate()
-  const muestraFinanzas = esRolTesoreria(rol)
+  const muestraOperaciones = esRolPanelControl(rol)
+  const muestraFinanzas = esRolFinanzasLectura(rol)
 
   async function handleCerrarSesion() {
     await logout()
@@ -124,11 +125,15 @@ export function ControlSidebar() {
         className="flex flex-1 flex-col gap-1 overflow-x-auto px-2 py-4 md:overflow-visible md:px-3"
         aria-label="Panel de control"
       >
-        <NavSection items={navItemsOperativos} />
+        {muestraOperaciones ? (
+          <NavSection title="Operaciones" items={navItemsOperativos} />
+        ) : null}
         {muestraFinanzas ? (
           <NavSection title="Finanzas" items={navItemsFinanzas} />
         ) : null}
-        <NavSection title="Administración" items={navItemsConfig} />
+        {muestraOperaciones ? (
+          <NavSection title="Administración" items={navItemsConfig} />
+        ) : null}
       </nav>
 
       <div className="mt-auto border-t border-neutral-100 p-3">

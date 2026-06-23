@@ -9,6 +9,10 @@ import {
   type Transaction,
 } from 'firebase/firestore'
 import { getDb } from './firebase'
+import {
+  leerSaldoProveedor,
+  patchCondicionesSaldoProveedor,
+} from './padronSaldos'
 import { COL_ORDENES_COMPRA } from './ordenesCompra'
 import type { EstadoOrdenCompra, OrdenCompraDoc } from '../types/compras'
 import type {
@@ -183,14 +187,7 @@ function ocTieneRecepcionFisica(oc: OrdenCompraDoc): boolean {
 }
 
 function leerSaldoCuentaCorrienteProveedor(raw: Record<string, unknown>): number {
-  const cond = raw.condicionesComerciales
-  if (cond && typeof cond === 'object') {
-    const saldo = Number((cond as Record<string, unknown>).saldoCuentaCorriente)
-    if (Number.isFinite(saldo)) return roundMoney(Math.max(0, saldo))
-  }
-  const flat = Number(raw.saldoCuentaCorriente)
-  if (Number.isFinite(flat)) return roundMoney(Math.max(0, flat))
-  return 0
+  return leerSaldoProveedor(raw)
 }
 
 function agregarFacturasAplicadas(
@@ -340,7 +337,7 @@ export async function registrarFacturaProveedor(
         : oc.proveedorCuit
 
     const saldoAnteriorProveedor = leerSaldoCuentaCorrienteProveedor(provRaw)
-    const saldoCuentaCorrienteProveedor = roundMoney(saldoAnteriorProveedor + total)
+    const saldoProveedor = roundMoney(saldoAnteriorProveedor + total)
 
     const estadoInicial: EstadoFacturaProveedor = 'PENDIENTE_PAGO'
     const facturasAsociadasIds = [...(oc.facturasAsociadasIds ?? []), facturaRef.id]
@@ -388,9 +385,7 @@ export async function registrarFacturaProveedor(
     tx.set(
       provRef,
       {
-        condicionesComerciales: {
-          saldoCuentaCorriente: saldoCuentaCorrienteProveedor,
-        },
+        ...patchCondicionesSaldoProveedor(provRaw, saldoProveedor),
         actualizadoEn: serverTimestamp(),
         actualizadoPorUid: input.usuarioUid,
       },
@@ -404,7 +399,7 @@ export async function registrarFacturaProveedor(
       ordenCompraNumero: oc.numero,
       saldoPendiente: total,
       montoFacturadoAcumuladoOc: nuevoAcumulado,
-      saldoCuentaCorrienteProveedor,
+      saldoProveedor,
     }
   })
 }
@@ -540,7 +535,7 @@ export async function registrarOrdenPago(
         'MONTO_EXCEDIDO',
       )
     }
-    const saldoCuentaCorrienteProveedor = roundMoney(
+    const saldoProveedor = roundMoney(
       Math.max(0, saldoAnteriorProveedor - montoTotal),
     )
 
@@ -575,9 +570,7 @@ export async function registrarOrdenPago(
     tx.set(
       provRef,
       {
-        condicionesComerciales: {
-          saldoCuentaCorriente: saldoCuentaCorrienteProveedor,
-        },
+        ...patchCondicionesSaldoProveedor(provRaw, saldoProveedor),
         actualizadoEn: serverTimestamp(),
         actualizadoPorUid: input.usuarioUid,
       },
@@ -588,7 +581,7 @@ export async function registrarOrdenPago(
       ordenPagoId: opRef.id,
       numero,
       montoTotal,
-      saldoCuentaCorrienteProveedor,
+      saldoProveedor,
       facturasActualizadas,
     }
   })
@@ -693,7 +686,7 @@ export async function anularOrdenPago(
     const provRaw = provSnap.data() as Record<string, unknown>
     const saldoAnterior = leerSaldoCuentaCorrienteProveedor(provRaw)
     const montoTotal = roundMoney(op.montoTotal)
-    const saldoCuentaCorrienteProveedor = roundMoney(saldoAnterior + montoTotal)
+    const saldoProveedor = roundMoney(saldoAnterior + montoTotal)
 
     tx.update(opRef, {
       estado: 'ANULADA',
@@ -707,9 +700,7 @@ export async function anularOrdenPago(
     tx.set(
       provRef,
       {
-        condicionesComerciales: {
-          saldoCuentaCorriente: saldoCuentaCorrienteProveedor,
-        },
+        ...patchCondicionesSaldoProveedor(provRaw, saldoProveedor),
         actualizadoEn: serverTimestamp(),
         actualizadoPorUid: input.usuarioUid,
       },
@@ -720,7 +711,7 @@ export async function anularOrdenPago(
       ordenPagoId,
       numero: op.numero,
       montoTotal,
-      saldoCuentaCorrienteProveedor,
+      saldoProveedor,
       facturasRevertidas,
     }
   })
@@ -795,7 +786,7 @@ export async function anularFacturaProveedor(
     )
     const facturasAsociadasIds = (oc.facturasAsociadasIds ?? []).filter((id) => id !== facturaId)
     const facturaCargada = montoFacturadoAcumuladoOc > 0
-    const saldoCuentaCorrienteProveedor = roundMoney(Math.max(0, saldoAnterior - total))
+    const saldoProveedor = roundMoney(Math.max(0, saldoAnterior - total))
 
     tx.update(facturaRef, {
       estado: 'ANULADA',
@@ -820,9 +811,7 @@ export async function anularFacturaProveedor(
     tx.set(
       provRef,
       {
-        condicionesComerciales: {
-          saldoCuentaCorriente: saldoCuentaCorrienteProveedor,
-        },
+        ...patchCondicionesSaldoProveedor(provRaw, saldoProveedor),
         actualizadoEn: serverTimestamp(),
         actualizadoPorUid: input.usuarioUid,
       },
@@ -835,7 +824,7 @@ export async function anularFacturaProveedor(
       ordenCompraId: factura.ordenCompraId,
       montoFacturadoAcumuladoOc,
       facturaCargada,
-      saldoCuentaCorrienteProveedor,
+      saldoProveedor,
     }
   })
 }

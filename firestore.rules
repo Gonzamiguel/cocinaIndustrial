@@ -34,8 +34,12 @@ service cloud.firestore {
       return hasRole('admin_deposito');
     }
 
-    function isAdminCampamento() {
-      return hasRole('admin_campamento');
+    function isAdministrativoCampamento() {
+      return hasRole('administrativo_campamento');
+    }
+
+    function isAdministrativoFinanzas() {
+      return hasRole('administrativo_finanzas');
     }
 
     function isAnalista() {
@@ -46,33 +50,30 @@ service cloud.firestore {
       return hasRole('gerencia');
     }
 
-    function isJefeCampamento() {
-      return hasRole('jefe_campamento');
-    }
-
     /** Lectura transversal de datos operativos (sin silo por ubicación en la app). */
     function visionGlobalLectura() {
-      return isAnalista() || isGerencia();
+      return isAnalista() || isGerencia() || isAdministrativoFinanzas();
     }
 
-    /** Panel MVP `/control`: comensales, hotelería y menú (lectura). */
+    /** Panel `/control`: lectura operativa + finanzas (según rol). */
     function panelControlLectura() {
-      return isAdminCampamento() || isHoteleriaCasposo() || isGerencia() || isAnalista();
+      return isAdministrativoCampamento() || isAdministrativoFinanzas()
+        || isGerencia() || isAnalista();
     }
 
-    /** Escritura operativa en `/control` (hotelería, padrón, comensales, menú). */
+    /** Escritura operativa en `/control` (hotelería, padrón, comensales). */
     function panelControlEscritura() {
-      return isAdminCampamento() || isHoteleriaCasposo() || isGerencia() || isAnalista();
+      return isAdministrativoCampamento();
     }
 
-    /** Hotelería / campamento: mismo literal que en `AuthContext` y en el documento `usuarios/{uid}`. */
-    function isHoteleriaCasposo() {
-      return hasRole('hoteleria_casposo');
+    /** Finanzas — lectura (Compras, Tesorería, Liquidaciones). */
+    function finanzasLectura() {
+      return isAdministrativoFinanzas() || isGerencia() || isAnalista();
     }
 
-    /** Terminal de comensales (modo quiosco en acceso al comedor). */
-    function isTerminalComedor() {
-      return hasRole('terminal_comedor');
+    /** Finanzas — escritura (sin aprobar OC; eso es solo gerencia). */
+    function finanzasEscritura() {
+      return isAdministrativoFinanzas();
     }
 
     /** Proveedor de autenticación Firebase (p. ej. `anonymous`, `password`). */
@@ -90,7 +91,7 @@ service cloud.firestore {
      * cliente anónimo o terminal de comedor con documento en `usuarios`.
      */
     function isClientePedido() {
-      return isAuthAnonimo() || isTerminalComedor();
+      return isAuthAnonimo() || isAdministrativoCampamento();
     }
 
     function servicioComedorValido(s) {
@@ -123,7 +124,7 @@ service cloud.firestore {
     }
 
     function creacionRegistroComedorTerminal() {
-      return isTerminalComedor()
+      return isAdministrativoCampamento()
         && request.resource.data.keys().hasAll([
           'dni', 'nombre', 'apellido', 'empresa', 'servicio', 'diaOperativo', 'fechaHora', 'usuarioRegistro'
         ])
@@ -142,7 +143,7 @@ service cloud.firestore {
     }
 
     function creacionRegistroComedorSupervisor() {
-      return (panelControlEscritura() || isJefeCampamento())
+      return panelControlEscritura()
         && request.resource.data.keys().hasAll([
           'dni', 'nombre', 'apellido', 'empresa', 'servicio', 'diaOperativo', 'fechaHora', 'usuarioRegistro',
           'observaciones'
@@ -164,11 +165,13 @@ service cloud.firestore {
 
     /** Staff con documento en `usuarios` (excluye solo anónimos sin rol). */
     function staffLeerInsumos() {
-      return isAdminDeposito() || isAnalista() || isGerencia() || isAdminCampamento() || isJefeCampamento() || isAdminCocina();
+      return isAdminDeposito() || isAnalista() || isGerencia()
+        || isAdministrativoCampamento() || isAdministrativoFinanzas() || isAdminCocina();
     }
 
     function puedeLeerMovimientos() {
-      return isAdminDeposito() || isAnalista() || isGerencia() || isAdminCampamento() || isJefeCampamento() || isAdminCocina();
+      return isAdminDeposito() || isAnalista() || isGerencia()
+        || isAdministrativoCampamento() || isAdministrativoFinanzas() || isAdminCocina();
     }
 
     /** Ubicación operativa del usuario campamento (fallback Casposo si no está en el doc). */
@@ -183,7 +186,7 @@ service cloud.firestore {
 
     /** Campamento o jefe de campamento: solo documentos cuya ubicación coincide con la del usuario. */
     function campamentoUbicacionCoincide() {
-      return (isAdminCampamento() || isJefeCampamento())
+      return isAdministrativoCampamento()
         && request.resource.data.keys().hasAny(['ubicacionId'])
         && request.resource.data.ubicacionId == campamentoUbicacionUsuario();
     }
@@ -219,7 +222,7 @@ service cloud.firestore {
         && resource.data.estadoTraslado == 'EN_TRANSITO'
         && resource.data.keys().hasAny(['ubicacionDestino'])
         && (
-          ((isAdminCampamento() || isJefeCampamento()) && resource.data.ubicacionDestino == campamentoUbicacionUsuario())
+          (isAdministrativoCampamento() && resource.data.ubicacionDestino == campamentoUbicacionUsuario())
           || (isAdminCocina() && resource.data.ubicacionDestino == cocinaUbicacionUsuario())
         );
     }
@@ -245,13 +248,13 @@ service cloud.firestore {
 
     // ─── Módulo A: Compras (Procurement) ───────────────────────────────────
 
-    /** Comprador corporativo (hoy = gerencia; extensible a rol dedicado). */
+    /** Oficina de finanzas: crear/editar OC (sin aprobar). */
     function isComprador() {
-      return isGerencia();
+      return isAdministrativoFinanzas();
     }
 
     function puedeLeerCompras() {
-      return isGerencia() || isAdminDeposito() || isAnalista();
+      return finanzasLectura() || isAdminDeposito();
     }
 
     function estadoOrdenCompraValido(s) {
@@ -284,15 +287,15 @@ service cloud.firestore {
         );
     }
 
-    /** Comprador: edición de borrador o ajuste pre-aprobación. */
-    function gerenciaActualizaOcBorrador() {
+    /** Oficina finanzas: edición de borrador o ajuste pre-aprobación. */
+    function compradorActualizaOcBorrador() {
       return isComprador()
         && resource.data.estado in ['BORRADOR', 'PENDIENTE_APROBACION']
         && request.resource.data.estado in ['BORRADOR', 'PENDIENTE_APROBACION'];
     }
 
-    /** Comprador: enviar OC a bandeja de aprobación. */
-    function gerenciaEnviaOcAprobacion() {
+    /** Oficina finanzas: enviar OC a bandeja de aprobación. */
+    function compradorEnviaOcAprobacion() {
       return isComprador()
         && resource.data.estado == 'BORRADOR'
         && request.resource.data.estado == 'PENDIENTE_APROBACION'
@@ -325,9 +328,9 @@ service cloud.firestore {
         ]);
     }
 
-    /** Gerencia: registrar factura de proveedor contra OC recibida. */
-    function gerenciaActualizaOcPorFactura() {
-      return isGerencia()
+    /** Oficina finanzas: registrar factura de proveedor contra OC recibida. */
+    function financieroActualizaOcPorFactura() {
+      return finanzasEscritura()
         && resource.data.estado in ['RECIBIDA_PARCIAL', 'COMPLETADA']
         && request.resource.data.estado == resource.data.estado
         && request.resource.data.diff(resource.data).changedKeys().hasOnly([
@@ -337,12 +340,12 @@ service cloud.firestore {
     }
 
     function puedeLeerPadronEmpresas() {
-      return panelControlLectura() || isTerminalComedor() || isJefeCampamento()
-        || isAdminDeposito() || isGerencia();
+      return panelControlLectura() || isAdministrativoCampamento()
+        || isAdminDeposito();
     }
 
     function puedeEscribirPadronEmpresas() {
-      return panelControlEscritura() || isJefeCampamento() || isAdminDeposito() || isGerencia();
+      return panelControlEscritura() || isAdminDeposito() || finanzasEscritura();
     }
 
     /** INGRESO de depósito (incluye recepción vinculada a OC). */
@@ -370,7 +373,7 @@ service cloud.firestore {
     // ─── Módulo B: Tesorería (Cuentas por Pagar) ───────────────────────────
 
     function puedeLeerTesoreria() {
-      return isGerencia() || isAnalista();
+      return finanzasLectura();
     }
 
     function estadoFacturaProveedorValido(s) {
@@ -393,8 +396,8 @@ service cloud.firestore {
         && estadoFacturaProveedorValido(request.resource.data.estado);
     }
 
-    function gerenciaActualizaFacturaProveedor() {
-      return isGerencia()
+    function financieroActualizaFacturaProveedor() {
+      return finanzasEscritura()
         && estadoFacturaProveedorValido(request.resource.data.estado)
         && request.resource.data.estado != 'ANULADA'
         && request.resource.data.diff(resource.data).changedKeys().hasOnly([
@@ -402,9 +405,9 @@ service cloud.firestore {
         ]);
     }
 
-    /** Gerencia: anular factura sin pagos (reverso de deuda). */
-    function gerenciaAnulaFacturaProveedor() {
-      return isGerencia()
+    /** Oficina finanzas: anular factura sin pagos (reverso de deuda). */
+    function financieroAnulaFacturaProveedor() {
+      return finanzasEscritura()
         && resource.data.estado != 'ANULADA'
         && request.resource.data.estado == 'ANULADA'
         && request.resource.data.saldoPendiente == 0
@@ -417,9 +420,9 @@ service cloud.firestore {
         ]);
     }
 
-    /** Gerencia: revertir OC al anular factura. */
-    function gerenciaRevertOcPorAnulacionFactura() {
-      return isGerencia()
+    /** Oficina finanzas: revertir OC al anular factura. */
+    function financieroRevertOcPorAnulacionFactura() {
+      return finanzasEscritura()
         && request.resource.data.diff(resource.data).changedKeys().hasOnly([
           'facturaCargada', 'deudaGenerada', 'facturasAsociadasIds',
           'montoFacturadoAcumulado', 'actualizadoEn'
@@ -440,7 +443,7 @@ service cloud.firestore {
     }
 
     /** Comprador: vincula requisición interna al emitir OC. */
-    function gerenciaVinculaRequisicionOc() {
+    function compradorVinculaRequisicionOc() {
       return isComprador()
         && resource.data.tipoSolicitud == 'REQUISICION_COMPRA'
         && resource.data.estado == 'Pendiente'
@@ -456,7 +459,7 @@ service cloud.firestore {
     // ─── Módulo C: Cuentas por Cobrar (liquidaciones contratistas) ────────
 
     function puedeLeerLiquidaciones() {
-      return isGerencia() || isAnalista();
+      return finanzasLectura();
     }
 
     function estadoLiquidacionValido(s) {
@@ -464,7 +467,7 @@ service cloud.firestore {
     }
 
     function creacionLiquidacionContratistaValida() {
-      return isGerencia()
+      return finanzasEscritura()
         && request.resource.data.keys().hasAll([
           'numero', 'anio', 'secuencial', 'empresaId', 'empresaNombre', 'empresaCuit',
           'fechaInicio', 'fechaFin', 'totalViandas', 'totalNoches', 'detalles',
@@ -481,8 +484,8 @@ service cloud.firestore {
         && estadoLiquidacionValido(request.resource.data.estado);
     }
 
-    function gerenciaAnulaLiquidacionContratista() {
-      return isGerencia()
+    function financieroAnulaLiquidacionContratista() {
+      return finanzasEscritura()
         && resource.data.estado == 'EMITIDA'
         && request.resource.data.estado == 'ANULADA'
         && request.resource.data.diff(resource.data).changedKeys().hasOnly([
@@ -491,8 +494,8 @@ service cloud.firestore {
     }
 
     /** Marca consumos incluidos en una liquidación EMITIDA (batch billing). */
-    function gerenciaMarcaConsumoLiquidado() {
-      return isGerencia()
+    function financieroMarcaConsumoLiquidado() {
+      return finanzasEscritura()
         && resource.data.liquidado != true
         && request.resource.data.liquidado == true
         && request.resource.data.liquidacionId is string
@@ -503,8 +506,8 @@ service cloud.firestore {
     }
 
     /** Revierte bloqueo de consumos al anular liquidación. */
-    function gerenciaDesmarcaConsumoLiquidado() {
-      return isGerencia()
+    function financieroDesmarcaConsumoLiquidado() {
+      return finanzasEscritura()
         && resource.data.liquidado == true
         && request.resource.data.liquidado == false
         && !request.resource.data.keys().hasAny(['liquidacionId'])
@@ -550,9 +553,9 @@ service cloud.firestore {
         && request.resource.data.referenciaPago.size() > 0;
     }
 
-    /** Gerencia: anular OP y registrar auditoría. */
-    function gerenciaAnulaOrdenPago() {
-      return isGerencia()
+    /** Oficina finanzas: anular OP y registrar auditoría. */
+    function financieroAnulaOrdenPago() {
+      return finanzasEscritura()
         && resource.data.estado == 'EMITIDA'
         && request.resource.data.estado == 'ANULADA'
         && request.resource.data.anuladoPorUid == request.auth.uid
@@ -565,7 +568,7 @@ service cloud.firestore {
     }
 
     function puedeLeerContadorOp() {
-      return isGerencia() || isAnalista();
+      return finanzasLectura();
     }
 
     match /usuarios/{userId} {
@@ -603,14 +606,14 @@ service cloud.firestore {
     }
 
     match /solicitudes_mercaderia/{id} {
-      allow read: if signedIn() && (isAdminCocina() || isAdminDeposito() || isAdminCampamento() || isJefeCampamento() || isAnalista() || isGerencia());
+      allow read: if signedIn() && (isAdminCocina() || isAdminDeposito() || isAdministrativoCampamento() || isAnalista() || isGerencia() || isAdministrativoFinanzas());
       allow create: if signedIn() && (
-        isAdminCocina() || isAdminCampamento() || isJefeCampamento()
+        isAdminCocina() || isAdministrativoCampamento()
         || creacionRequisicionCompraDeposito()
       );
       allow update: if signedIn() && (
-        isAdminCocina() || isAdminDeposito() || isAdminCampamento() || isJefeCampamento()
-        || gerenciaVinculaRequisicionOc()
+        isAdminCocina() || isAdminDeposito() || isAdministrativoCampamento()
+        || compradorVinculaRequisicionOc()
       );
       allow delete: if isAdminDeposito();
     }
@@ -651,8 +654,8 @@ service cloud.firestore {
     }
 
     match /padron_personas/{id} {
-      allow read: if signedIn() && (panelControlLectura() || isTerminalComedor() || isJefeCampamento());
-      allow create, update, delete: if signedIn() && (panelControlEscritura() || isJefeCampamento());
+      allow read: if signedIn() && (panelControlLectura() || isAdministrativoCampamento());
+      allow create, update, delete: if signedIn() && panelControlEscritura();
     }
 
     match /padron_empresas/{id} {
@@ -661,33 +664,33 @@ service cloud.firestore {
     }
 
     match /registros_comedor/{id} {
-      allow read: if signedIn() && (panelControlLectura() || isTerminalComedor() || isJefeCampamento());
+      allow read: if signedIn() && (panelControlLectura() || isAdministrativoCampamento());
       allow create: if signedIn() && (
         creacionRegistroComedorTerminal() || creacionRegistroComedorSupervisor()
       );
       allow update: if signedIn() && (
-        gerenciaMarcaConsumoLiquidado() || gerenciaDesmarcaConsumoLiquidado()
+        financieroMarcaConsumoLiquidado() || financieroDesmarcaConsumoLiquidado()
       );
       allow delete: if false;
     }
 
     match /camas/{id} {
-      allow read: if signedIn() && (panelControlLectura() || isJefeCampamento());
-      allow create, update, delete: if signedIn() && (panelControlEscritura() || isJefeCampamento());
+      allow read: if signedIn() && panelControlLectura();
+      allow create, update, delete: if signedIn() && panelControlEscritura();
     }
 
     match /historial_limpiezas/{id} {
-      allow read: if signedIn() && (panelControlLectura() || isJefeCampamento());
-      allow create: if signedIn() && (panelControlEscritura() || isJefeCampamento());
+      allow read: if signedIn() && panelControlLectura();
+      allow create: if signedIn() && panelControlEscritura();
       allow update, delete: if false;
     }
 
     match /historial_pernoctes/{id} {
-      allow read: if signedIn() && (panelControlLectura() || isJefeCampamento());
-      allow create, delete: if signedIn() && (panelControlEscritura() || isJefeCampamento());
+      allow read: if signedIn() && panelControlLectura();
+      allow create, delete: if signedIn() && panelControlEscritura();
       allow update: if signedIn() && (
-        panelControlEscritura() || isJefeCampamento()
-        || gerenciaMarcaConsumoLiquidado() || gerenciaDesmarcaConsumoLiquidado()
+        panelControlEscritura()
+        || financieroMarcaConsumoLiquidado() || financieroDesmarcaConsumoLiquidado()
       );
     }
 
@@ -695,14 +698,14 @@ service cloud.firestore {
 
     match /contadores/{contadorId} {
       allow read: if signedIn() && (
-        (contadorId == 'numeracion_oc' && (isGerencia() || isAdminDeposito()))
+        (contadorId == 'numeracion_oc' && (finanzasLectura() || isAdminDeposito()))
         || (contadorId == 'numeracion_op' && puedeLeerContadorOp())
         || (contadorId == 'numeracion_liq' && puedeLeerLiquidaciones())
       );
       allow create, update: if signedIn() && (
         (contadorId == 'numeracion_oc' && isComprador())
-        || (contadorId == 'numeracion_op' && isGerencia())
-        || (contadorId == 'numeracion_liq' && isGerencia())
+        || (contadorId == 'numeracion_op' && finanzasEscritura())
+        || (contadorId == 'numeracion_liq' && finanzasEscritura())
       );
       allow delete: if false;
     }
@@ -711,12 +714,12 @@ service cloud.firestore {
       allow read: if signedIn() && puedeLeerCompras();
       allow create: if signedIn() && isComprador() && creacionOrdenCompraValida();
       allow update: if signedIn() && (
-        gerenciaActualizaOcBorrador()
-        || gerenciaEnviaOcAprobacion()
+        compradorActualizaOcBorrador()
+        || compradorEnviaOcAprobacion()
         || gerenciaApruebaOrdenCompra()
         || depositoActualizaOcRecepcion()
-        || gerenciaActualizaOcPorFactura()
-        || gerenciaRevertOcPorAnulacionFactura()
+        || financieroActualizaOcPorFactura()
+        || financieroRevertOcPorAnulacionFactura()
       );
       allow delete: if false;
     }
@@ -725,25 +728,25 @@ service cloud.firestore {
 
     match /facturas_proveedores/{facturaId} {
       allow read: if signedIn() && puedeLeerTesoreria();
-      allow create: if signedIn() && isGerencia() && creacionFacturaProveedorValida();
+      allow create: if signedIn() && finanzasEscritura() && creacionFacturaProveedorValida();
       allow update: if signedIn() && (
-        gerenciaActualizaFacturaProveedor()
-        || gerenciaAnulaFacturaProveedor()
+        financieroActualizaFacturaProveedor()
+        || financieroAnulaFacturaProveedor()
       );
       allow delete: if false;
     }
 
     match /facturas_proveedores_claves/{claveId} {
-      allow read: if signedIn() && isGerencia();
-      allow create: if signedIn() && isGerencia() && creacionClaveFacturaProveedorValida();
-      allow delete: if signedIn() && isGerencia();
+      allow read: if signedIn() && finanzasEscritura();
+      allow create: if signedIn() && finanzasEscritura() && creacionClaveFacturaProveedorValida();
+      allow delete: if signedIn() && finanzasEscritura();
       allow update: if false;
     }
 
     match /ordenes_pago/{opId} {
       allow read: if signedIn() && puedeLeerTesoreria();
-      allow create: if signedIn() && isGerencia() && creacionOrdenPagoValida();
-      allow update: if signedIn() && gerenciaAnulaOrdenPago();
+      allow create: if signedIn() && finanzasEscritura() && creacionOrdenPagoValida();
+      allow update: if signedIn() && financieroAnulaOrdenPago();
       allow delete: if false;
     }
 
@@ -752,7 +755,7 @@ service cloud.firestore {
     match /liquidaciones_contratistas/{liqId} {
       allow read: if signedIn() && puedeLeerLiquidaciones();
       allow create: if signedIn() && creacionLiquidacionContratistaValida();
-      allow update: if signedIn() && gerenciaAnulaLiquidacionContratista();
+      allow update: if signedIn() && financieroAnulaLiquidacionContratista();
       allow delete: if false;
     }
 

@@ -103,7 +103,7 @@ export interface EmitirLiquidacionResult {
   totalFacturado: number
   registrosMarcados: number
   pernoctesMarcados: number
-  saldoCuentaCorrienteContratista: number
+  saldoCliente: number
 }
 
 export interface AnularLiquidacionInput {
@@ -118,7 +118,7 @@ export interface AnularLiquidacionResult {
   numero: string
   totalRevertido: number
   consumosDesbloqueados: number
-  saldoCuentaCorrienteContratista: number
+  saldoCliente: number
 }
 
 /** Conceptos principales en el asistente de nueva liquidación. */

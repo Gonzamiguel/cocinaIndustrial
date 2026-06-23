@@ -70,7 +70,7 @@ export interface ResultadoRegistrarFacturaProveedor {
   ordenCompraNumero: string
   saldoPendiente: number
   montoFacturadoAcumuladoOc: number
-  saldoCuentaCorrienteProveedor: number
+  saldoProveedor: number
 }
 
 // ─── Órdenes de pago ───────────────────────────────────────────────────────
@@ -143,7 +143,7 @@ export interface ResultadoRegistrarOrdenPago {
   ordenPagoId: string
   numero: string
   montoTotal: number
-  saldoCuentaCorrienteProveedor: number
+  saldoProveedor: number
   facturasActualizadas: {
     facturaId: string
     numeroFactura: string
@@ -167,7 +167,7 @@ export interface ResultadoAnularOrdenPago {
   ordenPagoId: string
   numero: string
   montoTotal: number
-  saldoCuentaCorrienteProveedor: number
+  saldoProveedor: number
   facturasRevertidas: {
     facturaId: string
     numeroFactura: string
@@ -186,5 +186,5 @@ export interface ResultadoAnularFacturaProveedor {
   ordenCompraId: string
   montoFacturadoAcumuladoOc: number
   facturaCargada: boolean
-  saldoCuentaCorrienteProveedor: number
+  saldoProveedor: number
 }

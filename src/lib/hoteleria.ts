@@ -57,7 +57,7 @@ function mensajePermisosLimpiezaFirestore(): string {
     'Permiso denegado en Firestore. Suele pasar si aún no se publicaron las reglas con la colección ' +
     '`historial_limpiezas`: ejecutá `firebase deploy --only firestore:rules` desde el proyecto, ' +
     'o pedí a quien administra Firebase que copie las reglas del archivo `firestore.rules` del repo. ' +
-    'También verificá que en `usuarios/{tuUID}` el campo `rol` sea exactamente `hoteleria_casposo`.'
+    'También verificá que en `usuarios/{tuUID}` el campo `rol` sea exactamente `administrativo_campamento`.'
   )
 }
 
@@ -67,7 +67,7 @@ function logErrorSuscripcion(coleccion: string, err: FirestoreErrorish) {
       `[Firestore] ${coleccion}: permiso denegado. ` +
         'Publicá las reglas del repositorio en tu proyecto: `firebase deploy --only firestore:rules` ' +
         '(desde la raíz del proyecto, con firebase.json). ' +
-        'Comprobá `usuarios/{tuUID}.rol` (`admin_campamento`, `hoteleria_casposo`, `gerencia` o `analista` para `/control` con escritura).',
+        'Comprobá `usuarios/{tuUID}.rol` (`administrativo_campamento` para escritura; `gerencia` o `analista` solo lectura).',
     )
     return
   }

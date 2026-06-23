@@ -28,7 +28,10 @@ export interface CondicionesComercialesProveedor {
   monedaDefault: 'ARS' | 'USD'
   descuentoProntoPagoPct?: number
   limiteCredito?: number
-  saldoCuentaCorriente?: number
+  /** Pasivo: deuda con el proveedor (cuentas por pagar). */
+  saldoProveedor?: number
+  /** Activo: deuda del cliente/contratista con nosotros (cuentas por cobrar). */
+  saldoCliente?: number
 }
 
 /** Extensión opcional del padrón para roles ERP (retrocompatible con docs legacy). */

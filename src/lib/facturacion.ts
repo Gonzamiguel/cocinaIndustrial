@@ -19,6 +19,10 @@ import { COL_REGISTROS_COMEDOR, mapRegistroComedor } from './comedor'
 import { COL_HISTORIAL_PERNOCTES, mapHistorial } from './hoteleria'
 import { nochesEnRango } from './hoteleriaPernoctes'
 import { COL_PADRON_EMPRESAS, normalizarNombreEmpresa } from './padronEmpresas'
+import {
+  leerSaldoCliente,
+  patchCondicionesSaldoCliente,
+} from './padronSaldos'
 import type { RegistroComedor } from '../types/comedor'
 import type { HistorialPernocte } from '../types/hoteleria'
 import type {
@@ -236,13 +240,7 @@ async function fetchHistorialPernoctesPendientes(
 }
 
 function leerSaldoContratista(raw: Record<string, unknown>): number {
-  const cond = raw.condicionesComerciales
-  if (cond && typeof cond === 'object') {
-    const saldo = Number((cond as Record<string, unknown>).saldoCuentaCorriente)
-    if (Number.isFinite(saldo)) return saldo
-  }
-  const flat = Number(raw.saldoCuentaCorriente)
-  return Number.isFinite(flat) ? flat : 0
+  return leerSaldoCliente(raw)
 }
 
 function alicuotaIva(listaPrecios: ListaPreciosContratista): number {
@@ -546,7 +544,7 @@ export async function emitirLiquidacion(
     const { numero, anio, secuencial } = reservarNumeroLiquidacion(tx, db, contadorSnap, ahora)
     const empresaRaw = empresaSnap.data() as Record<string, unknown>
     const saldoAnterior = leerSaldoContratista(empresaRaw)
-    const saldoCuentaCorrienteContratista = roundMoney(saldoAnterior + preview.totalFacturado)
+    const saldoCliente = roundMoney(saldoAnterior + preview.totalFacturado)
 
     tx.set(liquidacionRef, {
       numero,
@@ -577,9 +575,7 @@ export async function emitirLiquidacion(
     tx.set(
       empresaRef,
       {
-        condicionesComerciales: {
-          saldoCuentaCorriente: saldoCuentaCorrienteContratista,
-        },
+        ...patchCondicionesSaldoCliente(empresaRaw, saldoCliente),
         actualizadoEn: serverTimestamp(),
         actualizadoPorUid: input.usuarioUid.trim(),
       },
@@ -589,7 +585,7 @@ export async function emitirLiquidacion(
     return {
       numero,
       totalFacturado: preview.totalFacturado,
-      saldoCuentaCorrienteContratista,
+      saldoCliente,
       registrosMarcados: preview.registrosComedorIds.length,
       pernoctesMarcados: preview.historialPernocteIds.length,
     }
@@ -647,7 +643,7 @@ export async function anularLiquidacion(
 
     const empresaRaw = empresaSnap.data() as Record<string, unknown>
     const saldoAnterior = leerSaldoContratista(empresaRaw)
-    const saldoCuentaCorrienteContratista = roundMoney(
+    const saldoCliente = roundMoney(
       Math.max(0, saldoAnterior - liq.totalFacturado),
     )
 
@@ -664,9 +660,7 @@ export async function anularLiquidacion(
     tx.set(
       empresaRef,
       {
-        condicionesComerciales: {
-          saldoCuentaCorriente: saldoCuentaCorrienteContratista,
-        },
+        ...patchCondicionesSaldoCliente(empresaRaw, saldoCliente),
         actualizadoEn: serverTimestamp(),
         actualizadoPorUid: input.usuarioUid.trim(),
       },
@@ -676,7 +670,7 @@ export async function anularLiquidacion(
     return {
       numero: liq.numero,
       totalRevertido: liq.totalFacturado,
-      saldoCuentaCorrienteContratista,
+      saldoCliente,
       registrosComedorIds: liq.registrosComedorIds,
       historialPernocteIds: liq.historialPernocteIds,
     }
@@ -694,7 +688,7 @@ export async function anularLiquidacion(
     totalRevertido: txResult.totalRevertido,
     consumosDesbloqueados:
       txResult.registrosComedorIds.length + txResult.historialPernocteIds.length,
-    saldoCuentaCorrienteContratista: txResult.saldoCuentaCorrienteContratista,
+    saldoCliente: txResult.saldoCliente,
   }
 }
 

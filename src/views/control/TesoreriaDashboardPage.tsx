@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Loader2, Plus, Wallet, FileText, CreditCard } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { useToast } from '../../context/ToastContext'
+import { puedeOperarFinanzas } from '../../lib/rbac'
 import {
   anularFacturaProveedor,
   anularOrdenPago,
@@ -46,7 +47,7 @@ function facturaTienePagos(f: FacturaProveedor): boolean {
 export function TesoreriaDashboardPage() {
   const { user, rol } = useAuth()
   const { showToast } = useToast()
-  const puedeEscribir = rol === 'gerencia'
+  const puedeEscribir = puedeOperarFinanzas(rol)
 
   const [tab, setTab] = useState<TabId>('cuentas')
   const [proveedores, setProveedores] = useState<ProveedorTesoreria[]>([])
@@ -105,11 +106,11 @@ export function TesoreriaDashboardPage() {
           p.cuit.toLowerCase().includes(q)
         )
       })
-      .sort((a, b) => b.saldoCuentaCorriente - a.saldoCuentaCorriente)
+      .sort((a, b) => b.saldoProveedor - a.saldoProveedor)
   }, [proveedores, busquedaCuentas])
 
   const totalDeuda = useMemo(
-    () => roundMoney(proveedoresCuentas.reduce((acc, p) => acc + p.saldoCuentaCorriente, 0)),
+    () => roundMoney(proveedoresCuentas.reduce((acc, p) => acc + p.saldoProveedor, 0)),
     [proveedoresCuentas],
   )
 
@@ -263,7 +264,7 @@ export function TesoreriaDashboardPage() {
                     <tr className="border-b border-neutral-100 bg-neutral-50/80 text-xs uppercase tracking-wide text-neutral-500">
                       <th className="px-4 py-3 font-semibold">Proveedor</th>
                       <th className="px-4 py-3 font-semibold">CUIT</th>
-                      <th className="px-4 py-3 text-right font-semibold">Saldo CC</th>
+                      <th className="px-4 py-3 text-right font-semibold">Deuda (proveedor)</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -283,12 +284,12 @@ export function TesoreriaDashboardPage() {
                           <td className="px-4 py-3 text-neutral-600">{p.cuit || '—'}</td>
                           <td
                             className={`px-4 py-3 text-right tabular-nums font-semibold ${
-                              p.saldoCuentaCorriente > 0
+                              p.saldoProveedor > 0
                                 ? 'text-amber-800'
                                 : 'text-neutral-700'
                             }`}
                           >
-                            {formatMonedaArs(p.saldoCuentaCorriente)}
+                            {formatMonedaArs(p.saldoProveedor)}
                           </td>
                         </tr>
                       ))

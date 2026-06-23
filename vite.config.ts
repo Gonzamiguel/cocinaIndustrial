@@ -17,7 +17,12 @@ export default defineConfig({
     tailwindcss(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.svg'],
+      includeAssets: [
+        'favicon.svg',
+        'login-coffee-break.png',
+        'login-movilidad.png',
+        'login-cook-and-chill.png',
+      ],
       manifest,
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,svg,png,webp,woff2}'],

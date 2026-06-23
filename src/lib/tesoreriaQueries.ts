@@ -23,6 +23,7 @@ import type {
 } from '../types/tesoreria'
 import type { PadronEmpresaExtendido, RolEmpresaPadron } from '../types/compras'
 import { normalizarCuit, normalizarNombreEmpresa } from './padronEmpresas'
+import { leerSaldoProveedor } from './padronSaldos'
 
 type FirestoreErrorish = { code?: string; message?: string }
 
@@ -58,7 +59,7 @@ export interface ProveedorTesoreria {
   id: string
   nombre: string
   cuit: string
-  saldoCuentaCorriente: number
+  saldoProveedor: number
   proveedorActivo: boolean
   roles: RolEmpresaPadron[]
 }
@@ -71,17 +72,13 @@ export function mapProveedorTesoreria(id: string, data: Record<string, unknown>)
           r === 'CONTRATISTA' || r === 'PROVEEDOR' || r === 'CLIENTE',
       )
     : []
-  const cond = ext.condicionesComerciales
-  const saldo =
-    typeof cond?.saldoCuentaCorriente === 'number' && Number.isFinite(cond.saldoCuentaCorriente)
-      ? cond.saldoCuentaCorriente
-      : 0
+  const saldo = leerSaldoProveedor(data)
 
   return {
     id,
     nombre: typeof data.nombre === 'string' ? normalizarNombreEmpresa(data.nombre) : '',
     cuit: typeof data.cuit === 'string' ? normalizarCuit(data.cuit) : '',
-    saldoCuentaCorriente: saldo,
+    saldoProveedor: saldo,
     proveedorActivo: ext.proveedorActivo !== false,
     roles,
   }
@@ -90,7 +87,12 @@ export function mapProveedorTesoreria(id: string, data: Record<string, unknown>)
 export function esProveedorTesoreria(p: ProveedorTesoreria): boolean {
   if (p.roles.includes('PROVEEDOR')) return true
   if (p.proveedorActivo && p.roles.length === 0) return true
-  return p.saldoCuentaCorriente > 0
+  const soloClienteContratista =
+    p.roles.length > 0 &&
+    !p.roles.includes('PROVEEDOR') &&
+    p.roles.every((r) => r === 'CONTRATISTA' || r === 'CLIENTE')
+  if (soloClienteContratista) return false
+  return p.saldoProveedor > 0
 }
 
 export function mapFacturaProveedor(id: string, data: Record<string, unknown>): FacturaProveedor {

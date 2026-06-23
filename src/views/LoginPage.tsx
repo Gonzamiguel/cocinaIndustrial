@@ -5,18 +5,21 @@ import { doc, getDoc } from 'firebase/firestore'
 import { useAuth, type UserRole } from '../context/AuthContext'
 import { getAuthApp, getDb } from '../lib/firebase'
 import { rolPuedeAccederRuta, rutaHomePorRol } from '../lib/rbac'
+import loginCoffeeBreak from '../assets/login/login-coffee-break.png'
+import loginMovilidad from '../assets/login/login-movilidad.png'
+import loginCookAndChill from '../assets/login/login-cook-and-chill.png'
 
 const LOGIN_SLIDES = [
   {
-    src: '/login-coffee-break.png',
+    src: loginCoffeeBreak,
     alt: 'Espacio corporativo de cafetería con personas conversando',
   },
   {
-    src: '/login-movilidad.png',
+    src: loginMovilidad,
     alt: 'Camioneta corporativa en operación sobre un entorno nevado',
   },
   {
-    src: '/login-cook-and-chill.png',
+    src: loginCookAndChill,
     alt: 'Plato preparado en cocina industrial con packaging corporativo',
   },
 ] as const
@@ -26,14 +29,12 @@ const MSG_MODULO_NO_DISPONIBLE =
 
 function parseRol(raw: unknown): UserRole | null {
   if (
-    raw === 'admin_cocina' ||
+    raw === 'administrativo_campamento' ||
     raw === 'admin_deposito' ||
-    raw === 'admin_campamento' ||
-    raw === 'jefe_campamento' ||
-    raw === 'hoteleria_casposo' ||
-    raw === 'terminal_comedor' ||
-    raw === 'analista' ||
-    raw === 'gerencia'
+    raw === 'admin_cocina' ||
+    raw === 'administrativo_finanzas' ||
+    raw === 'gerencia' ||
+    raw === 'analista'
   ) {
     return raw
   }
@@ -147,6 +148,36 @@ export function LoginPage() {
           from.startsWith('/admin/') ||
           from === '/admin-cocina')
       ) {
+        if (!rolPuedeAccederRuta(rolLeído, from)) {
+          await signOut(auth)
+          setError('No tenés permiso para acceder a esa sección.')
+          return
+        }
+        navigate(from, { replace: true })
+        return
+      }
+
+      if (from && (from === '/analista' || from.startsWith('/analista/'))) {
+        if (!rolPuedeAccederRuta(rolLeído, from)) {
+          await signOut(auth)
+          setError('No tenés permiso para acceder a esa sección.')
+          return
+        }
+        navigate(from, { replace: true })
+        return
+      }
+
+      if (from && (from === '/campamento' || from.startsWith('/campamento/'))) {
+        if (!rolPuedeAccederRuta(rolLeído, from)) {
+          await signOut(auth)
+          setError('No tenés permiso para acceder a esa sección.')
+          return
+        }
+        navigate(from, { replace: true })
+        return
+      }
+
+      if (from && (from === '/hoteleria' || from.startsWith('/hoteleria/'))) {
         if (!rolPuedeAccederRuta(rolLeído, from)) {
           await signOut(auth)
           setError('No tenés permiso para acceder a esa sección.')

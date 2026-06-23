@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Check, FileText, Loader2, Plus, Send } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { useToast } from '../../context/ToastContext'
+import { puedeAprobarOc, puedeOperarFinanzas } from '../../lib/rbac'
 import { NuevaOrdenCompraModal } from '../../components/compras/NuevaOrdenCompraModal'
 import { EstadoOcBadge } from '../../components/compras/EstadoOcBadge'
 import {
@@ -46,7 +47,9 @@ function BadgeEstadoSolicitud({ estado }: { estado: SolicitudMercaderia['estado'
 export function ComprasAprobacionPage() {
   const { user, rol } = useAuth()
   const { showToast } = useToast()
-  const puedeOperar = rol === 'gerencia'
+  const puedeCrearOc = puedeOperarFinanzas(rol)
+  const puedeEnviar = puedeOperarFinanzas(rol)
+  const puedeAprobar = puedeAprobarOc(rol)
 
   const [tab, setTab] = useState<TabCompras>('solicitudes')
   const [solicitudes, setSolicitudes] = useState<SolicitudMercaderia[]>([])
@@ -112,7 +115,7 @@ export function ComprasAprobacionPage() {
   )
 
   async function handleEnviarAprobacion(oc: OrdenCompra) {
-    if (!user || !puedeOperar) return
+    if (!user || !puedeEnviar) return
     setEnviandoId(oc.id)
     try {
       await enviarOrdenCompraAprobacion({
@@ -129,7 +132,7 @@ export function ComprasAprobacionPage() {
   }
 
   async function handleAprobar(oc: OrdenCompra) {
-    if (!user || !puedeOperar) return
+    if (!user || !puedeAprobar) return
     setAprobandoId(oc.id)
     try {
       await aprobarOrdenCompra({
@@ -175,12 +178,14 @@ export function ComprasAprobacionPage() {
                 Bandeja de comprador
               </h1>
               <p className="mt-1 max-w-2xl text-sm text-neutral-600">
-                {puedeOperar
-                  ? 'Atendé requisiciones internas, emití OC con proveedor y aprobá compras antes de la recepción en depósito.'
-                  : 'Vista de consulta de requisiciones y órdenes de compra.'}
+                {puedeCrearOc
+                  ? 'Atendé requisiciones internas, emití OC y enviá a aprobación de gerencia.'
+                  : puedeAprobar
+                    ? 'Vista directiva: aprobá órdenes de compra pendientes antes de la recepción en depósito.'
+                    : 'Vista de consulta de requisiciones y órdenes de compra.'}
               </p>
             </div>
-            {puedeOperar && tab === 'ordenes' ? (
+            {puedeCrearOc && tab === 'ordenes' ? (
               <button
                 type="button"
                 onClick={abrirNuevaOcLibre}
@@ -234,7 +239,7 @@ export function ComprasAprobacionPage() {
                     <th className="px-3 py-3 font-semibold">Prioridad</th>
                     <th className="px-3 py-3 font-semibold">Estado</th>
                     <th className="px-3 py-3 font-semibold">Ítems</th>
-                    {puedeOperar ? (
+                    {puedeCrearOc ? (
                       <th className="px-3 py-3 font-semibold">Acción</th>
                     ) : null}
                   </tr>
@@ -243,7 +248,7 @@ export function ComprasAprobacionPage() {
                   {requisicionesPendientes.length === 0 ? (
                     <tr>
                       <td
-                        colSpan={puedeOperar ? 7 : 6}
+                        colSpan={puedeCrearOc ? 7 : 6}
                         className="px-4 py-12 text-center text-neutral-500"
                       >
                         No hay requisiciones internas pendientes.
@@ -269,7 +274,7 @@ export function ComprasAprobacionPage() {
                           {s.items.map((it) => it.producto).slice(0, 2).join(', ')}
                           {s.items.length > 2 ? ` (+${s.items.length - 2})` : ''}
                         </td>
-                        {puedeOperar ? (
+                        {puedeCrearOc ? (
                           <td className="px-3 py-3">
                             <button
                               type="button"
@@ -300,7 +305,7 @@ export function ComprasAprobacionPage() {
                 </h2>
                 <TablaOc
                   filas={borradores}
-                  puedeOperar={puedeOperar}
+                  puedeEnviar={puedeEnviar}
                   enviandoId={enviandoId}
                   onEnviar={(oc) => void handleEnviarAprobacion(oc)}
                 />
@@ -316,7 +321,7 @@ export function ComprasAprobacionPage() {
               </h2>
               <TablaOc
                 filas={pendientesAprobacion}
-                puedeOperar={puedeOperar}
+                puedeAprobar={puedeAprobar}
                 aprobandoId={aprobandoId}
                 onAprobar={(oc) => void handleAprobar(oc)}
               />
@@ -347,14 +352,16 @@ export function ComprasAprobacionPage() {
 
 function TablaOc({
   filas,
-  puedeOperar,
+  puedeEnviar,
+  puedeAprobar,
   aprobandoId,
   enviandoId,
   onAprobar,
   onEnviar,
 }: {
   filas: OrdenCompra[]
-  puedeOperar?: boolean
+  puedeEnviar?: boolean
+  puedeAprobar?: boolean
   aprobandoId?: string | null
   enviandoId?: string | null
   onAprobar?: (oc: OrdenCompra) => void
@@ -368,8 +375,8 @@ function TablaOc({
     )
   }
 
-  const mostrarEnviar = Boolean(onEnviar && puedeOperar)
-  const mostrarAprobar = Boolean(onAprobar && puedeOperar)
+  const mostrarEnviar = Boolean(onEnviar && puedeEnviar)
+  const mostrarAprobar = Boolean(onAprobar && puedeAprobar)
 
   return (
     <div className="overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm">

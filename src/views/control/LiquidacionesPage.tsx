@@ -10,6 +10,7 @@ import {
 } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { useToast } from '../../context/ToastContext'
+import { puedeOperarFinanzas } from '../../lib/rbac'
 import { getDb } from '../../lib/firebase'
 import {
   anularLiquidacion,
@@ -74,7 +75,7 @@ function BadgeEstado({ estado }: { estado: LiquidacionContratista['estado'] }) {
 export function LiquidacionesPage() {
   const { user, rol } = useAuth()
   const { showToast } = useToast()
-  const puedeOperar = rol === 'gerencia'
+  const puedeOperar = puedeOperarFinanzas(rol)
 
   const [tab, setTab] = useState<TabId>('historial')
   const [liquidaciones, setLiquidaciones] = useState<LiquidacionContratista[]>([])

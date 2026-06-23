@@ -79,7 +79,7 @@ export function NuevaOrdenPagoModal({
   const [saving, setSaving] = useState(false)
 
   const proveedoresConSaldo = useMemo(
-    () => proveedores.filter((p) => p.saldoCuentaCorriente > 0),
+    () => proveedores.filter((p) => p.saldoProveedor > 0),
     [proveedores],
   )
 
@@ -234,7 +234,7 @@ export function NuevaOrdenPagoModal({
               <option value="">Seleccioná proveedor…</option>
               {proveedoresConSaldo.map((p) => (
                 <option key={p.id} value={p.id}>
-                  {p.nombre} · Saldo {formatMonedaArs(p.saldoCuentaCorriente)}
+                  {p.nombre} · Saldo {formatMonedaArs(p.saldoProveedor)}
                 </option>
               ))}
             </select>
