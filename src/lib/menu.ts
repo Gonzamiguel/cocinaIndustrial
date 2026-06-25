@@ -20,6 +20,15 @@ import { getDb } from './firebase'
 
 export type CategoriaMenu = 'principal' | 'guarnicion'
 
+export type MenuStockLote = {
+  lote: string
+  fechaVencimiento: string
+  cantidad: number
+  produccionId: string
+  codigoTrazabilidad: string
+  registradoEn: string
+}
+
 export interface MenuItem {
   id: string
   nombre: string
@@ -28,6 +37,8 @@ export interface MenuItem {
   aceptaGuarnicion: boolean
   /** Si viene del recetario, enlaza la ficha técnica con el ítem del menú cliente. */
   recetaId?: string
+  /** Trazabilidad por lote de producción (platos terminados). */
+  stockLotes?: MenuStockLote[]
 }
 
 const MENU_COLLECTION = 'menu'
@@ -41,7 +52,7 @@ export const LUGARES_ENTREGA = [
 ] as const
 export type LugarEntrega = (typeof LUGARES_ENTREGA)[number]
 
-export type EstadoPedido = 'activo' | 'archivado'
+export type EstadoPedido = 'activo' | 'archivado' | 'despachado'
 
 export interface PedidoDelDia {
   id: string
@@ -76,7 +87,11 @@ function mapPedidoDoc(id: string, data: Record<string, unknown>): PedidoDelDia {
 
   const estadoRaw = data.estado
   const estado: EstadoPedido =
-    estadoRaw === 'archivado' ? 'archivado' : 'activo'
+    estadoRaw === 'archivado'
+      ? 'archivado'
+      : estadoRaw === 'despachado'
+        ? 'despachado'
+        : 'activo'
 
   const fechaConsumo =
     typeof data.fechaConsumo === 'string' ? data.fechaConsumo : undefined
@@ -230,9 +245,45 @@ export function subscribePedidos(
   )
 }
 
+function mapStockLotes(raw: unknown): MenuStockLote[] {
+  if (!Array.isArray(raw)) return []
+  const out: MenuStockLote[] = []
+  for (const row of raw) {
+    if (!row || typeof row !== 'object') continue
+    const o = row as Record<string, unknown>
+    const lote = typeof o.lote === 'string' ? o.lote.trim() : ''
+    const fechaVencimiento =
+      typeof o.fechaVencimiento === 'string' ? o.fechaVencimiento.trim() : ''
+    const cantidad = Number(o.cantidad)
+    const produccionId =
+      typeof o.produccionId === 'string' ? o.produccionId.trim() : ''
+    const codigoTrazabilidad =
+      typeof o.codigoTrazabilidad === 'string' ? o.codigoTrazabilidad.trim() : ''
+    const registradoEn =
+      typeof o.registradoEn === 'string' ? o.registradoEn.trim() : ''
+    if (!lote || !Number.isFinite(cantidad) || cantidad <= 0) continue
+    out.push({
+      lote,
+      fechaVencimiento,
+      cantidad: Math.floor(cantidad),
+      produccionId,
+      codigoTrazabilidad,
+      registradoEn,
+    })
+  }
+  return out
+}
+
+function stockTotalDesdeLotes(lotes: MenuStockLote[]): number {
+  return lotes.reduce((acc, l) => acc + Math.max(0, Math.floor(l.cantidad)), 0)
+}
+
 function mapDoc(id: string, data: Record<string, unknown>): MenuItem {
   const categoria = data.categoria === 'guarnicion' ? 'guarnicion' : 'principal'
-  const stock = typeof data.stock === 'number' ? data.stock : 0
+  const stockLotes = mapStockLotes(data.stockLotes)
+  const stockRaw = typeof data.stock === 'number' ? data.stock : 0
+  const stock =
+    stockLotes.length > 0 ? stockTotalDesdeLotes(stockLotes) : Math.max(0, Math.floor(stockRaw))
   const nombre = typeof data.nombre === 'string' ? data.nombre : 'Sin nombre'
   const aceptaGuarnicionRaw = data.aceptaGuarnicion
   const aceptaGuarnicion =
@@ -246,7 +297,110 @@ function mapDoc(id: string, data: Record<string, unknown>): MenuItem {
     typeof recetaIdRaw === 'string' && recetaIdRaw.trim().length > 0
       ? recetaIdRaw.trim()
       : undefined
-  return { id, nombre, categoria, stock, aceptaGuarnicion, recetaId }
+  return { id, nombre, categoria, stock, aceptaGuarnicion, recetaId, stockLotes }
+}
+
+export type InputStockMenuProduccion = {
+  lote: string
+  fechaVencimiento: string
+  cantidad: number
+  produccionId: string
+  codigoTrazabilidad: string
+}
+
+/** Fusiona un lote de producción en el documento menú (para transacciones). */
+export function aplicarStockMenuProduccionEnData(
+  data: Record<string, unknown>,
+  input: InputStockMenuProduccion,
+): { stock: number; stockLotes: MenuStockLote[] } {
+  const cantidad = Math.max(0, Math.floor(input.cantidad))
+  if (cantidad <= 0) {
+    const lotesActuales = mapStockLotes(data.stockLotes)
+    return {
+      stock: stockTotalDesdeLotes(lotesActuales),
+      stockLotes: lotesActuales,
+    }
+  }
+
+  const lote = input.lote.trim()
+  const fechaVencimiento = input.fechaVencimiento.trim()
+  const produccionId = input.produccionId.trim()
+  const codigoTrazabilidad = input.codigoTrazabilidad.trim()
+  const registradoEn = new Date().toISOString()
+
+  const lotes = mapStockLotes(data.stockLotes)
+  const idx = lotes.findIndex(
+    (row) =>
+      row.lote === lote &&
+      row.fechaVencimiento === fechaVencimiento &&
+      row.produccionId === produccionId,
+  )
+
+  if (idx >= 0) {
+    lotes[idx] = {
+      ...lotes[idx],
+      cantidad: lotes[idx].cantidad + cantidad,
+      codigoTrazabilidad: codigoTrazabilidad || lotes[idx].codigoTrazabilidad,
+    }
+  } else {
+    lotes.push({
+      lote,
+      fechaVencimiento,
+      cantidad,
+      produccionId,
+      codigoTrazabilidad,
+      registradoEn,
+    })
+  }
+
+  lotes.sort((a, b) => {
+    const cmpVto = a.fechaVencimiento.localeCompare(b.fechaVencimiento)
+    if (cmpVto !== 0) return cmpVto
+    return a.lote.localeCompare(b.lote, 'es')
+  })
+
+  return { stock: stockTotalDesdeLotes(lotes), stockLotes: lotes }
+}
+
+export type LineaDescontarStockMenu = {
+  lote: string
+  fechaVencimiento: string
+  produccionId: string
+  cantidad: number
+}
+
+/** Descuenta cantidades por lote de producción (para despacho / remito). */
+export function descontarStockMenuLotesEnData(
+  data: Record<string, unknown>,
+  lineas: LineaDescontarStockMenu[],
+): { stock: number; stockLotes: MenuStockLote[] } {
+  const lotes = mapStockLotes(data.stockLotes).map((row) => ({ ...row }))
+
+  for (const linea of lineas) {
+    const qty = Math.max(0, Math.floor(linea.cantidad))
+    if (qty <= 0) continue
+    const lote = linea.lote.trim()
+    const fechaVencimiento = linea.fechaVencimiento.trim()
+    const produccionId = linea.produccionId.trim()
+    const idx = lotes.findIndex(
+      (row) =>
+        row.lote === lote &&
+        row.fechaVencimiento === fechaVencimiento &&
+        row.produccionId === produccionId,
+    )
+    if (idx < 0) {
+      throw new Error(`No hay stock del lote ${lote || '—'} (vto ${fechaVencimiento || '—'}).`)
+    }
+    if (lotes[idx].cantidad < qty) {
+      throw new Error(
+        `Stock insuficiente en lote ${lote}: hay ${lotes[idx].cantidad}, se pidieron ${qty}.`,
+      )
+    }
+    lotes[idx].cantidad -= qty
+  }
+
+  const lotesPositivos = lotes.filter((row) => row.cantidad > 0)
+  return { stock: stockTotalDesdeLotes(lotesPositivos), stockLotes: lotesPositivos }
 }
 
 /**

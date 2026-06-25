@@ -166,7 +166,7 @@ export function DepositoSidebar() {
               <IconOrdenCompra className="h-[18px] w-[18px]" />
             </span>
             <span className="min-w-0 flex-1 whitespace-nowrap overflow-hidden truncate">
-              Requisiciones y OC
+              Solicitud a compras
             </span>
           </span>
         </NavLink>

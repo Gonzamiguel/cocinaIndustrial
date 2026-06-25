@@ -433,10 +433,6 @@ export function DepositoTrazabilidadPage() {
         <h1 className="text-xl font-semibold tracking-tight text-[#CD1818]">
           Reporte de trazabilidad (HACCP)
         </h1>
-        <p className="mt-1 text-sm text-[#8997A6]">
-          Rastreá el ciclo de vida del lote en todas las ubicaciones: central, traslados, recepción en
-          campamentos y consumo final por comandas.
-        </p>
       </header>
 
       <div className="flex min-h-0 flex-1 flex-col px-5 py-6 sm:px-8 lg:px-12 xl:px-16 2xl:px-20">

@@ -125,8 +125,6 @@ export function CampamentoComandasPage() {
     )
   }
 
-  const ub = ubicacionId.trim().toUpperCase()
-
   return (
     <div className="flex min-h-full flex-1 flex-col bg-gray-50">
       <header className="shrink-0 border-b border-gray-200 bg-white px-5 py-5 shadow-sm sm:px-8">
@@ -141,10 +139,6 @@ export function CampamentoComandasPage() {
               <h1 className="text-xl font-semibold tracking-tight text-[#CD1818]">
                 Comandas de consumo diario
               </h1>
-              <p className="mt-1 text-sm text-[#8997A6]">
-                Historial de egresos por consumo en{' '}
-                <span className="font-mono text-xs text-[#171717]">{ub}</span>.
-              </p>
             </div>
           </div>
           <Link

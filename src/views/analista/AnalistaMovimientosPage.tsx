@@ -140,10 +140,6 @@ export function AnalistaMovimientosPage() {
             <h1 className="text-xl font-semibold tracking-tight text-gray-900">
               Historial y logística
             </h1>
-            <p className="mt-1 text-sm text-gray-600">
-              Base analítica de `movimientos_inventario`: una fila por ítem, con destino / receptor /
-              comanda para trazabilidad de camiones y stock.
-            </p>
           </div>
           <button
             type="button"

@@ -170,17 +170,9 @@ export function TesoreriaDashboardPage() {
       <header className="shrink-0 border-b border-neutral-200 bg-white px-4 py-5 shadow-sm sm:px-6">
         <div className="mx-auto flex max-w-7xl flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
-            <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-neutral-500">
-              Finanzas
-            </p>
-            <h1 className="mt-1 text-xl font-semibold tracking-tight text-neutral-900">
+            <h1 className="text-xl font-semibold tracking-tight text-neutral-900">
               Tesorería y cuentas por pagar
             </h1>
-            <p className="mt-1 max-w-2xl text-sm text-neutral-600">
-              Cuentas corrientes de proveedores, facturas registradas contra OC y órdenes de pago
-              emitidas.
-              {!puedeEscribir ? ' Modo consulta (solo lectura).' : null}
-            </p>
           </div>
           {puedeEscribir ? (
             <div className="flex flex-wrap gap-2">

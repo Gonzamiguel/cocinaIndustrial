@@ -319,6 +319,22 @@ export function esRequisicionCompra(s: SolicitudMercaderia): boolean {
   return s.tipoSolicitud === 'REQUISICION_COMPRA'
 }
 
+/** Pedido de cocina/campamento al depósito (no es compra a proveedor). */
+export function esTrasladoInterno(s: SolicitudMercaderia): boolean {
+  return !esRequisicionCompra(s)
+}
+
+/** Solicitud emitida por la ubicación operativa indicada (COCINA, CASPOSO, etc.). */
+export function solicitudDeUbicacion(
+  s: SolicitudMercaderia,
+  ubicacionId: string,
+): boolean {
+  const u = ubicacionId.trim().toUpperCase()
+  if (!u) return false
+  const origen = s.ubicacionSolicitanteId?.trim().toUpperCase() ?? ''
+  return origen === u
+}
+
 /**
  * Actualización desde depósito. Si `estado` se omite, no se modifica el campo (útil cuando ya está `Recibido`).
  */

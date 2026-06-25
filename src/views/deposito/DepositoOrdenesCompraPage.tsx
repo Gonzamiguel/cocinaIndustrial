@@ -100,16 +100,9 @@ export function DepositoOrdenesCompraPage() {
       <header className="shrink-0 border-b border-neutral-200 bg-white px-4 py-5 shadow-sm sm:px-6">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-neutral-500">
-              Compras
-            </p>
-            <h1 className="mt-1 text-xl font-semibold tracking-tight text-neutral-900">
-              Requisiciones y recepción
+            <h1 className="text-xl font-semibold tracking-tight text-[#CD1818]">
+              Solicitud a compras
             </h1>
-            <p className="mt-1 max-w-2xl text-sm text-neutral-600">
-              Pedí mercadería al área de Compras/Gerencia y seguí el estado de las OC aprobadas
-              que van a llegar al depósito.
-            </p>
           </div>
           {tab === 'requisiciones' ? (
             <button

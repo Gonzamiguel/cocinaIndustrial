@@ -179,16 +179,9 @@ export function DashboardFacturacionPage() {
       <header className="shrink-0 border-b border-neutral-200 bg-white px-4 py-5 shadow-sm sm:px-6">
         <div className="mx-auto flex max-w-7xl flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
-            <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-neutral-500">
-              Área contable
-            </p>
-            <h1 className="mt-1 text-xl font-semibold tracking-tight text-neutral-900">
+            <h1 className="text-xl font-semibold tracking-tight text-neutral-900">
               Facturación
             </h1>
-            <p className="mt-1 max-w-2xl text-sm text-neutral-600">
-              Consolidación por operario con desglose de servicios de comedor (cada categoría con
-              costo unitario propio) y noches de hotelería.
-            </p>
           </div>
           <button
             type="button"

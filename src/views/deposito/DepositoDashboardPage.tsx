@@ -332,9 +332,6 @@ export function DepositoDashboardPage() {
         <h1 className="text-xl font-semibold tracking-tight text-[#CD1818]">
           Dashboard del depósito
         </h1>
-        <p className="mt-1 text-sm text-[#8997A6]">
-          Vista financiera y operativa del capital inmovilizado, vencimientos FEFO y mercadería sin rotación.
-        </p>
       </header>
 
       <div className="flex min-h-0 flex-1 flex-col px-5 py-5 sm:px-8 lg:px-12 xl:px-16 2xl:px-20">

@@ -10,7 +10,7 @@ import {
 } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { useToast } from '../../context/ToastContext'
-import { puedeOperarFinanzas } from '../../lib/rbac'
+import { puedeOperarLiquidaciones } from '../../lib/rbac'
 import { getDb } from '../../lib/firebase'
 import {
   anularLiquidacion,
@@ -75,7 +75,7 @@ function BadgeEstado({ estado }: { estado: LiquidacionContratista['estado'] }) {
 export function LiquidacionesPage() {
   const { user, rol } = useAuth()
   const { showToast } = useToast()
-  const puedeOperar = puedeOperarFinanzas(rol)
+  const puedeOperar = puedeOperarLiquidaciones(rol)
 
   const [tab, setTab] = useState<TabId>('historial')
   const [liquidaciones, setLiquidaciones] = useState<LiquidacionContratista[]>([])
@@ -252,17 +252,9 @@ export function LiquidacionesPage() {
     <div className="flex min-h-full flex-1 flex-col bg-slate-50">
       <header className="border-b border-[#1e3a5f]/10 bg-white px-4 py-5 sm:px-6">
         <div className="mx-auto max-w-5xl">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[#1e3a5f]/60">
-            Finanzas / Cuentas por cobrar
-          </p>
-          <h1 className="mt-1 text-xl font-semibold tracking-tight sm:text-2xl" style={{ color: NAVY }}>
+          <h1 className="text-xl font-semibold tracking-tight sm:text-2xl" style={{ color: NAVY }}>
             Liquidaciones a contratistas
           </h1>
-          <p className="mt-1 max-w-2xl text-sm text-[#1e3a5f]/70">
-            {puedeOperar
-              ? 'Agrupá consumos de comedor y hotelería, emití pre-facturas y gestioná la cuenta corriente.'
-              : 'Consulta de liquidaciones emitidas a contratistas.'}
-          </p>
 
           <div className="mt-4 flex flex-col gap-2 sm:flex-row">
             <button type="button" className={tabClass(tab === 'historial')} onClick={() => setTab('historial')}>

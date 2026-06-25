@@ -8,6 +8,7 @@ import { LayoutCampamento } from './layouts/LayoutCampamento'
 import { LayoutComedor } from './layouts/LayoutComedor'
 import { LayoutDeposito } from './layouts/LayoutDeposito'
 import { LayoutHoteleria } from './layouts/LayoutHoteleria'
+import { LayoutNutricion } from './layouts/LayoutNutricion'
 import { DepositoConfiguracionPage } from './views/deposito/DepositoConfiguracionPage'
 import { DepositoDashboardPage } from './views/deposito/DepositoDashboardPage'
 import { DepositoInsumosPage } from './views/deposito/DepositoInsumosPage'
@@ -16,10 +17,15 @@ import { DepositoMovimientosPage } from './views/deposito/DepositoMovimientosPag
 import { DepositoTrazabilidadPage } from './views/deposito/DepositoTrazabilidadPage'
 import { DepositoOrdenesCompraPage } from './views/deposito/DepositoOrdenesCompraPage'
 import { AdminMenuPage } from './views/admin/AdminMenuPage'
+import { AdminDespachoPage } from './views/admin/AdminDespachoPage'
+import { AdminTrazabilidadViandaPage } from './views/admin/AdminTrazabilidadViandaPage'
 import { AdminMercaderiaPage } from './views/admin/AdminMercaderiaPage'
 import { AdminPedidosPage } from './views/admin/AdminPedidosPage'
 import { AdminRecetarioPage } from './views/admin/AdminRecetarioPage'
 import { DashboardPage } from './views/admin/DashboardPage'
+import { NutricionDashboardPage } from './views/nutricion/NutricionDashboardPage'
+import { NutricionComparativaProduccionPage } from './views/nutricion/NutricionComparativaProduccionPage'
+import { NutricionPlanificacionMenuPage } from './views/nutricion/NutricionPlanificacionMenuPage'
 import { DashboardComensalesPage } from './views/campamento/DashboardComensalesPage'
 import { CampamentoComandasPage } from './views/campamento/CampamentoComandasPage'
 import { CampamentoNuevaComandaPage } from './views/campamento/CampamentoNuevaComandaPage'
@@ -48,6 +54,8 @@ import {
   ROLES_CONTROL,
   ROLES_DEPOSITO,
   ROLES_FINANZAS_LECTURA,
+  ROLES_LIQUIDACIONES_LECTURA,
+  ROLES_NUTRICION,
   ROLES_PANEL_CONTROL,
   ROLES_TERMINAL,
 } from './lib/rbac'
@@ -153,7 +161,7 @@ export default function App() {
         <Route
           path="liquidaciones"
           element={
-            <ProtectedRoute rolesPermitidos={[...ROLES_FINANZAS_LECTURA]}>
+            <ProtectedRoute rolesPermitidos={[...ROLES_LIQUIDACIONES_LECTURA]}>
               <LiquidacionesPage />
             </ProtectedRoute>
           }
@@ -230,10 +238,27 @@ export default function App() {
           element={<SolicitudMercaderiaDetallePage />}
         />
         <Route path="pedidos" element={<AdminPedidosPage />} />
-        <Route path="dashboard" element={<DashboardPage />} />
         <Route path="menu" element={<AdminMenuPage />} />
-        <Route path="recetario" element={<AdminRecetarioPage />} />
+        <Route path="despacho" element={<AdminDespachoPage />} />
+        <Route path="trazabilidad" element={<AdminTrazabilidadViandaPage />} />
         <Route path="mercaderia" element={<AdminMercaderiaPage />} />
+        <Route path="dashboard" element={<Navigate to="/admin/pedidos" replace />} />
+        <Route path="recetario" element={<Navigate to="/admin/pedidos" replace />} />
+      </Route>
+
+      <Route
+        path="/nutricion"
+        element={
+          <ProtectedRoute rolesPermitidos={[...ROLES_NUTRICION]}>
+            <LayoutNutricion />
+          </ProtectedRoute>
+        }
+      >
+        <Route index element={<NutricionDashboardPage />} />
+        <Route path="recetario" element={<AdminRecetarioPage />} />
+        <Route path="ingenieria-menu" element={<DashboardPage />} />
+        <Route path="planificacion" element={<NutricionPlanificacionMenuPage />} />
+        <Route path="produccion-real" element={<NutricionComparativaProduccionPage />} />
       </Route>
 
       <Route path="/admin-cocina" element={<Navigate to="/admin/pedidos" replace />} />
@@ -260,7 +285,13 @@ export default function App() {
       <Route
         path="/campamento"
         element={
-          <ProtectedRoute rolesPermitidos={['administrativo_campamento']}>
+          <ProtectedRoute
+            rolesPermitidos={[
+              'administrativo_campamento',
+              'gerencia',
+              'analista',
+            ]}
+          >
             <LayoutCampamento />
           </ProtectedRoute>
         }

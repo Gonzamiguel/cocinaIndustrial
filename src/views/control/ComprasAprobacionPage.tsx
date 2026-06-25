@@ -171,19 +171,9 @@ export function ComprasAprobacionPage() {
         <div className="mx-auto max-w-7xl">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-neutral-500">
-                Finanzas / Compras
-              </p>
-              <h1 className="mt-1 text-xl font-semibold tracking-tight text-neutral-900">
+              <h1 className="text-xl font-semibold tracking-tight text-neutral-900">
                 Bandeja de comprador
               </h1>
-              <p className="mt-1 max-w-2xl text-sm text-neutral-600">
-                {puedeCrearOc
-                  ? 'Atendé requisiciones internas, emití OC y enviá a aprobación de gerencia.'
-                  : puedeAprobar
-                    ? 'Vista directiva: aprobá órdenes de compra pendientes antes de la recepción en depósito.'
-                    : 'Vista de consulta de requisiciones y órdenes de compra.'}
-              </p>
             </div>
             {puedeCrearOc && tab === 'ordenes' ? (
               <button

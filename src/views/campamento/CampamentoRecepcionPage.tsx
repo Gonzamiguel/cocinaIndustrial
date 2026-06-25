@@ -41,11 +41,6 @@ export function CampamentoRecepcionPage() {
                 Recepción de mercadería
               </h1>
             </div>
-            <p className="mt-1 text-sm text-[#8997A6]">
-              Traslados hacia <span className="font-medium text-[#171717]">{tituloUbicacion}</span>{' '}
-              (<span className="font-mono text-xs">{ubicacionId}</span>). Descargá la hoja de control
-              para conteo físico y confirmá el ingreso a stock local.
-            </p>
           </div>
           <Link
             to="/campamento/inventario"

@@ -10,9 +10,9 @@
  * - insumos: catálogo depósito (nombre genérico, marca, rubro, subrubro, presentación, costo por unidad base)
  * - movimientos_inventario: ingresos, egresos, ajustes y decomisos (trazabilidad HACCP; opcional precio en ingresos)
  * - saldo_lotes: cantidades por ubicación / insumo / lote para validación atómica en egresos
- * - usuarios: { rol: UserRole (6 roles SoD), ubicacionId?: string } (doc id = UID de Auth)
+ * - usuarios: { rol: UserRole (7 roles SoD), ubicacionId?: string } (doc id = UID de Auth)
  * - padron_personas, camas, historial_pernoctes: módulo hotelería / campamento (camas, padrón y pernoctes)
- * - registros_comedor: acceso al comedor (administrativo_campamento; incluye diaOperativo YYYY-MM-DD)
+ * - registros_comedor: acceso al comedor (`control_comedor` en terminal; incluye diaOperativo YYYY-MM-DD)
  *
  * Nota: la apiKey en cliente es pública por diseño; restringe dominios en la consola Firebase.
  */

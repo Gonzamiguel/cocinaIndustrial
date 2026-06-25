@@ -1,6 +1,6 @@
 import { Outlet } from 'react-router-dom'
 
-/** Layout modo quiosco: pantalla completa, sin sidebar ni navegación lateral. */
+/** Layout quiosco: pantalla completa sin navegación lateral (rol `control_comedor`). */
 export function LayoutComedor() {
   return (
     <div className="flex h-dvh max-h-dvh w-full flex-col overflow-hidden bg-neutral-50">

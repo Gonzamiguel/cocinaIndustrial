@@ -485,9 +485,6 @@ export function TerminalComensalesPage() {
       <div className="flex min-h-dvh flex-col bg-gray-50">
         <header className="flex items-center justify-between gap-3 border-b border-gray-200 bg-white px-4 py-4 pt-[max(0.75rem,env(safe-area-inset-top))]">
           <div>
-            <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-gray-500">
-              Terminal comensales
-            </p>
             <h1 className="mt-1 text-xl font-bold text-gray-800">Seleccionar Servicio</h1>
           </div>
           <div className="flex flex-col items-end gap-2">

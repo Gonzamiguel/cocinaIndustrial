@@ -330,11 +330,6 @@ export function DashboardComensalesPage() {
             <h1 className="text-xl font-semibold tracking-tight text-gray-900">
               Control de comensales
             </h1>
-            <p className="mt-1 text-sm text-neutral-500">
-              Auditoría de accesos al comedor según registros de la terminal. Filtrá por período
-              (día operativo), empresa y servicio. Usá rangos acotados, por ejemplo un mes, para
-              cargar más rápido.
-            </p>
             <button
               type="button"
               onClick={abrirModalRetro}

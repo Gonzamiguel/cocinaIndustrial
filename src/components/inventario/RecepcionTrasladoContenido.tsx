@@ -7,6 +7,7 @@ import { exportarHojaControlRecepcionPdf } from '../../lib/campamentoRecepcionPd
 import { subscribeInsumos, type Insumo } from '../../lib/insumos'
 import {
   confirmarRecepcionTrasladoCampamento,
+  rechazarRecepcionTrasladoCampamento,
   subscribeTrasladosPendientesRecepcion,
   type ItemMovimientoInventario,
   type MovimientoEgresoTraslado,
@@ -59,6 +60,9 @@ export function RecepcionTrasladoContenido({
   const [soloDiferencias, setSoloDiferencias] = useState(false)
   const [guardando, setGuardando] = useState(false)
   const [confirmRecepcionAbierta, setConfirmRecepcionAbierta] = useState(false)
+  const [confirmRechazoAbierta, setConfirmRechazoAbierta] = useState(false)
+  const [observacionesRecepcion, setObservacionesRecepcion] = useState('')
+  const [motivoRechazo, setMotivoRechazo] = useState('')
 
   useEffect(() => subscribeInsumos(setInsumos), [])
 
@@ -81,6 +85,8 @@ export function RecepcionTrasladoContenido({
     setHojaPdfDescargada(false)
     setDeclaracionConformidad(false)
     setSoloDiferencias(false)
+    setObservacionesRecepcion('')
+    setMotivoRechazo('')
   }, [])
 
   const cerrarPanel = useCallback(() => {
@@ -91,6 +97,9 @@ export function RecepcionTrasladoContenido({
     setDeclaracionConformidad(false)
     setSoloDiferencias(false)
     setConfirmRecepcionAbierta(false)
+    setConfirmRechazoAbierta(false)
+    setObservacionesRecepcion('')
+    setMotivoRechazo('')
   }, [])
 
   useEffect(() => {
@@ -171,6 +180,7 @@ export function RecepcionTrasladoContenido({
         egresoId: egresoSeleccionado.id,
         ubicacionRecepcionId: ub,
         itemsRecibidos,
+        observacionesRecepcion,
       })
       showToast('Ingreso a stock local registrado correctamente.', 'success')
       setConfirmRecepcionAbierta(false)
@@ -178,6 +188,37 @@ export function RecepcionTrasladoContenido({
     } catch (err) {
       showToast(
         err instanceof Error ? err.message : 'No se pudo registrar la recepción.',
+        'error',
+      )
+    } finally {
+      setGuardando(false)
+    }
+  }
+
+  async function handleRechazarRemito() {
+    const ub = ubicacionId.trim().toUpperCase()
+    if (!egresoSeleccionado || !ub) return
+    const motivo = motivoRechazo.trim()
+    if (!motivo) {
+      showToast('Indicá el motivo del rechazo.', 'error')
+      return
+    }
+    setGuardando(true)
+    try {
+      await rechazarRecepcionTrasladoCampamento({
+        egresoId: egresoSeleccionado.id,
+        ubicacionRecepcionId: ub,
+        motivoRechazo: motivo,
+      })
+      showToast(
+        'Remito rechazado. El stock volvió al depósito y el pedido quedó como Rechazado.',
+        'success',
+      )
+      setConfirmRechazoAbierta(false)
+      cerrarPanel()
+    } catch (err) {
+      showToast(
+        err instanceof Error ? err.message : 'No se pudo rechazar el remito.',
         'error',
       )
     } finally {
@@ -210,6 +251,22 @@ export function RecepcionTrasladoContenido({
 
   return (
     <>
+      <ConfirmDialog
+        open={confirmRechazoAbierta}
+        title="Rechazar remito del depósito"
+        description={
+          egresoSeleccionado
+            ? `¿Rechazás el remito ${egresoSeleccionado.numeroDocumento}? La mercadería no ingresará a tu stock; el depósito recuperará las cantidades enviadas.`
+            : ''
+        }
+        confirmLabel="Sí, rechazar remito"
+        cancelLabel="Volver"
+        isWorking={guardando}
+        onCancel={() => {
+          if (!guardando) setConfirmRechazoAbierta(false)
+        }}
+        onConfirm={() => void handleRechazarRemito()}
+      />
       <ConfirmDialog
         open={confirmRecepcionAbierta}
         title="Confirmar recepción del traslado"
@@ -257,7 +314,7 @@ export function RecepcionTrasladoContenido({
               {tituloUbicacion} · <span className="font-mono text-[11px] text-[#171717]">{ubDisplay}</span>
               {' · '}
               {pendientes.length.toLocaleString('es-AR')} remito
-              {pendientes.length === 1 ? '' : 's'} pendiente{pendientes.length === 1 ? '' : 's'}
+              {pendientes.length === 1 ? '' : 's'} del depósito por revisar
             </p>
           ) : (
             <>
@@ -267,7 +324,7 @@ export function RecepcionTrasladoContenido({
               </p>
               <p className="mt-1 text-xs uppercase tracking-wide text-[#8997A6]">
                 {pendientes.length.toLocaleString('es-AR')} remito
-                {pendientes.length === 1 ? '' : 's'} pendiente{pendientes.length === 1 ? '' : 's'}
+                {pendientes.length === 1 ? '' : 's'} del depósito por revisar
               </p>
             </>
           )}
@@ -288,7 +345,7 @@ export function RecepcionTrasladoContenido({
               {pendientes.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="px-4 py-16 text-center text-[#8997A6]">
-                    No hay traslados pendientes de recepción para tu sucursal.
+                    No hay remitos del depósito pendientes de revisión para tu sucursal.
                   </td>
                 </tr>
               ) : (
@@ -311,7 +368,7 @@ export function RecepcionTrasladoContenido({
                         onClick={() => abrirPanel(m)}
                         className="rounded-lg bg-[#CD1818] px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:brightness-110"
                       >
-                        Recibir
+                        Revisar remito
                       </button>
                     </td>
                   </tr>
@@ -335,8 +392,9 @@ export function RecepcionTrasladoContenido({
                 Recepción — remito {egresoSeleccionado.numeroDocumento}
               </h2>
               <p className="mt-1 text-xs text-[#8997A6]">
-                {egresoSeleccionado.items.length.toLocaleString('es-AR')} ítems · Usá la hoja de
-                control en depósito físico y registrá diferencias solo donde corresponda.
+                {egresoSeleccionado.items.length.toLocaleString('es-AR')} ítems enviados por el
+                depósito. Revisá cantidades, indicá diferencias si hace falta y confirmá para que
+                ingresen a tu stock local, o rechazá el remito si no corresponde recibirlo.
               </p>
             </div>
             <button
@@ -401,6 +459,34 @@ export function RecepcionTrasladoContenido({
                 </p>
               ) : null}
             </div>
+
+            <label className="block rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
+              <span className="text-xs font-medium text-[#8997A6]">
+                Observaciones de recepción <span className="font-normal">(opcional)</span>
+              </span>
+              <textarea
+                value={observacionesRecepcion}
+                onChange={(e) => setObservacionesRecepcion(e.target.value)}
+                rows={2}
+                placeholder='Ej. "Faltó 1 kg de tomate, el resto OK"'
+                className="mt-2 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-[#171717] outline-none focus:border-[#CD1818]/30 focus:ring-2 focus:ring-[#CD1818]/10"
+              />
+            </label>
+
+            <label className="block rounded-xl border border-red-100 bg-red-50/40 p-4 shadow-sm">
+              <span className="text-xs font-semibold text-red-800">Rechazar remito</span>
+              <p className="mt-1 text-xs text-red-900/80">
+                Si la mercadería no puede ingresar (error total, envío incorrecto, etc.), indicá el
+                motivo. El stock vuelve al depósito y el pedido queda como Rechazado.
+              </p>
+              <textarea
+                value={motivoRechazo}
+                onChange={(e) => setMotivoRechazo(e.target.value)}
+                rows={2}
+                placeholder="Motivo del rechazo (obligatorio para rechazar)"
+                className="mt-2 w-full rounded-lg border border-red-200 bg-white px-3 py-2 text-sm text-[#171717] outline-none focus:border-red-400 focus:ring-2 focus:ring-red-200"
+              />
+            </label>
 
             <div className="min-h-0 flex-1 overflow-hidden rounded-xl border border-gray-100 bg-white shadow-sm">
               <div className="max-h-[min(70vh,calc(100dvh-22rem))] overflow-auto">
@@ -518,6 +604,16 @@ export function RecepcionTrasladoContenido({
                 className="rounded-lg border border-gray-200 bg-white px-4 py-2.5 text-sm font-medium text-[#171717] transition hover:bg-gray-50"
               >
                 Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={guardando || !motivoRechazo.trim()}
+                onClick={() => {
+                  if (motivoRechazo.trim()) setConfirmRechazoAbierta(true)
+                }}
+                className="rounded-lg border border-red-300 bg-white px-4 py-2.5 text-sm font-semibold text-red-700 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-45"
+              >
+                Rechazar remito
               </button>
               <button
                 type="button"

@@ -30,9 +30,12 @@ const MSG_MODULO_NO_DISPONIBLE =
 function parseRol(raw: unknown): UserRole | null {
   if (
     raw === 'administrativo_campamento' ||
+    raw === 'control_comedor' ||
     raw === 'admin_deposito' ||
     raw === 'admin_cocina' ||
+    raw === 'nutricion' ||
     raw === 'administrativo_finanzas' ||
+    raw === 'administrativo_liquidaciones' ||
     raw === 'gerencia' ||
     raw === 'analista'
   ) {
@@ -148,6 +151,16 @@ export function LoginPage() {
           from.startsWith('/admin/') ||
           from === '/admin-cocina')
       ) {
+        if (!rolPuedeAccederRuta(rolLeído, from)) {
+          await signOut(auth)
+          setError('No tenés permiso para acceder a esa sección.')
+          return
+        }
+        navigate(from, { replace: true })
+        return
+      }
+
+      if (from && (from === '/nutricion' || from.startsWith('/nutricion/'))) {
         if (!rolPuedeAccederRuta(rolLeído, from)) {
           await signOut(auth)
           setError('No tenés permiso para acceder a esa sección.')

@@ -94,10 +94,6 @@ export function AnalistaAuditoriaPage() {
       <header className="shrink-0 border-b border-gray-200 bg-white px-4 py-4 shadow-sm sm:px-6">
         <div className="mx-auto max-w-6xl">
           <h1 className="text-xl font-semibold text-gray-900">Auditoría operativa</h1>
-          <p className="mt-1 text-sm text-gray-600">
-            Casposo: comandas de stock vs asistencias reales. Cocina central: eficiencia de recetas
-            (teórico vs real).
-          </p>
           <div className="mt-4 flex flex-wrap items-end gap-4 rounded-lg border border-gray-200 bg-white px-4 py-3 shadow-sm">
             <label className="flex flex-col gap-1">
               <span className="text-xs font-medium text-gray-800">Desde *</span>
@@ -204,6 +200,9 @@ export function AnalistaAuditoriaPage() {
                   <tr>
                     <th className="px-3 py-2">Fecha</th>
                     <th className="px-3 py-2">Plato / producto</th>
+                    <th className="px-3 py-2">Lote</th>
+                    <th className="px-3 py-2">Vto</th>
+                    <th className="px-3 py-2 text-right">Porc.</th>
                     <th className="px-3 py-2 text-right">Costo teórico</th>
                     <th className="px-3 py-2 text-right">Costo real</th>
                     <th className="px-3 py-2 text-right">Desvío %</th>
@@ -212,13 +211,13 @@ export function AnalistaAuditoriaPage() {
                 <tbody className="divide-y divide-gray-100">
                   {!fechasOk ? (
                     <tr>
-                      <td colSpan={5} className="px-3 py-8 text-center text-gray-500">
+                      <td colSpan={8} className="px-3 py-8 text-center text-gray-500">
                         Indicá fechas válidas.
                       </td>
                     </tr>
                   ) : filasCocina.length === 0 ? (
                     <tr>
-                      <td colSpan={5} className="px-3 py-8 text-center text-gray-500">
+                      <td colSpan={8} className="px-3 py-8 text-center text-gray-500">
                         Sin producciones registradas en el período.
                       </td>
                     </tr>
@@ -233,8 +232,20 @@ export function AnalistaAuditoriaPage() {
                           <td className="px-3 py-2 text-gray-900">
                             <span className="font-medium">{r.nombreProducto}</span>
                             <span className="mt-0.5 block text-xs text-gray-500">
-                              {r.recetaNombre} · {r.cantidadPorciones} porc.
+                              {r.recetaNombre}
+                              {r.codigoTrazabilidad
+                                ? ` · ${r.codigoTrazabilidad}`
+                                : ''}
                             </span>
+                          </td>
+                          <td className="px-3 py-2 font-mono text-xs text-gray-800">
+                            {r.loteProducto || '—'}
+                          </td>
+                          <td className="whitespace-nowrap px-3 py-2 text-xs text-gray-800">
+                            {r.fechaVencimiento || '—'}
+                          </td>
+                          <td className="px-3 py-2 text-right tabular-nums text-gray-900">
+                            {r.cantidadPorciones}
                           </td>
                           <td className="px-3 py-2 text-right tabular-nums text-gray-900">
                             {formatMonedaAnalista(r.costoTeorico)}

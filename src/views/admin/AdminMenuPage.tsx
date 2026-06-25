@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Fragment, useEffect, useMemo, useState } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
 import { Factory, UtensilsCrossed } from 'lucide-react'
 import {
   deleteMenuItem,
@@ -9,6 +9,10 @@ import {
   type CategoriaMenu,
   type MenuItem,
 } from '../../lib/menu'
+import {
+  formatFechaVencimiento,
+  obtenerEstadoVencimiento,
+} from '../../lib/vencimientoLote'
 import { AdminProduccionCocinaTab } from './AdminProduccionCocinaTab'
 
 const labelCategoria = (c: CategoriaMenu) =>
@@ -60,6 +64,7 @@ function PencilIcon({ className }: { className?: string }) {
 }
 
 export function AdminMenuPage() {
+  const navigate = useNavigate()
   const itemsPorPagina = 8
   const [menuTab, setMenuTab] = useState<'stock' | 'produccion'>('stock')
   const [items, setItems] = useState<MenuItem[]>([])
@@ -78,6 +83,7 @@ export function AdminMenuPage() {
     principal: 1,
     guarnicion: 1,
   })
+  const [expandidos, setExpandidos] = useState<Record<string, boolean>>({})
 
   useEffect(() => {
     return subscribeMenu(setItems)
@@ -192,22 +198,16 @@ export function AdminMenuPage() {
   const inputFocusClass =
     'outline-none transition focus:border-[#CD1818]/30 focus:bg-white focus:ring-2 focus:ring-[#CD1818]/10'
 
+  function toggleExpand(id: string) {
+    setExpandidos((prev) => ({ ...prev, [id]: !prev[id] }))
+  }
+
   return (
-    <div className="flex min-h-0 flex-1 flex-col bg-neutral-50">
+    <div className="flex min-h-full flex-1 flex-col bg-neutral-50">
       <header className="shrink-0 border-b border-neutral-200 bg-white px-4 py-4 sm:px-6 lg:px-8">
         <h1 className="text-lg font-semibold tracking-tight text-[#CD1818] sm:text-xl">
           Gestión de menú
         </h1>
-        <p className="mt-1 text-xs text-[#8997A6] sm:text-sm">
-          Stock para la vista cliente y registro de producción. Altas de platos en{' '}
-          <Link
-            to="/admin/recetario"
-            className="font-medium text-[#CD1818] underline-offset-2 hover:text-[#171717] hover:underline"
-          >
-            Recetario
-          </Link>
-          .
-        </p>
         <div className="mt-2 md:hidden">
           <Link
             to="/"
@@ -320,10 +320,13 @@ export function AdminMenuPage() {
           ) : (
             <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[min(100%,520px)] border-collapse text-left text-sm sm:min-w-[520px]">
+                <table className="w-full min-w-[min(100%,640px)] border-collapse text-left text-sm sm:min-w-[640px]">
                   <thead>
                     <tr className="border-b border-gray-200 bg-gray-50 text-[#8997A6]">
-                      <th className="whitespace-nowrap px-3 py-3 pl-4 font-semibold sm:px-4">
+                      <th className="w-14 whitespace-nowrap px-3 py-3 pl-4 font-semibold sm:px-4">
+                        Lotes
+                      </th>
+                      <th className="whitespace-nowrap px-3 py-3 font-semibold sm:px-4">
                         Nombre
                       </th>
                       <th className="whitespace-nowrap px-3 py-3 font-semibold sm:px-4">
@@ -343,12 +346,33 @@ export function AdminMenuPage() {
                       const nombreBusy = busyNombreId === it.id
                       const disponible = it.stock > 0
                       const isEditing = editingId === it.id
+                      const expanded = expandidos[it.id] === true
+                      const lotes = it.stockLotes ?? []
                       return (
+                        <Fragment key={it.id}>
                         <tr
-                          key={it.id}
-                          className="transition-colors hover:bg-gray-50"
+                          className={`transition-colors hover:bg-gray-50 ${expanded ? 'bg-gray-50/50' : ''}`}
                         >
                           <td className="px-3 py-2.5 pl-4 align-middle sm:px-4">
+                            <button
+                              type="button"
+                              aria-label={expanded ? 'Ocultar lotes' : 'Ver lotes'}
+                              onClick={() => toggleExpand(it.id)}
+                              className="flex h-8 w-8 items-center justify-center rounded-lg border border-gray-200 bg-white text-[#8997A6] transition hover:text-[#171717]"
+                            >
+                              <svg
+                                viewBox="0 0 20 20"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="1.8"
+                                className={`h-4 w-4 transition-transform duration-300 ${expanded ? 'rotate-90' : ''}`}
+                                aria-hidden
+                              >
+                                <path d="m7 4 6 6-6 6" />
+                              </svg>
+                            </button>
+                          </td>
+                          <td className="px-3 py-2.5 align-middle sm:px-4">
                             {isEditing ? (
                               <div className="flex max-w-full flex-col gap-2 sm:flex-row sm:items-center">
                                 <input
@@ -467,6 +491,11 @@ export function AdminMenuPage() {
                                 {busyStockId === it.id ? 'Guardando…' : 'Guardar'}
                               </button>
                             </div>
+                            {lotes.length > 0 ? (
+                              <p className="mt-1 text-[10px] text-[#8997A6]">
+                                {lotes.length} lote{lotes.length === 1 ? '' : 's'} · expandir
+                              </p>
+                            ) : null}
                           </td>
                           <td className="whitespace-nowrap px-3 py-2.5 pr-4 text-right align-middle sm:px-4">
                             <button
@@ -481,6 +510,88 @@ export function AdminMenuPage() {
                             </button>
                           </td>
                         </tr>
+                        <tr className="bg-white">
+                          <td colSpan={5} className="p-0">
+                            <div
+                              className={`overflow-hidden transition-all duration-300 ease-out ${
+                                expanded ? 'max-h-[32rem] opacity-100' : 'max-h-0 opacity-0'
+                              }`}
+                            >
+                              <div className="border-t border-gray-100 bg-gray-50/80 px-4 py-4 sm:px-5">
+                                <div className="rounded-xl border border-gray-200 bg-white shadow-sm">
+                                  <div className="border-b border-gray-100 px-4 py-3">
+                                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#8997A6]">
+                                      Lotes en stock — {it.nombre}
+                                    </p>
+                                  </div>
+                                  {lotes.length === 0 ? (
+                                    <p className="px-4 py-6 text-sm text-[#8997A6]">
+                                      Sin lotes trazables. El stock manual no tiene lote/vencimiento;
+                                      registrá producción para trazabilidad.
+                                    </p>
+                                  ) : (
+                                    <div className="overflow-x-auto">
+                                      <table className="w-full min-w-[560px] border-collapse text-left text-sm">
+                                        <thead>
+                                          <tr className="border-b border-gray-200 bg-gray-50 text-xs uppercase tracking-wide text-[#8997A6]">
+                                            <th className="px-4 py-3">Lote producción</th>
+                                            <th className="px-4 py-3">Vencimiento</th>
+                                            <th className="px-4 py-3 text-right">Cantidad</th>
+                                            <th className="px-4 py-3 text-right">Trazabilidad</th>
+                                          </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-gray-100">
+                                          {lotes.map((loteRow) => {
+                                            const estado = obtenerEstadoVencimiento(
+                                              loteRow.fechaVencimiento,
+                                            )
+                                            return (
+                                              <tr
+                                                key={`${loteRow.lote}-${loteRow.fechaVencimiento}-${loteRow.produccionId}`}
+                                              >
+                                                <td className="px-4 py-3 font-mono text-xs font-medium text-[#171717]">
+                                                  {loteRow.lote}
+                                                </td>
+                                                <td className="px-4 py-3">
+                                                  <span
+                                                    className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ring-1 ${estado.className}`}
+                                                  >
+                                                    {formatFechaVencimiento(loteRow.fechaVencimiento)}
+                                                  </span>
+                                                </td>
+                                                <td className="px-4 py-3 text-right font-semibold tabular-nums">
+                                                  {loteRow.cantidad}
+                                                </td>
+                                                <td className="px-4 py-3 text-right">
+                                                  {loteRow.produccionId ? (
+                                                    <button
+                                                      type="button"
+                                                      onClick={() =>
+                                                        navigate(
+                                                          `/admin/trazabilidad?produccionId=${encodeURIComponent(loteRow.produccionId)}`,
+                                                        )
+                                                      }
+                                                      className="inline-flex items-center gap-1 rounded-lg border border-[#CD1818]/25 px-2.5 py-1 text-xs font-semibold text-[#CD1818] hover:bg-[#CD1818]/5"
+                                                    >
+                                                      Ver flujo completo
+                                                    </button>
+                                                  ) : (
+                                                    '—'
+                                                  )}
+                                                </td>
+                                              </tr>
+                                            )
+                                          })}
+                                        </tbody>
+                                      </table>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                        </Fragment>
                       )
                     })}
                   </tbody>
@@ -523,7 +634,7 @@ export function AdminMenuPage() {
           )}
         </div>
         ) : (
-          <div className="flex min-h-0 flex-1 flex-col overflow-auto">
+          <div className="flex min-h-0 flex-1 flex-col pb-4">
             <AdminProduccionCocinaTab
               className="flex min-h-0 flex-1 flex-col"
               onAfterSuccess={() => setMenuTab('stock')}

@@ -3,22 +3,39 @@ import {
   BedDouble,
   Brush,
   Building2,
+  ClipboardList,
+  Database,
   FileSpreadsheet,
   Hotel,
+  PackageCheck,
+  PackagePlus,
+  Receipt,
   Settings,
   Users,
   Wallet,
-  ClipboardList,
-  Receipt,
 } from 'lucide-react'
-// import { ChefHat } from 'lucide-react'
 import type { SVGProps } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
+import { CampamentoModoToggle } from '../campamento/CampamentoModoToggle'
 import { useAuth } from '../../context/AuthContext'
-import { esRolFinanzasLectura, esRolPanelControl } from '../../lib/rbac'
+import { useCampamentoModo } from '../../hooks/useCampamentoModo'
+import {
+  esRolFinanzasLectura,
+  esRolLiquidacionesEscritura,
+  esRolLiquidacionesLectura,
+  esRolLogisticaCampamentoEscritura,
+  esRolPanelControl,
+} from '../../lib/rbac'
 import { ConnectionStatus } from '../layout/ConnectionStatus'
 
 type IconProps = SVGProps<SVGSVGElement>
+
+type NavItem = {
+  to: string
+  label: string
+  Icon: typeof BarChart3
+  end: boolean
+}
 
 function IconLogout(props: IconProps) {
   return (
@@ -37,7 +54,7 @@ const linkClass = ({ isActive }: { isActive: boolean }) =>
       : 'text-neutral-600 hover:bg-neutral-50 hover:text-[#CD1818]'
   }`
 
-const navItemsOperativos = [
+const navItemsComensales: NavItem[] = [
   { to: '/control', label: 'Dashboard Comensales', Icon: BarChart3, end: true },
   { to: '/control/hoteleria', label: 'Dashboard Hotelería', Icon: Hotel, end: false },
   { to: '/control/padron', label: 'Padrón de Personas', Icon: Users, end: false },
@@ -45,30 +62,34 @@ const navItemsOperativos = [
   { to: '/control/alojamiento', label: 'Mapa de camas', Icon: BedDouble, end: false },
   { to: '/control/reporte-limpieza', label: 'Auditoría de limpieza', Icon: Brush, end: false },
   { to: '/control/facturacion', label: 'Facturación', Icon: FileSpreadsheet, end: false },
-] as const
+]
 
-const navItemsFinanzas = [
+const navItemsComprasPagos: NavItem[] = [
   { to: '/control/compras', label: 'Compras (OC)', Icon: ClipboardList, end: false },
-  { to: '/control/liquidaciones', label: 'Liquidaciones', Icon: Receipt, end: false },
   { to: '/control/tesoreria', label: 'Tesorería', Icon: Wallet, end: false },
-] as const
+]
 
-const navItemsConfig = [
+const navItemsLiquidaciones: NavItem[] = [
+  { to: '/control/liquidaciones', label: 'Liquidaciones', Icon: Receipt, end: false },
+]
+
+const navItemsLogistica: NavItem[] = [
+  { to: '/campamento/recepcion', label: 'Recepción de mercadería', Icon: PackageCheck, end: false },
+  {
+    to: '/campamento/solicitud-mercaderia',
+    label: 'Solicitud al depósito',
+    Icon: PackagePlus,
+    end: false,
+  },
+  { to: '/campamento/inventario', label: 'Inventario Casposo', Icon: Database, end: false },
+  { to: '/campamento/comandas', label: 'Comandas diarias', Icon: ClipboardList, end: false },
+]
+
+const navItemsConfig: NavItem[] = [
   { to: '/control/configuracion', label: 'Configuración', Icon: Settings, end: false },
-] as const
+]
 
-function NavSection({
-  title,
-  items,
-}: {
-  title?: string
-  items: readonly {
-    to: string
-    label: string
-    Icon: typeof BarChart3
-    end: boolean
-  }[]
-}) {
+function NavSection({ title, items }: { title?: string; items: readonly NavItem[] }) {
   return (
     <>
       {title ? (
@@ -96,43 +117,76 @@ function NavSection({
 export function ControlSidebar() {
   const { logout, ubicacionId, rol } = useAuth()
   const navigate = useNavigate()
+  const { modo, cambiarModo } = useCampamentoModo()
   const muestraOperaciones = esRolPanelControl(rol)
-  const muestraFinanzas = esRolFinanzasLectura(rol)
+  const muestraComprasPagos = esRolFinanzasLectura(rol)
+  const muestraLiquidaciones = esRolLiquidacionesLectura(rol)
+  const esCampamentoDual = esRolLogisticaCampamentoEscritura(rol) && muestraOperaciones
 
   async function handleCerrarSesion() {
     await logout()
     navigate('/login', { replace: true })
   }
 
+  const esSoloLiquidaciones =
+    esRolLiquidacionesEscritura(rol) && !muestraComprasPagos && !muestraOperaciones && !esCampamentoDual
+
+  const tituloModo = esSoloLiquidaciones
+    ? 'Liquidaciones contratistas'
+    : esCampamentoDual && modo === 'logistica'
+      ? 'Stock y pedidos'
+      : 'Comensales y alojamiento'
+
+  const tituloSeccion =
+    esCampamentoDual && modo === 'logistica' ? 'Stock y pedidos' : 'Comensales y hotelería'
+
   return (
-    <aside className="relative flex shrink-0 flex-col overflow-visible border-b border-neutral-200 bg-white shadow-[0_1px_0_rgba(0,0,0,0.06)] md:w-64 md:border-b-0 md:border-r lg:w-72">
-      <div className="border-b border-neutral-100 px-5 py-5">
+    <aside className="relative flex shrink-0 flex-col overflow-visible border-b border-neutral-200 bg-white shadow-[0_1px_0_rgba(0,0,0,0.06)] md:w-64 md:border-b-0 md:border-r md:border-neutral-200 lg:w-72">
+      <div className="border-b border-neutral-100 bg-white px-5 py-5">
         <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-neutral-500">
           Control operativo
         </p>
-        <p className="mt-1.5 text-lg font-semibold tracking-tight text-[#CD1818]">
-          Comensales y hotelería
-        </p>
+        <p className="mt-1.5 text-lg font-semibold tracking-tight text-[#CD1818]">{tituloModo}</p>
         {ubicacionId ? (
           <p className="mt-2 rounded-lg bg-[#CD1818]/8 px-2 py-1 text-xs font-medium text-[#171717]">
             Sucursal: {ubicacionId}
           </p>
         ) : null}
-        <ConnectionStatus />
+        {esCampamentoDual ? (
+          <CampamentoModoToggle modo={modo} onChange={cambiarModo} />
+        ) : null}
+        <div className="mt-3">
+          <ConnectionStatus />
+        </div>
       </div>
 
       <nav
         className="flex flex-1 flex-col gap-1 overflow-x-auto px-2 py-4 md:overflow-visible md:px-3"
         aria-label="Panel de control"
       >
-        {muestraOperaciones ? (
-          <NavSection title="Operaciones" items={navItemsOperativos} />
+        {esCampamentoDual && modo === 'comensales' ? (
+          <>
+            <NavSection title={tituloSeccion} items={navItemsComensales} />
+            <NavSection title="Administración" items={navItemsConfig} />
+          </>
         ) : null}
-        {muestraFinanzas ? (
-          <NavSection title="Finanzas" items={navItemsFinanzas} />
+        {esCampamentoDual && modo === 'logistica' ? (
+          <NavSection title={tituloSeccion} items={navItemsLogistica} />
         ) : null}
-        {muestraOperaciones ? (
-          <NavSection title="Administración" items={navItemsConfig} />
+        {!esCampamentoDual && muestraOperaciones ? (
+          <>
+            <NavSection title="Comensales y hotelería" items={navItemsComensales} />
+            <NavSection title="Administración" items={navItemsConfig} />
+          </>
+        ) : null}
+        {!esCampamentoDual && esRolLogisticaCampamentoEscritura(rol) ? (
+          <NavSection title="Logística campamento" items={navItemsLogistica} />
+        ) : null}
+        {muestraComprasPagos ? (
+          <NavSection title="Compras y pagos" items={navItemsComprasPagos} />
+        ) : null}
+        {muestraLiquidaciones ? (
+          <NavSection title="Liquidaciones" items={navItemsLiquidaciones} />
         ) : null}
       </nav>
 

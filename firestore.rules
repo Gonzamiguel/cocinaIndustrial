@@ -30,8 +30,16 @@ service cloud.firestore {
       return hasRole('admin_cocina');
     }
 
+    function isNutricion() {
+      return hasRole('nutricion');
+    }
+
     function isAdminDeposito() {
       return hasRole('admin_deposito');
+    }
+
+    function isControlComedor() {
+      return hasRole('control_comedor');
     }
 
     function isAdministrativoCampamento() {
@@ -40,6 +48,10 @@ service cloud.firestore {
 
     function isAdministrativoFinanzas() {
       return hasRole('administrativo_finanzas');
+    }
+
+    function isAdministrativoLiquidaciones() {
+      return hasRole('administrativo_liquidaciones');
     }
 
     function isAnalista() {
@@ -52,12 +64,14 @@ service cloud.firestore {
 
     /** Lectura transversal de datos operativos (sin silo por ubicación en la app). */
     function visionGlobalLectura() {
-      return isAnalista() || isGerencia() || isAdministrativoFinanzas();
+      return isAnalista() || isGerencia() || isAdministrativoFinanzas()
+        || isAdministrativoLiquidaciones();
     }
 
     /** Panel `/control`: lectura operativa + finanzas (según rol). */
     function panelControlLectura() {
       return isAdministrativoCampamento() || isAdministrativoFinanzas()
+        || isAdministrativoLiquidaciones()
         || isGerencia() || isAnalista();
     }
 
@@ -66,14 +80,24 @@ service cloud.firestore {
       return isAdministrativoCampamento();
     }
 
-    /** Finanzas — lectura (Compras, Tesorería, Liquidaciones). */
+    /** Finanzas — lectura (Compras, Tesorería). */
     function finanzasLectura() {
       return isAdministrativoFinanzas() || isGerencia() || isAnalista();
     }
 
-    /** Finanzas — escritura (sin aprobar OC; eso es solo gerencia). */
+    /** Finanzas — escritura compras/pagos (sin liquidaciones). */
     function finanzasEscritura() {
       return isAdministrativoFinanzas();
+    }
+
+    /** Liquidaciones — lectura. */
+    function liquidacionesLectura() {
+      return isAdministrativoLiquidaciones() || isGerencia() || isAnalista();
+    }
+
+    /** Liquidaciones — escritura. */
+    function liquidacionesEscritura() {
+      return isAdministrativoLiquidaciones();
     }
 
     /** Proveedor de autenticación Firebase (p. ej. `anonymous`, `password`). */
@@ -91,7 +115,7 @@ service cloud.firestore {
      * cliente anónimo o terminal de comedor con documento en `usuarios`.
      */
     function isClientePedido() {
-      return isAuthAnonimo() || isAdministrativoCampamento();
+      return isAuthAnonimo() || isControlComedor();
     }
 
     function servicioComedorValido(s) {
@@ -124,7 +148,7 @@ service cloud.firestore {
     }
 
     function creacionRegistroComedorTerminal() {
-      return isAdministrativoCampamento()
+      return isControlComedor()
         && request.resource.data.keys().hasAll([
           'dni', 'nombre', 'apellido', 'empresa', 'servicio', 'diaOperativo', 'fechaHora', 'usuarioRegistro'
         ])
@@ -166,12 +190,14 @@ service cloud.firestore {
     /** Staff con documento en `usuarios` (excluye solo anónimos sin rol). */
     function staffLeerInsumos() {
       return isAdminDeposito() || isAnalista() || isGerencia()
-        || isAdministrativoCampamento() || isAdministrativoFinanzas() || isAdminCocina();
+        || isAdministrativoCampamento() || isAdministrativoFinanzas()
+        || isAdministrativoLiquidaciones() || isAdminCocina() || isNutricion();
     }
 
     function puedeLeerMovimientos() {
       return isAdminDeposito() || isAnalista() || isGerencia()
-        || isAdministrativoCampamento() || isAdministrativoFinanzas() || isAdminCocina();
+        || isAdministrativoCampamento() || isAdministrativoFinanzas()
+        || isAdministrativoLiquidaciones() || isAdminCocina();
     }
 
     /** Ubicación operativa del usuario campamento (fallback Casposo si no está en el doc). */
@@ -214,6 +240,18 @@ service cloud.firestore {
 
     function puedeEscribirSaldoLote() {
       return isAdminDeposito() || campamentoUbicacionCoincide() || cocinaUbicacionCoincide();
+    }
+
+    /** Devolución de stock al depósito cuando cocina/campamento rechaza un remito EN_TRANSITO. */
+    function receptorRestauraSaldoDepositoEnRechazo() {
+      return (isAdminCocina() || isAdministrativoCampamento())
+        && request.resource.data.keys().hasAny(['ubicacionId'])
+        && request.resource.data.ubicacionId == 'CENTRAL'
+        && resource.data.keys().hasAny(['cantidad'])
+        && request.resource.data.keys().hasAny(['cantidad'])
+        && request.resource.data.cantidad is number
+        && resource.data.cantidad is number
+        && request.resource.data.cantidad > resource.data.cantidad;
     }
 
     /** Recepción en sucursal o cocina: cerrar egreso EN_TRANSITO destinado a esta ubicación. */
@@ -345,7 +383,8 @@ service cloud.firestore {
     }
 
     function puedeEscribirPadronEmpresas() {
-      return panelControlEscritura() || isAdminDeposito() || finanzasEscritura();
+      return panelControlEscritura() || isAdminDeposito() || finanzasEscritura()
+        || liquidacionesEscritura();
     }
 
     /** INGRESO de depósito (incluye recepción vinculada a OC). */
@@ -459,7 +498,7 @@ service cloud.firestore {
     // ─── Módulo C: Cuentas por Cobrar (liquidaciones contratistas) ────────
 
     function puedeLeerLiquidaciones() {
-      return finanzasLectura();
+      return liquidacionesLectura();
     }
 
     function estadoLiquidacionValido(s) {
@@ -467,7 +506,7 @@ service cloud.firestore {
     }
 
     function creacionLiquidacionContratistaValida() {
-      return finanzasEscritura()
+      return liquidacionesEscritura()
         && request.resource.data.keys().hasAll([
           'numero', 'anio', 'secuencial', 'empresaId', 'empresaNombre', 'empresaCuit',
           'fechaInicio', 'fechaFin', 'totalViandas', 'totalNoches', 'detalles',
@@ -485,7 +524,7 @@ service cloud.firestore {
     }
 
     function financieroAnulaLiquidacionContratista() {
-      return finanzasEscritura()
+      return liquidacionesEscritura()
         && resource.data.estado == 'EMITIDA'
         && request.resource.data.estado == 'ANULADA'
         && request.resource.data.diff(resource.data).changedKeys().hasOnly([
@@ -495,7 +534,7 @@ service cloud.firestore {
 
     /** Marca consumos incluidos en una liquidación EMITIDA (batch billing). */
     function financieroMarcaConsumoLiquidado() {
-      return finanzasEscritura()
+      return liquidacionesEscritura()
         && resource.data.liquidado != true
         && request.resource.data.liquidado == true
         && request.resource.data.liquidacionId is string
@@ -507,7 +546,7 @@ service cloud.firestore {
 
     /** Revierte bloqueo de consumos al anular liquidación. */
     function financieroDesmarcaConsumoLiquidado() {
-      return finanzasEscritura()
+      return liquidacionesEscritura()
         && resource.data.liquidado == true
         && request.resource.data.liquidado == false
         && !request.resource.data.keys().hasAny(['liquidacionId'])
@@ -578,13 +617,13 @@ service cloud.firestore {
 
     match /menu/{itemId} {
       allow read: if signedIn();
-      allow create, delete: if isAdminCocina() || panelControlEscritura();
-      allow update: if isAdminCocina() || panelControlEscritura()
+      allow create, delete: if isAdminCocina() || isNutricion() || panelControlEscritura();
+      allow update: if isAdminCocina() || isNutricion() || panelControlEscritura()
         || (menuSoloDescuentaStock() && isClientePedido());
     }
 
     match /pedidos/{pedidoId} {
-      allow read: if signedIn() && (isAdminCocina() || isAnalista() || isGerencia());
+      allow read: if signedIn() && (isAdminCocina() || isNutricion() || isAnalista() || isGerencia());
       allow create: if pedidoClienteValido() && isClientePedido();
       allow update: if isAdminCocina();
       allow delete: if isAdminCocina();
@@ -601,12 +640,12 @@ service cloud.firestore {
     }
 
     match /recetario/{docId} {
-      allow read: if signedIn() && (isAdminCocina() || isAdminDeposito() || isAnalista() || isGerencia());
-      allow create, update, delete: if isAdminCocina();
+      allow read: if signedIn() && (isAdminCocina() || isNutricion() || isAdminDeposito() || isAnalista() || isGerencia());
+      allow create, update, delete: if isNutricion();
     }
 
     match /solicitudes_mercaderia/{id} {
-      allow read: if signedIn() && (isAdminCocina() || isAdminDeposito() || isAdministrativoCampamento() || isAnalista() || isGerencia() || isAdministrativoFinanzas());
+      allow read: if signedIn() && (isAdminCocina() || isAdminDeposito() || isAdministrativoCampamento() || isAnalista() || isGerencia() || isAdministrativoFinanzas() || isAdministrativoLiquidaciones());
       allow create: if signedIn() && (
         isAdminCocina() || isAdministrativoCampamento()
         || creacionRequisicionCompraDeposito()
@@ -628,8 +667,18 @@ service cloud.firestore {
           isAdminDeposito()
           || (
             receptorPuedeCerrarRecepcionEgreso()
-            && request.resource.data.diff(resource.data).changedKeys().hasOnly(['estadoTraslado', 'recibidoEn'])
-            && request.resource.data.estadoTraslado == 'RECIBIDO'
+            && (
+              (
+                request.resource.data.diff(resource.data).changedKeys().hasOnly(['estadoTraslado', 'recibidoEn'])
+                && request.resource.data.estadoTraslado == 'RECIBIDO'
+              )
+              || (
+                request.resource.data.diff(resource.data).changedKeys().hasOnly(['estadoTraslado', 'rechazadoEn', 'motivoRechazo'])
+                && request.resource.data.estadoTraslado == 'RECHAZADO'
+                && request.resource.data.motivoRechazo is string
+                && request.resource.data.motivoRechazo.size() > 0
+              )
+            )
           )
         );
       allow delete: if signedIn() && isAdminDeposito();
@@ -637,12 +686,12 @@ service cloud.firestore {
 
     match /saldo_lotes/{docId} {
       allow read: if signedIn() && puedeLeerMovimientos();
-      allow create, update: if signedIn() && puedeEscribirSaldoLote();
+      allow create, update: if signedIn() && (puedeEscribirSaldoLote() || receptorRestauraSaldoDepositoEnRechazo());
       allow delete: if signedIn() && isAdminDeposito();
     }
 
     match /produccion_cocina/{id} {
-      allow read: if signedIn() && (isAnalista() || isGerencia() || isAdminDeposito() || isAdminCocina());
+      allow read: if signedIn() && (isAnalista() || isGerencia() || isAdminDeposito() || isAdminCocina() || isNutricion());
       allow create: if signedIn() && isAdminCocina()
         && request.resource.data.keys().hasAll([
           'fecha', 'ubicacionId', 'recetaId', 'recetaNombre', 'cantidadPorciones',
@@ -653,8 +702,21 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    match /despachos_viandas/{id} {
+      allow read: if signedIn() && (isAdminCocina() || isAnalista() || isGerencia() || isNutricion());
+      allow create: if signedIn() && isAdminCocina()
+        && request.resource.data.keys().hasAll([
+          'fecha', 'empresa', 'numeroRemito', 'items', 'creadoEn'
+        ])
+        && request.resource.data.empresa is string
+        && request.resource.data.empresa.size() > 0
+        && request.resource.data.items is list
+        && request.resource.data.items.size() > 0;
+      allow update, delete: if false;
+    }
+
     match /padron_personas/{id} {
-      allow read: if signedIn() && (panelControlLectura() || isAdministrativoCampamento());
+      allow read: if signedIn() && (panelControlLectura() || isAdministrativoCampamento() || isControlComedor());
       allow create, update, delete: if signedIn() && panelControlEscritura();
     }
 
@@ -664,7 +726,7 @@ service cloud.firestore {
     }
 
     match /registros_comedor/{id} {
-      allow read: if signedIn() && (panelControlLectura() || isAdministrativoCampamento());
+      allow read: if signedIn() && (panelControlLectura() || isAdministrativoCampamento() || isControlComedor());
       allow create: if signedIn() && (
         creacionRegistroComedorTerminal() || creacionRegistroComedorSupervisor()
       );
@@ -705,7 +767,7 @@ service cloud.firestore {
       allow create, update: if signedIn() && (
         (contadorId == 'numeracion_oc' && isComprador())
         || (contadorId == 'numeracion_op' && finanzasEscritura())
-        || (contadorId == 'numeracion_liq' && finanzasEscritura())
+        || (contadorId == 'numeracion_liq' && liquidacionesEscritura())
       );
       allow delete: if false;
     }

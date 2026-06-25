@@ -932,10 +932,6 @@ export function DepositoMovimientosPage() {
               <h1 className="text-xl font-semibold tracking-tight text-[#CD1818]">
                 Movimientos de inventario
               </h1>
-              <p className="mt-1 text-sm text-[#8997A6]">
-                Historial unificado: ingresos, egresos, ajustes y decomisos con
-                trazabilidad HACCP.
-              </p>
               <nav
                 className="mt-4 flex flex-wrap gap-2 border-t border-neutral-100 pt-4"
                 aria-label="Secciones movimientos"

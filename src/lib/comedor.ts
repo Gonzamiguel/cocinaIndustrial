@@ -35,14 +35,14 @@ function esPermissionDeniedFirestore(e: unknown): boolean {
 export function mensajePermisosTerminalComedor(): string {
   return (
     'Permiso denegado en Firestore. Publicá las reglas del repo: `npm run deploy:firestore-rules`. ' +
-    'Verificá que en `usuarios/{tuUID}` el campo `rol` sea exactamente `administrativo_campamento`.'
+    'Verificá que en `usuarios/{tuUID}` el campo `rol` sea exactamente `control_comedor`.'
   )
 }
 
 export function mensajePermisosRegistrosComedor(): string {
   return (
     'Permiso denegado en `registros_comedor`. Publicá las reglas: `npm run deploy:firestore-rules`. ' +
-    'Roles con acceso operativo: `administrativo_campamento` (escritura en `/control` y `/terminal`); ' +
+    'Roles con acceso: `control_comedor` (terminal); `administrativo_campamento` (carga manual); ' +
     '`gerencia` y `analista` (solo lectura).'
   )
 }

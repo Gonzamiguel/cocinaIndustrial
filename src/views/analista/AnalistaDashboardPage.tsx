@@ -225,10 +225,6 @@ export function AnalistaDashboardPage() {
             <h1 className="text-xl font-semibold tracking-tight text-gray-900">
               Dashboard financiero
             </h1>
-            <p className="mt-1 text-sm text-gray-600">
-              Visión global (Colón, Cocina Central, Casposo). El gráfico inferior es siempre
-              consolidado de toda la empresa.
-            </p>
           </div>
           <button
             type="button"

@@ -436,10 +436,6 @@ export function DashboardHoteleriaPage() {
             <h1 className="text-xl font-semibold tracking-tight text-gray-900">
               Control de hotelería
             </h1>
-            <p className="mt-1 text-sm text-[#8997A6]">
-              Pernoctes, ocupación por cuadrilla y movimientos de personas. Filtrá por período,
-              empresa y campamento (sector).
-            </p>
           </div>
 
           <div className="mt-6 flex flex-wrap items-end gap-4">

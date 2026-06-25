@@ -12,6 +12,7 @@ import { destinoEgresoYUbicacionDesdeSolicitante } from '../../lib/movimientosIn
 import {
   actualizarSolicitudMercaderiaDeposito,
   ESTADOS_DEPOSITO,
+  esTrasladoInterno,
   estiloBadgeEstadoSolicitud,
   subscribeSolicitudesMercaderia,
   type EstadoSolicitudDeposito,
@@ -437,7 +438,9 @@ export function DepositoSolicitudesMercaderiaPanel() {
   }, [])
 
   const ordenadas = useMemo(() => {
-    return [...solicitudes].sort((a, b) => {
+    return [...solicitudes]
+      .filter(esTrasladoInterno)
+      .sort((a, b) => {
       const pa = ordenPrioridadVisual(a)
       const pb = ordenPrioridadVisual(b)
       if (pa !== pb) return pa - pb
@@ -495,9 +498,13 @@ export function DepositoSolicitudesMercaderiaPanel() {
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
       <div className="shrink-0 border-b border-neutral-100 bg-white px-4 py-3 sm:px-6">
         <p className="text-sm text-[#8997A6]">
-          Pedidos en estado <strong className="text-[#171717]">Pendiente</strong> o{' '}
+          Pedidos de <strong className="text-[#171717]">cocina o campamento</strong> al depósito
+          (traslados internos). Estado{' '}
+          <strong className="text-[#171717]">Pendiente</strong> o{' '}
           <strong className="text-[#171717]">En preparación</strong>. Usá «Preparar envío» para
-          abrir el egreso con ítems precargados; elegís los lotes en el formulario.
+          abrir el egreso con ítems precargados; elegís los lotes en el formulario. Las{' '}
+          <strong className="text-[#171717]">requisiciones de compra</strong> se gestionan en{' '}
+          <strong className="text-[#171717]">Órdenes de compra</strong>.
         </p>
       </div>
 

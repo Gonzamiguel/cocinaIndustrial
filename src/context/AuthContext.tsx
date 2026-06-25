@@ -17,12 +17,15 @@ import {
   UBICACION_DEPOSITO_CENTRAL,
 } from '../lib/movimientosInventario'
 
-/** Seis roles activos — segregación de funciones (SoD). */
+/** Nueve roles activos — segregación de funciones (SoD). */
 export type UserRole =
   | 'administrativo_campamento'
+  | 'control_comedor'
   | 'admin_deposito'
   | 'admin_cocina'
+  | 'nutricion'
   | 'administrativo_finanzas'
+  | 'administrativo_liquidaciones'
   | 'gerencia'
   | 'analista'
 
@@ -34,9 +37,12 @@ const MSG_ERROR_PERFIL_USUARIO =
 function parseRol(raw: unknown): UserRole | null {
   if (
     raw === 'administrativo_campamento' ||
+    raw === 'control_comedor' ||
     raw === 'admin_deposito' ||
     raw === 'admin_cocina' ||
+    raw === 'nutricion' ||
     raw === 'administrativo_finanzas' ||
+    raw === 'administrativo_liquidaciones' ||
     raw === 'gerencia' ||
     raw === 'analista'
   ) {
@@ -114,9 +120,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         setRol(r)
         const ubic = parseUbicacionId(data.ubicacionId)
-        if (r === 'administrativo_campamento') {
+        if (r === 'administrativo_campamento' || r === 'control_comedor') {
           setUbicacionId(ubic ?? UBICACION_CAMPAMENTO_CASPOSO)
-        } else if (r === 'admin_cocina') {
+        } else if (r === 'admin_cocina' || r === 'nutricion') {
           setUbicacionId(ubic ?? UBICACION_COCINA_CENTRAL)
         } else if (r === 'admin_deposito') {
           setUbicacionId(ubic ?? UBICACION_DEPOSITO_CENTRAL)

@@ -324,9 +324,6 @@ export function DashboardPage() {
         <h1 className="text-xl font-semibold tracking-tight text-[#CD1818]">
           Dashboard — Ingeniería de menú
         </h1>
-        <p className="mt-1 text-sm text-[#8997A6]">
-          Análisis por rango de fechas · Todos los pedidos (activos y archivados)
-        </p>
         <div className="mt-3 md:hidden">
           <Link
             to="/"

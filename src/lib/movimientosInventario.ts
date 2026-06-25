@@ -21,6 +21,7 @@ import {
 } from 'firebase/firestore'
 import { COLLECTION_INSUMOS, computeCostoPorUnidadBase } from './insumos'
 import { getDb } from './firebase'
+import { aplicarStockMenuProduccionEnData } from './menu'
 import { COLLECTION_SOLICITUDES } from './solicitudesMercaderia'
 
 export const COLLECTION_MOVIMIENTOS_INVENTARIO = 'movimientos_inventario'
@@ -271,7 +272,7 @@ export const MOTIVO_EGRESO_PRODUCCION_COCINA = 'PRODUCCION_COCINA' as const
 export const DESTINO_EGRESO_PRODUCCION_COCINA =
   'Producción interna (consumo de insumos)' as const
 
-export type EstadoTrasladoInventario = 'EN_TRANSITO' | 'RECIBIDO'
+export type EstadoTrasladoInventario = 'EN_TRANSITO' | 'RECIBIDO' | 'RECHAZADO'
 
 /** Ítem de movimiento (trazabilidad HACCP); permite congelar costo histórico por unidad base. */
 export interface ItemMovimientoInventario {
@@ -342,6 +343,9 @@ export interface MovimientoEgreso extends MovimientoBase {
   ubicacionDestino?: string
   /** Cuando el campamento confirma recepción del traslado. */
   recibidoEn?: Date | null
+  /** Cuando la sucursal rechaza el remito en destino. */
+  rechazadoEn?: Date | null
+  motivoRechazo?: string
   /** Vínculo con `solicitudes_mercaderia` si el egreso cierra un pedido. */
   solicitudId?: string
 }
@@ -594,7 +598,7 @@ function mapEstadoTraslado(
   data: Record<string, unknown>,
 ): EstadoTrasladoInventario | undefined {
   const v = data.estadoTraslado
-  if (v === 'EN_TRANSITO' || v === 'RECIBIDO') return v
+  if (v === 'EN_TRANSITO' || v === 'RECIBIDO' || v === 'RECHAZADO') return v
   return undefined
 }
 
@@ -705,6 +709,13 @@ function mapMovimientoDoc(
     const recibidoEnRaw = data.recibidoEn
     let recibidoEn: Date | null = null
     if (recibidoEnRaw instanceof Timestamp) recibidoEn = recibidoEnRaw.toDate()
+    const rechazadoEnRaw = data.rechazadoEn
+    let rechazadoEn: Date | null = null
+    if (rechazadoEnRaw instanceof Timestamp) rechazadoEn = rechazadoEnRaw.toDate()
+    const motivoRechazo =
+      typeof data.motivoRechazo === 'string' && data.motivoRechazo.trim()
+        ? data.motivoRechazo.trim()
+        : undefined
     const solicitudIdRaw = data.solicitudId
     const solicitudId =
       typeof solicitudIdRaw === 'string' && solicitudIdRaw.trim().length > 0
@@ -724,6 +735,8 @@ function mapMovimientoDoc(
       ...(estadoTraslado ? { estadoTraslado } : {}),
       ...(ubicacionDestino ? { ubicacionDestino } : {}),
       ...(recibidoEn ? { recibidoEn } : {}),
+      ...(rechazadoEn ? { rechazadoEn } : {}),
+      ...(motivoRechazo ? { motivoRechazo } : {}),
       ...(solicitudId ? { solicitudId } : {}),
     }
   }
@@ -1700,8 +1713,10 @@ export async function confirmarRecepcionTrasladoCampamento(input: {
   ubicacionRecepcionId: string
   /** Misma cantidad de ítems que el egreso; `cantidad` = unidades recibidas (≤ enviadas). */
   itemsRecibidos: ItemMovimientoInventario[]
+  observacionesRecepcion?: string
 }): Promise<void> {
-  const { egresoId, ubicacionRecepcionId, itemsRecibidos } = input
+  const { egresoId, ubicacionRecepcionId, itemsRecibidos, observacionesRecepcion } =
+    input
   const db = getDb()
   const egresoRef = doc(db, COLLECTION_MOVIMIENTOS_INVENTARIO, egresoId)
   const ingresoRef = doc(collection(db, COLLECTION_MOVIMIENTOS_INVENTARIO))
@@ -1797,7 +1812,90 @@ export async function confirmarRecepcionTrasladoCampamento(input: {
         { merge: true },
       )
     }
+
+    if (mov.solicitudId) {
+      const solicitudRef = doc(db, COLLECTION_SOLICITUDES, mov.solicitudId)
+      t.update(solicitudRef, {
+        estado: 'Recibido',
+        observacionesRecepcion: (observacionesRecepcion ?? '').trim(),
+      })
+    }
   })
+}
+
+/**
+ * Rechaza un remito en tránsito: devuelve stock al depósito emisor y marca la solicitud vinculada.
+ */
+export async function rechazarRecepcionTrasladoCampamento(input: {
+  egresoId: string
+  ubicacionRecepcionId: string
+  motivoRechazo: string
+}): Promise<void> {
+  const { egresoId, ubicacionRecepcionId, motivoRechazo } = input
+  const motivo = motivoRechazo.trim()
+  if (!motivo) throw new Error('Indicá el motivo del rechazo.')
+
+  const db = getDb()
+  const egresoRef = doc(db, COLLECTION_MOVIMIENTOS_INVENTARIO, egresoId)
+
+  await runTransaction(db, async (t) => {
+    const egresoSnap = await t.get(egresoRef)
+    if (!egresoSnap.exists()) throw new Error('No se encontró el movimiento de egreso.')
+
+    const mov = mapMovimientoDoc(
+      egresoId,
+      egresoSnap.data() as Record<string, unknown>,
+    )
+    if (!mov || mov.tipo !== 'EGRESO') {
+      throw new Error('El documento no es un egreso válido.')
+    }
+    if (mov.estadoTraslado !== 'EN_TRANSITO') {
+      throw new Error('Este remito ya no está pendiente de recepción.')
+    }
+    if (mov.ubicacionDestino !== ubicacionRecepcionId.trim().toUpperCase()) {
+      throw new Error('Este traslado no corresponde a tu sucursal.')
+    }
+
+    const ubicacionDeposito = ubicacionEfectivaMovimiento(mov)
+    const agg = agregarItemsEgresoPorSaldo(db, ubicacionDeposito, mov.items)
+
+    t.update(egresoRef, {
+      estadoTraslado: 'RECHAZADO',
+      rechazadoEn: serverTimestamp(),
+      motivoRechazo: motivo,
+    })
+
+    for (const row of agg.values()) {
+      t.set(
+        row.ref,
+        {
+          ubicacionId: ubicacionDeposito,
+          insumoId: row.insumoId,
+          loteKey: row.loteKey,
+          cantidad: increment(row.cantidad),
+          actualizadoEn: serverTimestamp(),
+        },
+        { merge: true },
+      )
+    }
+
+    if (mov.solicitudId) {
+      const solicitudRef = doc(db, COLLECTION_SOLICITUDES, mov.solicitudId)
+      t.update(solicitudRef, {
+        estado: 'Rechazado',
+        observacionesRecepcion: motivo,
+      })
+    }
+  })
+}
+
+export interface ProduccionInsumoDetalle {
+  insumoId: string
+  nombre: string
+  unidad: string
+  cantidadTeorica: number
+  cantidadReal: number
+  loteInsumo: string
 }
 
 export interface ProduccionCocinaRegistro {
@@ -1809,6 +1907,11 @@ export interface ProduccionCocinaRegistro {
   cantidadPorciones: number
   insumoProductoId: string
   nombreProducto: string
+  loteProducto: string
+  fechaVencimiento: string
+  codigoTrazabilidad: string
+  menuItemId: string | null
+  itemsDetalle: ProduccionInsumoDetalle[]
   costoTeorico: number
   costoReal: number
   desvioPorcentaje: number
@@ -1842,7 +1945,40 @@ function mapProduccionCocinaDoc(
   const egresoId = typeof data.egresoId === 'string' ? data.egresoId.trim() : ''
   const ingresoId = typeof data.ingresoId === 'string' ? data.ingresoId.trim() : ''
 
-  if (!ubicacionId || !recetaId || !egresoId || !ingresoId) return null
+  const loteProducto =
+    typeof data.loteProducto === 'string' ? data.loteProducto.trim() : ''
+  const fechaVencimiento =
+    typeof data.fechaVencimiento === 'string' ? data.fechaVencimiento.trim() : ''
+  const codigoTrazabilidad =
+    typeof data.codigoTrazabilidad === 'string' ? data.codigoTrazabilidad.trim() : ''
+  const menuItemIdRaw = data.menuItemId
+  const menuItemId =
+    typeof menuItemIdRaw === 'string' && menuItemIdRaw.trim() ? menuItemIdRaw.trim() : null
+
+  const itemsDetalle: ProduccionInsumoDetalle[] = []
+  if (Array.isArray(data.itemsDetalle)) {
+    for (const row of data.itemsDetalle) {
+      if (!row || typeof row !== 'object') continue
+      const o = row as Record<string, unknown>
+      const insumoId = typeof o.insumoId === 'string' ? o.insumoId.trim() : ''
+      const nombre = typeof o.nombre === 'string' ? o.nombre.trim() : '—'
+      const unidad = typeof o.unidad === 'string' ? o.unidad.trim() : ''
+      const cantidadTeorica = Number(o.cantidadTeorica)
+      const cantidadReal = Number(o.cantidadReal)
+      const loteInsumo = typeof o.loteInsumo === 'string' ? o.loteInsumo.trim() : ''
+      if (!insumoId) continue
+      itemsDetalle.push({
+        insumoId,
+        nombre,
+        unidad,
+        cantidadTeorica: Number.isFinite(cantidadTeorica) ? cantidadTeorica : 0,
+        cantidadReal: Number.isFinite(cantidadReal) ? cantidadReal : 0,
+        loteInsumo,
+      })
+    }
+  }
+
+  if (!ubicacionId || !recetaId || !egresoId) return null
 
   return {
     id,
@@ -1853,6 +1989,11 @@ function mapProduccionCocinaDoc(
     cantidadPorciones: Number.isFinite(cantidadPorciones) ? cantidadPorciones : 0,
     insumoProductoId,
     nombreProducto,
+    loteProducto,
+    fechaVencimiento,
+    codigoTrazabilidad,
+    menuItemId,
+    itemsDetalle,
     costoTeorico: Number.isFinite(costoTeorico) ? costoTeorico : 0,
     costoReal: Number.isFinite(costoReal) ? costoReal : 0,
     desvioPorcentaje: Number.isFinite(desvioPorcentaje) ? desvioPorcentaje : 0,
@@ -1889,6 +2030,15 @@ export function subscribeProduccionCocinaRegistros(
   )
 }
 
+export async function fetchProduccionCocinaById(
+  id: string,
+): Promise<ProduccionCocinaRegistro | null> {
+  const db = getDb()
+  const snap = await getDoc(doc(db, COLLECTION_PRODUCCION_COCINA, id.trim()))
+  if (!snap.exists()) return null
+  return mapProduccionCocinaDoc(snap.id, snap.data() as Record<string, unknown>)
+}
+
 /**
  * Producción en cocina: un egreso de insumos y un ingreso de producto terminado,
  * más registro de auditoría, en una sola transacción (incluye `saldo_lotes`).
@@ -1899,9 +2049,13 @@ export async function registrarProduccionCocina(input: {
   recetaId: string
   recetaNombre: string
   cantidadPorciones: number
-  insumoProductoId: string
+  insumoProductoId?: string
   nombreProductoSnapshot: string
   loteProductoTerminado: string
+  fechaVencimientoProducto: string
+  codigoTrazabilidad: string
+  menuItemId?: string | null
+  itemsDetalle?: ProduccionInsumoDetalle[]
   /** Ítems de egreso con lote y cantidades reales (unidad base del insumo). */
   itemsEgreso: ItemMovimientoInventario[]
   costoTeoricoTotal: number
@@ -1915,14 +2069,33 @@ export async function registrarProduccionCocina(input: {
     throw new Error('Indicá una cantidad de porciones producida mayor a cero.')
   }
 
-  const insumoProdId = input.insumoProductoId.trim()
-  if (!insumoProdId) throw new Error('Seleccioná el insumo de producto terminado.')
-
+  const insumoProdId = input.insumoProductoId?.trim() ?? ''
   const nombreProd = input.nombreProductoSnapshot.trim()
-  if (!nombreProd) throw new Error('Nombre de producto inválido.')
+  if (!nombreProd) throw new Error('Indicá el plato / vianda producida.')
+
+  const registrarIngresoPlato = insumoProdId.length > 0
 
   const loteProd = input.loteProductoTerminado.trim()
-  if (!loteProd) throw new Error('Lote de producto terminado inválido.')
+  if (!loteProd) throw new Error('Indicá el lote de producción del plato terminado.')
+
+  const fechaVto = input.fechaVencimientoProducto.trim()
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(fechaVto)) {
+    throw new Error('Indicá una fecha de vencimiento válida (AAAA-MM-DD).')
+  }
+
+  const codigoTrazabilidad = input.codigoTrazabilidad.trim()
+  if (!codigoTrazabilidad) throw new Error('Código de trazabilidad inválido.')
+
+  const menuItemId = input.menuItemId?.trim() || null
+  const itemsDetalle = input.itemsDetalle ?? []
+
+  const payloadProduccionDoc = {
+    loteProducto: loteProd,
+    fechaVencimiento: fechaVto,
+    codigoTrazabilidad,
+    menuItemId,
+    itemsDetalle,
+  }
 
   const baseEgreso = normalizarItems(input.itemsEgreso, 'EGRESO')
   if (baseEgreso.length === 0) {
@@ -1973,26 +2146,31 @@ export async function registrarProduccionCocina(input: {
           ? 100
           : 0
 
-    const insumoProdSnap = await getDoc(doc(db, COLLECTION_INSUMOS, insumoProdId))
-    if (!insumoProdSnap.exists()) {
+    const insumoProdSnap = registrarIngresoPlato
+      ? await getDoc(doc(db, COLLECTION_INSUMOS, insumoProdId))
+      : null
+    if (registrarIngresoPlato && !insumoProdSnap?.exists()) {
       throw new Error(
         'Sin conexión: el insumo de producto terminado no está en la caché local. Conectate una vez antes de registrar producción offline.',
       )
     }
-    const insRaw = insumoProdSnap.data() as Record<string, unknown>
-    const costoUnitProd = clampNonNegative(Number(insRaw.costoPorUnidadBase))
-
-    const itemProducto: ItemMovimientoInventario = {
-      insumoId: insumoProdId,
-      nombreSnapshot: nombreProd,
-      cantidad: nPorciones,
-      lote: loteProd,
-      controlCalidadOk: true,
-      costoPorUnidadBaseSnapshot: costoUnitProd,
-    }
-    const itemsIngreso = normalizarItems([itemProducto], 'INGRESO')
-    if (itemsIngreso.length === 0) {
-      throw new Error('No se pudo normalizar el ingreso de producto terminado.')
+    let itemsIngreso: ItemMovimientoInventario[] = []
+    if (registrarIngresoPlato && insumoProdSnap?.exists()) {
+      const insRaw = insumoProdSnap.data() as Record<string, unknown>
+      const costoUnitProd = clampNonNegative(Number(insRaw.costoPorUnidadBase))
+      const itemProducto: ItemMovimientoInventario = {
+        insumoId: insumoProdId,
+        nombreSnapshot: nombreProd,
+        cantidad: nPorciones,
+        lote: loteProd,
+        fechaVencimiento: fechaVto,
+        controlCalidadOk: true,
+        costoPorUnidadBaseSnapshot: costoUnitProd,
+      }
+      itemsIngreso = normalizarItems([itemProducto], 'INGRESO')
+      if (itemsIngreso.length === 0) {
+        throw new Error('No se pudo normalizar el ingreso de producto terminado.')
+      }
     }
 
     const batchProd = writeBatch(db)
@@ -2022,33 +2200,35 @@ export async function registrarProduccionCocina(input: {
       )
     }
 
-    batchProd.set(ingresoRef, {
-      tipo: 'INGRESO' as const,
-      fecha: fechaTs,
-      proveedor: 'Producción cocina central',
-      tipoDocumento: 'Remito' as const,
-      numeroDocumento: numeroIngreso,
-      ubicacionId: ub,
-      items: itemsIngreso.map((it) => itemToFirestore(it, true)),
-      creadoEn: serverTimestamp(),
-    })
+    if (registrarIngresoPlato && itemsIngreso.length > 0) {
+      batchProd.set(ingresoRef, {
+        tipo: 'INGRESO' as const,
+        fecha: fechaTs,
+        proveedor: 'Producción cocina central',
+        tipoDocumento: 'Remito' as const,
+        numeroDocumento: numeroIngreso,
+        ubicacionId: ub,
+        items: itemsIngreso.map((it) => itemToFirestore(it, true)),
+        creadoEn: serverTimestamp(),
+      })
 
-    for (const it of itemsIngreso) {
-      const qty = Math.abs(Number(it.cantidad))
-      if (qty <= 0) continue
-      const lk = normalizarLoteKey(it.lote)
-      const sref = refSaldoLote(db, ub, it.insumoId, lk)
-      batchProd.set(
-        sref,
-        {
-          ubicacionId: ub,
-          insumoId: it.insumoId,
-          loteKey: lk,
-          cantidad: increment(qty),
-          actualizadoEn: serverTimestamp(),
-        },
-        { merge: true },
-      )
+      for (const it of itemsIngreso) {
+        const qty = Math.abs(Number(it.cantidad))
+        if (qty <= 0) continue
+        const lk = normalizarLoteKey(it.lote)
+        const sref = refSaldoLote(db, ub, it.insumoId, lk)
+        batchProd.set(
+          sref,
+          {
+            ubicacionId: ub,
+            insumoId: it.insumoId,
+            loteKey: lk,
+            cantidad: increment(qty),
+            actualizadoEn: serverTimestamp(),
+          },
+          { merge: true },
+        )
+      }
     }
 
     batchProd.set(prodRef, {
@@ -2063,12 +2243,38 @@ export async function registrarProduccionCocina(input: {
       costoReal,
       desvioPorcentaje,
       egresoId: egresoRef.id,
-      ingresoId: ingresoRef.id,
+      ingresoId: registrarIngresoPlato ? ingresoRef.id : '',
+      ...payloadProduccionDoc,
       creadoEn: serverTimestamp(),
     })
 
+    if (menuItemId) {
+      const menuRef = doc(db, 'menu', menuItemId)
+      const menuSnap = await getDoc(menuRef)
+      if (menuSnap.exists()) {
+        const merged = aplicarStockMenuProduccionEnData(
+          menuSnap.data() as Record<string, unknown>,
+          {
+            lote: loteProd,
+            fechaVencimiento: fechaVto,
+            cantidad: nPorciones,
+            produccionId: prodRef.id,
+            codigoTrazabilidad,
+          },
+        )
+        batchProd.update(menuRef, {
+          stock: merged.stock,
+          stockLotes: merged.stockLotes,
+        })
+      }
+    }
+
     await batchProd.commit()
-    return { egresoId: egresoRef.id, ingresoId: ingresoRef.id, registroId: prodRef.id }
+    return {
+      egresoId: egresoRef.id,
+      ingresoId: registrarIngresoPlato ? ingresoRef.id : '',
+      registroId: prodRef.id,
+    }
   }
 
   await runTransaction(db, async (t) => {
@@ -2076,6 +2282,13 @@ export async function registrarProduccionCocina(input: {
     const agg = agregarItemsEgresoPorSaldo(db, ub, itemsEgreso)
     const filas = [...agg.values()]
     const snaps = await Promise.all(filas.map((row) => t.get(row.ref)))
+
+    const insumoProdSnap = registrarIngresoPlato
+      ? await t.get(doc(db, COLLECTION_INSUMOS, insumoProdId))
+      : null
+
+    const menuRef = menuItemId ? doc(db, 'menu', menuItemId) : null
+    const menuSnap = menuRef ? await t.get(menuRef) : null
 
     for (let i = 0; i < filas.length; i++) {
       const row = filas[i]
@@ -2099,24 +2312,40 @@ export async function registrarProduccionCocina(input: {
           ? 100
           : 0
 
-    const insumoProdSnap = await t.get(doc(db, COLLECTION_INSUMOS, insumoProdId))
-    if (!insumoProdSnap.exists()) {
-      throw new Error('El insumo de producto terminado no existe en el catálogo.')
+    let itemsIngreso: ItemMovimientoInventario[] = []
+    if (registrarIngresoPlato) {
+      if (!insumoProdSnap?.exists()) {
+        throw new Error('El insumo de producto terminado no existe en el catálogo.')
+      }
+      const insRaw = insumoProdSnap.data() as Record<string, unknown>
+      const costoUnitProd = clampNonNegative(Number(insRaw.costoPorUnidadBase))
+      const itemProducto: ItemMovimientoInventario = {
+        insumoId: insumoProdId,
+        nombreSnapshot: nombreProd,
+        cantidad: nPorciones,
+        lote: loteProd,
+        fechaVencimiento: fechaVto,
+        controlCalidadOk: true,
+        costoPorUnidadBaseSnapshot: costoUnitProd,
+      }
+      itemsIngreso = normalizarItems([itemProducto], 'INGRESO')
+      if (itemsIngreso.length === 0) {
+        throw new Error('No se pudo normalizar el ingreso de producto terminado.')
+      }
     }
-    const insRaw = insumoProdSnap.data() as Record<string, unknown>
-    const costoUnitProd = clampNonNegative(Number(insRaw.costoPorUnidadBase))
 
-    const itemProducto: ItemMovimientoInventario = {
-      insumoId: insumoProdId,
-      nombreSnapshot: nombreProd,
-      cantidad: nPorciones,
-      lote: loteProd,
-      controlCalidadOk: true,
-      costoPorUnidadBaseSnapshot: costoUnitProd,
-    }
-    const itemsIngreso = normalizarItems([itemProducto], 'INGRESO')
-    if (itemsIngreso.length === 0) {
-      throw new Error('No se pudo normalizar el ingreso de producto terminado.')
+    let menuUpdate: { stock: number; stockLotes: unknown } | null = null
+    if (menuItemId && menuSnap?.exists()) {
+      menuUpdate = aplicarStockMenuProduccionEnData(
+        menuSnap.data() as Record<string, unknown>,
+        {
+          lote: loteProd,
+          fechaVencimiento: fechaVto,
+          cantidad: nPorciones,
+          produccionId: prodRef.id,
+          codigoTrazabilidad,
+        },
+      )
     }
 
     t.set(egresoRef, {
@@ -2145,33 +2374,35 @@ export async function registrarProduccionCocina(input: {
       )
     }
 
-    t.set(ingresoRef, {
-      tipo: 'INGRESO' as const,
-      fecha: fechaTs,
-      proveedor: 'Producción cocina central',
-      tipoDocumento: 'Remito' as const,
-      numeroDocumento: numeroIngreso,
-      ubicacionId: ub,
-      items: itemsIngreso.map((it) => itemToFirestore(it, true)),
-      creadoEn: serverTimestamp(),
-    })
+    if (registrarIngresoPlato && itemsIngreso.length > 0) {
+      t.set(ingresoRef, {
+        tipo: 'INGRESO' as const,
+        fecha: fechaTs,
+        proveedor: 'Producción cocina central',
+        tipoDocumento: 'Remito' as const,
+        numeroDocumento: numeroIngreso,
+        ubicacionId: ub,
+        items: itemsIngreso.map((it) => itemToFirestore(it, true)),
+        creadoEn: serverTimestamp(),
+      })
 
-    for (const it of itemsIngreso) {
-      const qty = Math.abs(Number(it.cantidad))
-      if (qty <= 0) continue
-      const lk = normalizarLoteKey(it.lote)
-      const sref = refSaldoLote(db, ub, it.insumoId, lk)
-      t.set(
-        sref,
-        {
-          ubicacionId: ub,
-          insumoId: it.insumoId,
-          loteKey: lk,
-          cantidad: increment(qty),
-          actualizadoEn: serverTimestamp(),
-        },
-        { merge: true },
-      )
+      for (const it of itemsIngreso) {
+        const qty = Math.abs(Number(it.cantidad))
+        if (qty <= 0) continue
+        const lk = normalizarLoteKey(it.lote)
+        const sref = refSaldoLote(db, ub, it.insumoId, lk)
+        t.set(
+          sref,
+          {
+            ubicacionId: ub,
+            insumoId: it.insumoId,
+            loteKey: lk,
+            cantidad: increment(qty),
+            actualizadoEn: serverTimestamp(),
+          },
+          { merge: true },
+        )
+      }
     }
 
     t.set(prodRef, {
@@ -2186,12 +2417,24 @@ export async function registrarProduccionCocina(input: {
       costoReal,
       desvioPorcentaje,
       egresoId: egresoRef.id,
-      ingresoId: ingresoRef.id,
+      ingresoId: registrarIngresoPlato ? ingresoRef.id : '',
+      ...payloadProduccionDoc,
       creadoEn: serverTimestamp(),
     })
+
+    if (menuUpdate && menuRef) {
+      t.update(menuRef, {
+        stock: menuUpdate.stock,
+        stockLotes: menuUpdate.stockLotes,
+      })
+    }
   })
 
-  return { egresoId: egresoRef.id, ingresoId: ingresoRef.id, registroId: prodRef.id }
+  return {
+    egresoId: egresoRef.id,
+    ingresoId: registrarIngresoPlato ? ingresoRef.id : '',
+    registroId: prodRef.id,
+  }
 }
 
 /** @deprecated Usar subscribeMovimientosInventario */

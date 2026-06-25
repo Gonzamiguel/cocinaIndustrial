@@ -223,11 +223,6 @@ export function CampamentoNuevaComandaPage() {
             <h1 className="text-xl font-semibold tracking-tight text-[#CD1818]">
               Nueva comanda
             </h1>
-            <p className="mt-1 text-sm text-[#8997A6]">
-              Consumo diario en{' '}
-              <span className="font-mono text-xs text-[#171717]">{ub}</span>. Elegí insumo, lote
-              (FEFO) y cantidad sin superar el stock del lote.
-            </p>
           </div>
         </div>
       </header>

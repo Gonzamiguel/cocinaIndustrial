@@ -140,9 +140,6 @@ export function DepositoConfiguracionPage() {
         <h1 className="text-xl font-semibold tracking-tight text-[#CD1818]">
           Configuración de categorías
         </h1>
-        <p className="mt-1 text-sm text-[#8997A6]">
-          Administrá rubros y subrubros dinámicos para el catálogo de insumos.
-        </p>
       </header>
 
       <div className="flex min-h-0 flex-1 flex-col px-5 py-5 sm:px-8 lg:px-12">

@@ -193,16 +193,9 @@ export function DepositoInsumosPage() {
         <header className="shrink-0 border-b border-gray-200 bg-white px-5 py-5 shadow-sm sm:px-8">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0">
-              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#8997A6]">
-                Depósito
-              </p>
-              <h1 className="mt-1.5 text-2xl font-semibold tracking-tight text-[#CD1818]">
+              <h1 className="text-2xl font-semibold tracking-tight text-[#CD1818]">
                 Catálogo de insumos
               </h1>
-              <p className="mt-2 text-sm text-[#8997A6]">
-                Rubros dinámicos, presentaciones y costo por unidad base para
-                cocina y pedidos.
-              </p>
             </div>
             <button
               type="button"
@@ -524,10 +517,6 @@ export function DepositoInsumosPage() {
         <h1 className="mt-2 text-xl font-semibold tracking-tight text-[#CD1818]">
           {editandoId ? 'Editar insumo' : 'Nuevo insumo'}
         </h1>
-        <p className="mt-1.5 text-sm leading-relaxed text-[#8997A6]">
-          Completá nombre genérico, rubro, subrubro, presentación y costos. El
-          costo por unidad base se calcula al guardar.
-        </p>
       </div>
 
       <form

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Package, Refrigerator, Truck } from 'lucide-react'
-import { Link } from 'react-router-dom'
+import { useLocation } from 'react-router-dom'
 import { AdminSolicitudMercaderiaPage } from './AdminSolicitudMercaderiaPage'
 import { useAuth } from '../../context/AuthContext'
 import { RecepcionTrasladoContenido } from '../../components/inventario/RecepcionTrasladoContenido'
@@ -11,7 +11,7 @@ type TabId = 'solicitud' | 'recepcion' | 'stock'
 
 const tabs: { id: TabId; label: string; Icon: typeof Package }[] = [
   { id: 'solicitud', label: 'Solicitar al depósito', Icon: Package },
-  { id: 'recepcion', label: 'Recepciones pendientes', Icon: Truck },
+  { id: 'recepcion', label: 'Remitos del depósito', Icon: Truck },
   { id: 'stock', label: 'Stock local (Heladera)', Icon: Refrigerator },
 ]
 
@@ -22,7 +22,13 @@ function etiquetaCocina(id: string): string {
 
 export function AdminMercaderiaPage() {
   const { ubicacionId } = useAuth()
-  const [tab, setTab] = useState<TabId>('solicitud')
+  const location = useLocation()
+  const tabFromNav = (location.state as { tab?: TabId } | null)?.tab
+  const [tab, setTab] = useState<TabId>(
+    tabFromNav === 'recepcion' || tabFromNav === 'stock' || tabFromNav === 'solicitud'
+      ? tabFromNav
+      : 'solicitud',
+  )
 
   const ub = ubicacionId?.trim().toUpperCase() ?? ''
   const tituloUbicacion = ub ? etiquetaCocina(ub) : '—'
@@ -35,19 +41,6 @@ export function AdminMercaderiaPage() {
             <h1 className="text-lg font-semibold tracking-tight text-[#CD1818] sm:text-xl">
               Mercadería
             </h1>
-            <p className="text-xs text-[#8997A6] sm:text-sm">
-              Ubicación operativa{' '}
-              <span className="font-mono text-[11px] text-[#171717] sm:text-xs">{ub || '—'}</span>
-              {' · '}
-              <Link
-                to="/admin/menu"
-                className="font-medium text-[#CD1818] underline-offset-2 hover:underline"
-              >
-                Registrar producción
-              </Link>
-              {' '}
-              en Gestión de menú.
-            </p>
           </div>
         </div>
         <nav
@@ -106,9 +99,9 @@ export function AdminMercaderiaPage() {
             ) : (
               <InventarioUbicacionPanel
                 layout="embedded"
-                ubicacionId={UBICACION_COCINA_CENTRAL}
+                ubicacionId={ub}
                 exportBasename="Cocina_inventario"
-                recepcionLink={{ to: '/admin/mercaderia', label: 'Recepciones' }}
+                recepcionLink={{ to: '/admin/mercaderia', state: { tab: 'recepcion' }, label: 'Remitos del depósito' }}
               />
             )}
           </div>

@@ -9,6 +9,8 @@ import {
   type MovimientoInventario,
 } from '../../lib/movimientosInventario'
 import { subscribeInsumos, type Insumo } from '../../lib/insumos'
+import { exportarInventarioStockExcel } from '../../lib/inventarioExcelExport'
+import { InsumoCeldaStock } from '../../components/inventario/InsumoCeldaStock'
 
 const ITEMS_POR_PAGINA = 50
 
@@ -223,7 +225,8 @@ export function DepositoInventarioPage() {
       if (!q) return true
       const nombre = normalizarTexto(insumo.nombreGenerico)
       const marca = normalizarTexto(insumo.marca)
-      return nombre.includes(q) || marca.includes(q)
+      const presentacion = normalizarTexto(insumo.presentacion)
+      return nombre.includes(q) || marca.includes(q) || presentacion.includes(q)
     })
   }, [filas, filtroRubro, filtroSubrubro, ocultarSinStock, query])
 
@@ -290,16 +293,20 @@ export function DepositoInventarioPage() {
     navigate(`/deposito/trazabilidad?lote=${encodeURIComponent(lote)}`)
   }
 
+  function exportarInventarioExcel() {
+    exportarInventarioStockExcel({
+      filas: filasFiltradas,
+      ubicacionId: UBICACION_DEPOSITO_CENTRAL,
+      basename: 'Deposito_inventario',
+    })
+  }
+
   return (
     <div className="flex min-h-full flex-1 flex-col bg-gray-50">
       <header className="shrink-0 border-b border-gray-200 bg-white px-5 py-5 shadow-sm sm:px-8 xl:px-10">
         <h1 className="text-xl font-semibold tracking-tight text-[#CD1818]">
-          Inventario actual / Kardex
+          Inventario actual
         </h1>
-        <p className="mt-1 text-sm text-[#8997A6]">
-          Vista maestra del stock actual, lotes FEFO y valorización del
-          inventario para catálogos grandes.
-        </p>
       </header>
 
       <div className="flex min-h-0 flex-1 flex-col px-5 py-5 sm:px-8 lg:px-12 xl:px-16 2xl:px-20">
@@ -388,18 +395,27 @@ export function DepositoInventarioPage() {
             <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
               <div>
                 <h2 className="text-sm font-semibold uppercase tracking-wide text-[#CD1818]">
-                  Kardex valorizado
+                  Inventario valorizado
                 </h2>
                 <p className="mt-0.5 text-xs text-[#8997A6]">
                   Expandí cada fila para ver lotes positivos y aplicar criterio
                   FEFO.
                 </p>
               </div>
-              <p className="text-xs font-medium text-[#8997A6]">
-                {filasFiltradas.length.toLocaleString('es-AR')} artículo
-                {filasFiltradas.length === 1 ? '' : 's'} filtrado
-                {filasFiltradas.length === 1 ? '' : 's'}
-              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="text-xs font-medium text-[#8997A6]">
+                  {filasFiltradas.length.toLocaleString('es-AR')} artículo
+                  {filasFiltradas.length === 1 ? '' : 's'} filtrado
+                  {filasFiltradas.length === 1 ? '' : 's'}
+                </p>
+                <button
+                  type="button"
+                  onClick={exportarInventarioExcel}
+                  className="inline-flex min-h-10 items-center justify-center rounded-lg bg-[#CD1818] px-4 text-sm font-semibold text-white transition hover:brightness-110"
+                >
+                  Exportar Excel
+                </button>
+              </div>
             </div>
           </div>
 
@@ -409,8 +425,8 @@ export function DepositoInventarioPage() {
                 <tr className="border-b border-gray-200 bg-gray-50 text-xs uppercase tracking-wide text-[#8997A6]">
                   <th className="w-14 px-4 py-3">Abrir</th>
                   <th className="px-4 py-3">Insumo</th>
-                  <th className="px-4 py-3">Unidad base</th>
                   <th className="px-4 py-3 text-right">Stock total</th>
+                  <th className="px-4 py-3">Unidad base</th>
                   <th className="px-4 py-3 text-right">Valorización</th>
                 </tr>
               </thead>
@@ -466,24 +482,7 @@ export function DepositoInventarioPage() {
                           </td>
 
                           <td className="px-4 py-3 align-middle">
-                            <div className="min-w-0">
-                              <p className="truncate font-semibold text-[#171717]">
-                                {fila.insumo.nombreGenerico || 'Sin nombre'}
-                              </p>
-                              <p className="mt-0.5 truncate text-xs text-[#8997A6]">
-                                {fila.insumo.marca || 'Sin marca'}
-                              </p>
-                              <p className="mt-1 truncate text-xs text-[#8997A6]">
-                                {fila.insumo.rubro || 'Sin rubro'}
-                                {fila.insumo.subrubro
-                                  ? ` / ${fila.insumo.subrubro}`
-                                  : ''}
-                              </p>
-                            </div>
-                          </td>
-
-                          <td className="whitespace-nowrap px-4 py-3 text-[#171717]">
-                            {fila.insumo.unidadBase}
+                            <InsumoCeldaStock insumo={fila.insumo} />
                           </td>
 
                           <td
@@ -492,6 +491,10 @@ export function DepositoInventarioPage() {
                             }`}
                           >
                             {formatCantidad(fila.stockTotal)}
+                          </td>
+
+                          <td className="whitespace-nowrap px-4 py-3 text-[#171717]">
+                            {fila.insumo.unidadBase}
                           </td>
 
                           <td className="whitespace-nowrap px-4 py-3 text-right font-semibold tabular-nums text-[#171717]">

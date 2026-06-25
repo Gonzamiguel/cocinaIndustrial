@@ -8,7 +8,9 @@ import { Link } from 'react-router-dom'
 import { exportarSolicitudMercaderiaResumenPdf } from '../../lib/mercaderiaPdf'
 import {
   crearSolicitudMercaderia,
+  esTrasladoInterno,
   estiloBadgeEstadoSolicitud,
+  solicitudDeUbicacion,
   subscribeSolicitudesMercaderia,
   type ItemSolicitudMercaderia,
   type PrioridadSolicitud,
@@ -298,12 +300,18 @@ export function AdminSolicitudMercaderiaPage({
   }, [variant, nuevaSolicitudRef])
 
   const solicitudesOrdenadas = useMemo(() => {
-    return [...lista].sort((a, b) => {
+    const ub = ubicacionId?.trim().toUpperCase() ?? ''
+    const deMiUbicacion = lista.filter((s) => {
+      if (!esTrasladoInterno(s)) return false
+      if (!ub) return true
+      return solicitudDeUbicacion(s, ub)
+    })
+    return [...deMiUbicacion].sort((a, b) => {
       const ta = a.fechaCreacion?.getTime() ?? 0
       const tb = b.fechaCreacion?.getTime() ?? 0
       return tb - ta
     })
-  }, [lista])
+  }, [lista, ubicacionId])
 
   const filtroFechaActivo = Boolean(
     fechaFiltroDesde.trim().length > 0 || fechaFiltroHasta.trim().length > 0,
@@ -428,9 +436,6 @@ export function AdminSolicitudMercaderiaPage({
                 <h1 className="text-xl font-semibold tracking-tight text-[#CD1818]">
                   Solicitar mercadería
                 </h1>
-                <p className="mt-1 text-sm text-[#8997A6]">
-                  Seguimiento en tiempo real de tus solicitudes al depósito.
-                </p>
               </div>
               <button
                 type="button"
@@ -460,6 +465,15 @@ export function AdminSolicitudMercaderiaPage({
           >
             {embedded && !toolbarExterno ? (
               <div className="shrink-0 border-b border-neutral-100 px-3 py-2 text-xs text-[#8997A6]">
+                {ubicacionId?.trim() ? (
+                  <>
+                    Solicitudes de{' '}
+                    <span className="font-mono text-[11px] text-[#171717]">
+                      {ubicacionId.trim().toUpperCase()}
+                    </span>
+                    {' · '}
+                  </>
+                ) : null}
                 {solicitudesFiltradas.length} registro
                 {solicitudesFiltradas.length === 1 ? '' : 's'}
                 {filtroFechaActivo &&
@@ -474,8 +488,9 @@ export function AdminSolicitudMercaderiaPage({
                   Historial de solicitudes
                 </h2>
                 <p className="mt-0.5 text-xs text-[#8997A6]">
-                  Actualización en vivo cuando el depósito cambia el estado u observaciones.
-                  Podés acotar por fecha de creación con «Desde» y «Hasta».
+                  Solo pedidos al depósito de tu ubicación (traslados internos). Actualización en
+                  vivo cuando el depósito cambia el estado u observaciones. Podés acotar por fecha
+                  de creación con «Desde» y «Hasta».
                 </p>
               </div>
             ) : null}
@@ -532,7 +547,9 @@ export function AdminSolicitudMercaderiaPage({
                         colSpan={6}
                         className="px-4 py-16 text-center text-[#8997A6]"
                       >
-                        Todavía no hay solicitudes. Creá una con «Nueva solicitud».
+                        {!ubicacionId?.trim()
+                          ? 'Configurá ubicacionId en tu perfil para ver y crear solicitudes de tu sucursal.'
+                          : 'Todavía no hay solicitudes de tu ubicación. Creá una con «Nueva solicitud».'}
                       </td>
                     </tr>
                   ) : solicitudesFiltradas.length === 0 ? (

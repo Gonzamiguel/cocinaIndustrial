@@ -1,9 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
+import { Link, useLocation, useParams } from 'react-router-dom'
 import { ArrowLeft } from 'lucide-react'
-import { useToast } from '../context/ToastContext'
 import {
-  confirmarRecepcionMercaderia,
   estiloBadgeEstadoSolicitud,
   subscribeSolicitudMercaderiaPorId,
   type SolicitudMercaderia,
@@ -23,11 +21,7 @@ function formatFechaCreacion(d: Date | null): string {
 export function SolicitudMercaderiaDetallePage() {
   const { solicitudId } = useParams<{ solicitudId: string }>()
   const location = useLocation()
-  const navigate = useNavigate()
-  const { showToast } = useToast()
   const [solicitud, setSolicitud] = useState<SolicitudMercaderia | null | undefined>(undefined)
-  const [obsRecepcionDraft, setObsRecepcionDraft] = useState('')
-  const [confirmandoRecepcion, setConfirmandoRecepcion] = useState(false)
 
   const volverA = useMemo(
     () =>
@@ -37,6 +31,13 @@ export function SolicitudMercaderiaDetallePage() {
     [location.pathname],
   )
 
+  const recepcionLink = useMemo(() => {
+    if (location.pathname.startsWith('/admin/')) {
+      return { to: '/admin/mercaderia', state: { tab: 'recepcion' as const } }
+    }
+    return { to: '/campamento/recepcion' }
+  }, [location.pathname])
+
   useEffect(() => {
     const id = solicitudId?.trim() ?? ''
     if (!id) {
@@ -45,27 +46,6 @@ export function SolicitudMercaderiaDetallePage() {
     }
     return subscribeSolicitudMercaderiaPorId(id, setSolicitud)
   }, [solicitudId])
-
-  useEffect(() => {
-    setObsRecepcionDraft('')
-  }, [solicitudId])
-
-  async function handleConfirmarRecepcion() {
-    if (!solicitud) return
-    setConfirmandoRecepcion(true)
-    try {
-      await confirmarRecepcionMercaderia(solicitud.id, obsRecepcionDraft)
-      showToast('Recepción confirmada. El pedido quedó como Recibido.')
-      navigate(volverA)
-    } catch (err) {
-      showToast(
-        err instanceof Error ? err.message : 'No se pudo confirmar la recepción.',
-        'error',
-      )
-    } finally {
-      setConfirmandoRecepcion(false)
-    }
-  }
 
   const cargando = solicitud === undefined
   const noExiste = solicitud === null
@@ -102,6 +82,25 @@ export function SolicitudMercaderiaDetallePage() {
       {!cargando && solicitud ? (
         <div className="min-h-0 flex-1 overflow-auto px-4 py-6 sm:px-6 lg:px-8">
           <div className="mx-auto max-w-5xl space-y-8 pb-10">
+            {solicitud.estado === 'Enviado' ? (
+              <div className="rounded-xl border border-[#CD1818]/20 bg-[#CD1818]/5 p-5 text-sm text-[#171717]">
+                <p className="font-semibold text-[#CD1818]">El depósito envió tu pedido</p>
+                <p className="mt-2 leading-relaxed text-[#525252]">
+                  Revisá el remito con los ítems enviados en{' '}
+                  <strong>Remitos del depósito</strong>: podés aprobar las cantidades (con
+                  diferencias si hace falta), editar lo recibido o rechazar el envío. Al confirmar,
+                  la mercadería ingresa automáticamente a tu stock local.
+                </p>
+                <Link
+                  to={recepcionLink.to}
+                  state={recepcionLink.state}
+                  className="mt-4 inline-flex min-h-10 items-center justify-center rounded-xl bg-[#CD1818] px-5 text-sm font-semibold text-white shadow-sm transition hover:brightness-105"
+                >
+                  Ir a remitos del depósito
+                </Link>
+              </div>
+            ) : null}
+
             <dl className="grid gap-4 text-sm sm:grid-cols-2 lg:grid-cols-3">
               <div className="rounded-xl border border-neutral-200 bg-white p-4 shadow-sm">
                 <dt className="text-xs font-medium text-[#8997A6]">Fecha de creación</dt>
@@ -171,7 +170,7 @@ export function SolicitudMercaderiaDetallePage() {
             {solicitud.observacionesRecepcion?.trim() ? (
               <div className="rounded-xl border border-gray-200 bg-gray-50 p-5 text-sm text-[#171717]">
                 <p className="text-xs font-semibold uppercase tracking-wide text-[#8997A6]">
-                  Observaciones de recepción (cocina)
+                  Observaciones de recepción
                 </p>
                 <p className="mt-2 whitespace-pre-wrap leading-relaxed">
                   {solicitud.observacionesRecepcion}
@@ -181,7 +180,7 @@ export function SolicitudMercaderiaDetallePage() {
 
             <section>
               <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-[#CD1818]">
-                Insumos
+                Insumos pedidos
               </h2>
               <div className="overflow-x-auto rounded-xl border border-neutral-200 bg-white shadow-sm">
                 <table className="w-full min-w-[640px] border-collapse text-left text-sm">
@@ -210,33 +209,6 @@ export function SolicitudMercaderiaDetallePage() {
                 </table>
               </div>
             </section>
-
-            {solicitud.estado === 'Enviado' ? (
-              <div className="rounded-xl border border-neutral-200 bg-neutral-50 p-5">
-                <label className="block">
-                  <span className="text-xs font-medium text-[#8997A6]">
-                    Observaciones de recepción <span className="font-normal">(opcional)</span>
-                  </span>
-                  <textarea
-                    value={obsRecepcionDraft}
-                    onChange={(e) => setObsRecepcionDraft(e.target.value)}
-                    rows={4}
-                    placeholder='Ej. "Faltó 1 kg de tomate, el resto OK"'
-                    className="mt-2 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-[#171717] outline-none focus:border-[#CD1818]/30 focus:ring-2 focus:ring-[#CD1818]/10"
-                  />
-                </label>
-                <button
-                  type="button"
-                  onClick={() => void handleConfirmarRecepcion()}
-                  disabled={confirmandoRecepcion}
-                  className="mt-4 w-full min-h-12 rounded-xl bg-[#CD1818] px-5 text-base font-semibold text-white shadow-sm transition hover:brightness-105 disabled:opacity-45 sm:w-auto sm:px-8"
-                >
-                  {confirmandoRecepcion
-                    ? 'Confirmando…'
-                    : 'Confirmar recepción de mercadería'}
-                </button>
-              </div>
-            ) : null}
 
             <div className="flex flex-wrap gap-3 border-t border-neutral-200 pt-6">
               <Link

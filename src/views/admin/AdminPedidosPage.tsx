@@ -171,9 +171,6 @@ export function AdminPedidosPage() {
             <h1 className="text-xl font-semibold tracking-tight text-[#CD1818]">
               Pedidos del día
             </h1>
-            <p className="mt-1 text-sm text-[#8997A6]">
-              Solo pedidos activos · Resumen para cocina · Detalle abajo
-            </p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-[#171717] ring-1 ring-gray-200">

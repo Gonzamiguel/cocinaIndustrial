@@ -1,6 +1,8 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { InsumoSearchSelect } from '../../components/insumos/InsumoSearchSelect'
 import { useToast } from '../../context/ToastContext'
+import { formatMonedaAnalista } from '../../lib/analista'
 import {
   costoFilaRecetaFromInsumo,
   formatLabelInsumo,
@@ -12,6 +14,7 @@ import {
   DIETAS_RECETA,
   UNIDADES_RECETA,
   actualizarReceta,
+  buildFilasAuditoriaCostoRecetas,
   crearReceta,
   subscribeRecetario,
   type CategoriaReceta,
@@ -83,6 +86,8 @@ function filasIngredientesDesdeReceta(receta: RecetaTecnica): FilaIngredienteDra
 
 export function AdminRecetarioPage() {
   const { showToast } = useToast()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const deepLinkProcesado = useRef(false)
   const [insumos, setInsumos] = useState<Insumo[]>([])
   const [recetas, setRecetas] = useState<RecetaTecnica[]>([])
   const [cargando, setCargando] = useState(true)
@@ -117,6 +122,37 @@ export function AdminRecetarioPage() {
     for (const i of insumos) m.set(i.id, i)
     return m
   }, [insumos])
+
+  const costosByRecetaId = useMemo(() => {
+    return new Map(
+      buildFilasAuditoriaCostoRecetas(insumos, recetas).map((fila) => [
+        fila.recetaId,
+        fila,
+      ]),
+    )
+  }, [insumos, recetas])
+
+  const costoBorrador = useMemo(() => {
+    let total = 0
+    for (const fila of filasIngredientes) {
+      const idInsumo = fila.insumoId?.trim()
+      const ins = idInsumo ? insumosById.get(idInsumo) : undefined
+      if (idInsumo && ins) {
+        total += costoFilaRecetaFromInsumo(
+          Number(fila.cantidadBruta) || 0,
+          Number(fila.porcentajeMerma) || 0,
+          ins.costoPorUnidadBase,
+        )
+      } else if (fila.costoEstimado.trim()) {
+        total += Number(fila.costoEstimado) || 0
+      }
+    }
+    return total
+  }, [filasIngredientes, insumosById])
+
+  const porcionesBorrador = Number(rendimientoPorciones) || 0
+  const costoPorPorcionBorrador =
+    porcionesBorrador > 0 ? costoBorrador / porcionesBorrador : null
 
   useEffect(() => {
     if (categoria === 'Guarnición') {
@@ -163,6 +199,46 @@ export function AdminRecetarioPage() {
     setDetalleModalId(null)
     setIsCreating(true)
   }
+
+  function abrirNuevaRecetaDesdeMenu(nombrePlato: string, categoriaMenu: 'principal' | 'guarnicion') {
+    resetFormulario()
+    setNombre(nombrePlato)
+    setCategoria(categoriaMenu === 'guarnicion' ? 'Guarnición' : 'Principal')
+    setAceptaGuarnicion(categoriaMenu !== 'guarnicion')
+    setRendimientoPorciones('1')
+    setIsCreating(true)
+  }
+
+  useEffect(() => {
+    if (cargando || deepLinkProcesado.current) return
+
+    const editarId = searchParams.get('editar')?.trim()
+    const nuevoNombre = searchParams.get('nuevo')?.trim()
+    const categoriaMenu = searchParams.get('categoria')?.trim()
+
+    if (!editarId && !nuevoNombre) return
+
+    deepLinkProcesado.current = true
+    setSearchParams({}, { replace: true })
+
+    if (editarId) {
+      const receta = recetas.find((item) => item.id === editarId)
+      if (receta) {
+        abrirEdicionDesdeReceta(receta)
+      } else {
+        showToast('No se encontró la receta solicitada.', 'error')
+      }
+      return
+    }
+
+    if (nuevoNombre) {
+      const cat =
+        categoriaMenu === 'guarnicion' || categoriaMenu === 'principal'
+          ? categoriaMenu
+          : 'principal'
+      abrirNuevaRecetaDesdeMenu(nuevoNombre, cat)
+    }
+  }, [cargando, recetas, searchParams, setSearchParams, showToast])
 
   function actualizarFila(index: number, parcial: Partial<FilaIngredienteDraft>) {
     setFilasIngredientes((prev) =>
@@ -278,16 +354,9 @@ export function AdminRecetarioPage() {
         <header className="shrink-0 border-b border-neutral-200 bg-white px-5 py-5 shadow-sm sm:px-8 xl:px-10">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0">
-              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#8997A6]">
-                Fichas técnicas
-              </p>
-              <h1 className="mt-1.5 text-2xl font-semibold tracking-tight text-[#CD1818]">
+              <h1 className="text-2xl font-semibold tracking-tight text-[#CD1818]">
                 Recetario
               </h1>
-              <p className="mt-2 text-sm text-[#8997A6]">
-                Biblioteca documental de recetas para cocina, separada de la
-                gestión de stock.
-              </p>
             </div>
             <button
               type="button"
@@ -322,6 +391,8 @@ export function AdminRecetarioPage() {
                     <th className="px-4 py-3">Nombre</th>
                     <th className="px-4 py-3">Categoría</th>
                     <th className="px-4 py-3">Rendimiento</th>
+                    <th className="px-4 py-3 text-right">Costo lote</th>
+                    <th className="px-4 py-3 text-right">Costo / porción</th>
                     <th className="px-4 py-3">Actualización</th>
                     <th className="px-4 py-3 text-right">Acciones</th>
                   </tr>
@@ -330,7 +401,7 @@ export function AdminRecetarioPage() {
                   {cargando ? (
                     <tr>
                       <td
-                        colSpan={5}
+                        colSpan={7}
                         className="px-4 py-16 text-center text-[#8997A6]"
                       >
                         Cargando recetario...
@@ -339,7 +410,7 @@ export function AdminRecetarioPage() {
                   ) : recetas.length === 0 ? (
                     <tr>
                       <td
-                        colSpan={5}
+                        colSpan={7}
                         className="px-4 py-16 text-center text-[#8997A6]"
                       >
                         Todavía no hay recetas registradas. Creá una con
@@ -347,7 +418,14 @@ export function AdminRecetarioPage() {
                       </td>
                     </tr>
                   ) : (
-                    recetas.map((receta) => (
+                    recetas.map((receta) => {
+                      const costo = costosByRecetaId.get(receta.id)
+                      const costoLote = costo?.costoTeorico ?? 0
+                      const costoPorcion =
+                        receta.rendimientoPorciones > 0
+                          ? costoLote / receta.rendimientoPorciones
+                          : null
+                      return (
                       <tr key={receta.id} className="hover:bg-neutral-50/80">
                         <td className="px-4 py-3 font-medium text-[#171717]">
                           {receta.nombre}
@@ -357,6 +435,14 @@ export function AdminRecetarioPage() {
                         </td>
                         <td className="px-4 py-3 text-[#171717]">
                           {receta.rendimientoPorciones} porciones
+                        </td>
+                        <td className="px-4 py-3 text-right tabular-nums text-[#171717]">
+                          {formatMonedaAnalista(costoLote)}
+                        </td>
+                        <td className="px-4 py-3 text-right tabular-nums text-[#171717]">
+                          {costoPorcion !== null
+                            ? formatMonedaAnalista(costoPorcion)
+                            : '—'}
                         </td>
                         <td className="whitespace-nowrap px-4 py-3 text-[#171717]">
                           {formatFechaSoloFecha(receta.ultimaActualizacion)}
@@ -380,7 +466,8 @@ export function AdminRecetarioPage() {
                           </div>
                         </td>
                       </tr>
-                    ))
+                      )
+                    })
                   )}
                 </tbody>
               </table>
@@ -431,7 +518,7 @@ export function AdminRecetarioPage() {
               </div>
 
               <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
-                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
                   <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
                     <p className="text-xs font-medium uppercase tracking-wide text-[#8997A6]">
                       Categoría
@@ -462,6 +549,29 @@ export function AdminRecetarioPage() {
                     </p>
                     <p className="mt-1 whitespace-nowrap font-semibold text-[#171717]">
                       {formatFechaSoloFecha(recetaEnDetalle.ultimaActualizacion)}
+                    </p>
+                  </div>
+                  <div className="rounded-xl border border-[#CD1818]/20 bg-[#CD1818]/5 px-4 py-3">
+                    <p className="text-xs font-medium uppercase tracking-wide text-[#CD1818]">
+                      Costo total lote
+                    </p>
+                    <p className="mt-1 text-lg font-bold tabular-nums text-[#171717]">
+                      {formatMonedaAnalista(
+                        costosByRecetaId.get(recetaEnDetalle.id)?.costoTeorico ?? 0,
+                      )}
+                    </p>
+                  </div>
+                  <div className="rounded-xl border border-[#CD1818]/20 bg-[#CD1818]/5 px-4 py-3">
+                    <p className="text-xs font-medium uppercase tracking-wide text-[#CD1818]">
+                      Costo por porción
+                    </p>
+                    <p className="mt-1 text-lg font-bold tabular-nums text-[#171717]">
+                      {recetaEnDetalle.rendimientoPorciones > 0
+                        ? formatMonedaAnalista(
+                            (costosByRecetaId.get(recetaEnDetalle.id)?.costoTeorico ?? 0) /
+                              recetaEnDetalle.rendimientoPorciones,
+                          )
+                        : '—'}
                     </p>
                   </div>
                 </div>
@@ -600,11 +710,6 @@ export function AdminRecetarioPage() {
         <h1 className="mt-2 text-xl font-semibold tracking-tight text-[#CD1818]">
           {editingId ? 'Editar receta' : 'Nueva receta'}
         </h1>
-        <p className="mt-1.5 text-sm leading-relaxed text-[#8997A6]">
-          Completá la ficha técnica con datos generales, ingredientes y
-          elaboración. Este módulo funciona como biblioteca documental
-          independiente.
-        </p>
       </div>
 
       <form onSubmit={handleGuardar} className="flex min-h-0 flex-1 flex-col">
@@ -1009,7 +1114,23 @@ export function AdminRecetarioPage() {
         </div>
 
         <div className="sticky bottom-0 z-30 border-t border-gray-200 bg-white/95 px-4 py-4 backdrop-blur sm:px-6 lg:px-8 xl:px-10">
-          <div className="flex w-full justify-end">
+          <div className="flex w-full flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="text-sm text-[#8997A6]">
+              <span className="font-semibold text-[#171717]">
+                {formatMonedaAnalista(costoBorrador)}
+              </span>{' '}
+              costo lote
+              {costoPorPorcionBorrador !== null ? (
+                <>
+                  {' '}
+                  ·{' '}
+                  <span className="font-semibold text-[#171717]">
+                    {formatMonedaAnalista(costoPorPorcionBorrador)}
+                  </span>{' '}
+                  por porción
+                </>
+              ) : null}
+            </div>
             <button
               type="submit"
               disabled={guardando}

@@ -1,5 +1,4 @@
 import { Fragment, useEffect, useMemo, useState } from 'react'
-import * as XLSX from 'xlsx'
 import { Database } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { subscribeCategorias, type Categoria } from '../../lib/categorias'
@@ -9,6 +8,8 @@ import {
   type MovimientoInventario,
 } from '../../lib/movimientosInventario'
 import { subscribeInsumos, type Insumo } from '../../lib/insumos'
+import { exportarInventarioStockExcel } from '../../lib/inventarioExcelExport'
+import { InsumoCeldaStock } from './InsumoCeldaStock'
 
 const ITEMS_POR_PAGINA = 50
 
@@ -112,7 +113,7 @@ export type InventarioUbicacionPanelProps = {
   layout: 'page' | 'embedded'
   /** Prefijo del archivo Excel (sin extensión). */
   exportBasename: string
-  recepcionLink?: { to: string; label: string } | null
+  recepcionLink?: { to: string; label: string; state?: unknown } | null
 }
 
 export function InventarioUbicacionPanel({
@@ -228,7 +229,8 @@ export function InventarioUbicacionPanel({
       if (!q) return true
       const nombre = normalizarTexto(insumo.nombreGenerico)
       const marca = normalizarTexto(insumo.marca)
-      return nombre.includes(q) || marca.includes(q)
+      const presentacion = normalizarTexto(insumo.presentacion)
+      return nombre.includes(q) || marca.includes(q) || presentacion.includes(q)
     })
   }, [filas, filtroRubro, filtroSubrubro, ocultarSinStock, query])
 
@@ -291,75 +293,11 @@ export function InventarioUbicacionPanel({
   }
 
   function exportarInventarioLocalExcel() {
-    /** Primera hoja: una fila por lote (o una fila sin lote si no hay trazabilidad). Columnas fijas en orden. */
-    const headerPorLote = [
-      'Insumo',
-      'Marca',
-      'Fecha de vto',
-      'Lote',
-      'Cantidad',
-      'Unidad base',
-    ] as const
-    const filasPorLote: (string | number)[][] = filasFiltradas.flatMap((f) => {
-      if (f.lotes.length === 0) {
-        return [
-          [
-            f.insumo.nombreGenerico,
-            f.insumo.marca,
-            '—',
-            '—',
-            f.stockTotal,
-            f.insumo.unidadBase,
-          ],
-        ]
-      }
-      return f.lotes.map((l) => [
-        f.insumo.nombreGenerico,
-        f.insumo.marca,
-        formatFechaVencimiento(l.fechaVencimiento),
-        l.lote?.trim() ? l.lote.trim() : '—',
-        l.stock,
-        f.insumo.unidadBase,
-      ])
+    exportarInventarioStockExcel({
+      filas: filasFiltradas,
+      ubicacionId: ub,
+      basename: exportBasename,
     })
-    const aoaPorLote = [
-      [...headerPorLote],
-      ...(filasPorLote.length ? filasPorLote : [['—', '—', '—', '—', '—', 'Sin datos con los filtros actuales']]),
-    ]
-    const wsPorLote = XLSX.utils.aoa_to_sheet(aoaPorLote)
-    wsPorLote['!cols'] = [
-      { wch: 28 },
-      { wch: 18 },
-      { wch: 14 },
-      { wch: 16 },
-      { wch: 12 },
-      { wch: 12 },
-    ]
-
-    const rowsResumen = filasFiltradas.map((f) => ({
-      Ubicacion: ub,
-      Insumo: f.insumo.nombreGenerico,
-      Marca: f.insumo.marca,
-      Rubro: f.insumo.rubro,
-      Subrubro: f.insumo.subrubro,
-      'Stock total': f.stockTotal,
-      'Unidad base': f.insumo.unidadBase,
-      'Cantidad de lotes': f.lotes.length,
-    }))
-
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, wsPorLote, 'Por lote')
-    const wsResumen = XLSX.utils.json_to_sheet(
-      rowsResumen.length ? rowsResumen : [{ Mensaje: 'Sin datos' }],
-    )
-    XLSX.utils.book_append_sheet(wb, wsResumen, 'Resumen')
-    const pad = (n: number) => String(n).padStart(2, '0')
-    const now = new Date()
-    const suf = ub ? `_${ub}` : ''
-    XLSX.writeFile(
-      wb,
-      `${exportBasename}${suf}_${pad(now.getDate())}-${pad(now.getMonth() + 1)}-${now.getFullYear()}.xlsx`,
-    )
   }
 
   if (!ub) {
@@ -442,6 +380,7 @@ export function InventarioUbicacionPanel({
       {recepcionLink ? (
         <Link
           to={recepcionLink.to}
+          state={recepcionLink.state}
           className="inline-flex min-h-10 items-center justify-center rounded-lg border border-neutral-200 bg-white px-4 text-sm font-semibold text-[#CD1818] transition hover:bg-neutral-50"
         >
           {recepcionLink.label}
@@ -525,18 +464,7 @@ export function InventarioUbicacionPanel({
                       </td>
 
                       <td className="px-4 py-3 align-middle">
-                        <div className="min-w-0">
-                          <p className="truncate font-semibold text-[#171717]">
-                            {fila.insumo.nombreGenerico || 'Sin nombre'}
-                          </p>
-                          <p className="mt-0.5 truncate text-xs text-[#8997A6]">
-                            {fila.insumo.marca || 'Sin marca'}
-                          </p>
-                          <p className="mt-1 truncate text-xs text-[#8997A6]">
-                            {fila.insumo.rubro || 'Sin rubro'}
-                            {fila.insumo.subrubro ? ` / ${fila.insumo.subrubro}` : ''}
-                          </p>
-                        </div>
+                        <InsumoCeldaStock insumo={fila.insumo} />
                       </td>
 
                       <td
@@ -672,7 +600,7 @@ export function InventarioUbicacionPanel({
             <div className="flex items-center gap-2">
               <Database className="h-6 w-6 shrink-0 text-[#CD1818]" aria-hidden />
               <h1 className="text-xl font-semibold tracking-tight text-[#CD1818]">
-                Inventario local / Kardex
+                Inventario local
               </h1>
             </div>
             <p className="mt-1 text-sm text-[#8997A6]">

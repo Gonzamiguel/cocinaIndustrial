@@ -176,10 +176,6 @@ export function ReporteLimpiezaPage() {
             <h1 className="text-xl font-semibold tracking-tight text-gray-800">
               Reporte de auditoría de limpieza
             </h1>
-            <p className="mt-1 text-sm text-neutral-500">
-              Registros de limpieza (camas sucias liberadas) según el rango de fechas. Los datos se
-              filtran en este equipo a partir de la colección sincronizada.
-            </p>
           </div>
 
           <div className="mt-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">

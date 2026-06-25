@@ -16,17 +16,6 @@ function IconClipboard(props: IconProps) {
   )
 }
 
-function IconChart(props: IconProps) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" {...props}>
-      <path d="M4.75 19.25h14.5" />
-      <path d="M7.5 16.5V10" />
-      <path d="M12 16.5V6.75" />
-      <path d="M16.5 16.5v-4.25" />
-    </svg>
-  )
-}
-
 function IconUtensils(props: IconProps) {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" {...props}>
@@ -35,17 +24,6 @@ function IconUtensils(props: IconProps) {
       <path d="M6 7.5h3" />
       <path d="M7.5 11.25V20.25" />
       <path d="M16.5 3.75c1.8 0 3.25 1.58 3.25 3.52v3.48H16.5v9.5" />
-    </svg>
-  )
-}
-
-function IconBook(props: IconProps) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" {...props}>
-      <path d="M6.75 4.75h9.5A2.75 2.75 0 0 1 19 7.5v11.75H9A2.25 2.25 0 0 0 6.75 21" />
-      <path d="M6.75 4.75A2.75 2.75 0 0 0 4 7.5v10.75A2.75 2.75 0 0 0 6.75 21" />
-      <path d="M8.75 8.5h6.5" />
-      <path d="M8.75 12h6.5" />
     </svg>
   )
 }
@@ -70,6 +48,27 @@ function IconLogout(props: IconProps) {
   )
 }
 
+function IconRoute(props: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" {...props}>
+      <path d="M4.75 19.25h14.5" />
+      <path d="M7.5 14.25 12 4.75l4.5 9.5" />
+      <path d="M9.25 19.25h5.5" />
+    </svg>
+  )
+}
+
+function IconSearchTrace(props: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" {...props}>
+      <circle cx="10.5" cy="10.5" r="5.75" />
+      <path d="m15.25 15.25 4.5 4.5" />
+      <path d="M7.5 10.5h6" />
+      <path d="M10.5 7.5v6" />
+    </svg>
+  )
+}
+
 const navItems = [
   {
     to: '/admin/pedidos',
@@ -78,21 +77,21 @@ const navItems = [
     accent: true,
   },
   {
-    to: '/admin/dashboard',
-    label: 'Dashboard',
-    Icon: IconChart,
-    accent: false,
-  },
-  {
     to: '/admin/menu',
     label: 'Gestión de menú',
     Icon: IconUtensils,
     accent: false,
   },
   {
-    to: '/admin/recetario',
-    label: 'Recetario',
-    Icon: IconBook,
+    to: '/admin/despacho',
+    label: 'Despacho / remitos',
+    Icon: IconRoute,
+    accent: false,
+  },
+  {
+    to: '/admin/trazabilidad',
+    label: 'Trazabilidad viandas',
+    Icon: IconSearchTrace,
     accent: false,
   },
   {

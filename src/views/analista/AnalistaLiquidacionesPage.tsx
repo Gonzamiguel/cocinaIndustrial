@@ -160,10 +160,6 @@ export function AnalistaLiquidacionesPage() {
         <div className="mx-auto flex max-w-6xl flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <h1 className="text-xl font-semibold text-gray-900">Liquidación contratistas</h1>
-            <p className="mt-1 text-sm text-gray-600">
-              Cruce de consumos en comedor (`registros_comedor`) y noches de hotelería
-              (`historial_pernoctes`) por empresa.
-            </p>
           </div>
           <button
             type="button"

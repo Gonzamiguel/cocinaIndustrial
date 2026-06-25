@@ -12,10 +12,6 @@ export function CampamentoSolicitudPage() {
             <h1 className="text-xl font-semibold tracking-tight text-[#CD1818]">
               Solicitud de mercadería al depósito
             </h1>
-            <p className="mt-1 text-sm text-[#8997A6]">
-              Mismo flujo que cocina central: pedidos, prioridad y seguimiento hasta recepción en tu
-              sucursal.
-            </p>
           </div>
           <button
             type="button"
