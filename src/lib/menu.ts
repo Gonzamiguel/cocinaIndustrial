@@ -33,7 +33,10 @@ export interface MenuItem {
   id: string
   nombre: string
   categoria: CategoriaMenu
+  /** Stock físico (suma de lotes o manual). */
   stock: number
+  /** Reservado por pedidos activos aún no despachados. */
+  stockComprometido?: number
   aceptaGuarnicion: boolean
   /** Si viene del recetario, enlaza la ficha técnica con el ítem del menú cliente. */
   recetaId?: string
@@ -60,13 +63,21 @@ export interface PedidoDelDia {
   lugarEntrega: string
   platoPrincipal: string
   guarnicion: string
+  principalMenuId?: string
+  guarnicionMenuId?: string
   fecha: Date | null
   estado: EstadoPedido
   /** Día de consumo del menú (ej. pedido anticipado semanal). */
   fechaConsumo?: string
+  /** Cliente de viandas (formulario planificado por empresa). */
+  empresaId?: string
+  empresaNombre?: string
+  planificacionId?: string
+  despachoId?: string
+  numeroRemito?: string
 }
 
-function esLugarEntregaValido(v: string): v is LugarEntrega {
+export function esLugarEntregaValido(v: string): v is LugarEntrega {
   return (LUGARES_ENTREGA as readonly string[]).includes(v)
 }
 
@@ -102,9 +113,21 @@ function mapPedidoDoc(id: string, data: Record<string, unknown>): PedidoDelDia {
     lugarEntrega,
     platoPrincipal,
     guarnicion,
+    principalMenuId:
+      typeof data.principalMenuId === 'string' ? data.principalMenuId : undefined,
+    guarnicionMenuId:
+      typeof data.guarnicionMenuId === 'string' ? data.guarnicionMenuId : undefined,
     fecha,
     estado,
     fechaConsumo,
+    empresaId: typeof data.empresaId === 'string' ? data.empresaId : undefined,
+    empresaNombre:
+      typeof data.empresaNombre === 'string' ? data.empresaNombre : undefined,
+    planificacionId:
+      typeof data.planificacionId === 'string' ? data.planificacionId : undefined,
+    despachoId: typeof data.despachoId === 'string' ? data.despachoId : undefined,
+    numeroRemito:
+      typeof data.numeroRemito === 'string' ? data.numeroRemito : undefined,
   }
 }
 
@@ -278,12 +301,35 @@ function stockTotalDesdeLotes(lotes: MenuStockLote[]): number {
   return lotes.reduce((acc, l) => acc + Math.max(0, Math.floor(l.cantidad)), 0)
 }
 
+export function stockComprometidoDesdeData(data: Record<string, unknown>): number {
+  const v = data.stockComprometido
+  return typeof v === 'number' && Number.isFinite(v) ? Math.max(0, Math.floor(v)) : 0
+}
+
+export function stockFisicoDesdeData(data: Record<string, unknown>): number {
+  const lotes = mapStockLotes(data.stockLotes)
+  if (lotes.length > 0) return stockTotalDesdeLotes(lotes)
+  const stockRaw = typeof data.stock === 'number' ? data.stock : 0
+  return Math.max(0, Math.floor(stockRaw))
+}
+
+/** Unidades que aún se pueden pedir (físico − comprometido). */
+export function stockDisponibleParaPedidosDesdeData(
+  data: Record<string, unknown>,
+): number {
+  return Math.max(0, stockFisicoDesdeData(data) - stockComprometidoDesdeData(data))
+}
+
+export function stockDisponibleParaPedidos(item: MenuItem | undefined): number {
+  if (!item) return 0
+  return Math.max(0, item.stock - (item.stockComprometido ?? 0))
+}
+
 function mapDoc(id: string, data: Record<string, unknown>): MenuItem {
   const categoria = data.categoria === 'guarnicion' ? 'guarnicion' : 'principal'
   const stockLotes = mapStockLotes(data.stockLotes)
-  const stockRaw = typeof data.stock === 'number' ? data.stock : 0
-  const stock =
-    stockLotes.length > 0 ? stockTotalDesdeLotes(stockLotes) : Math.max(0, Math.floor(stockRaw))
+  const stock = stockFisicoDesdeData(data)
+  const stockComprometido = stockComprometidoDesdeData(data)
   const nombre = typeof data.nombre === 'string' ? data.nombre : 'Sin nombre'
   const aceptaGuarnicionRaw = data.aceptaGuarnicion
   const aceptaGuarnicion =
@@ -297,7 +343,16 @@ function mapDoc(id: string, data: Record<string, unknown>): MenuItem {
     typeof recetaIdRaw === 'string' && recetaIdRaw.trim().length > 0
       ? recetaIdRaw.trim()
       : undefined
-  return { id, nombre, categoria, stock, aceptaGuarnicion, recetaId, stockLotes }
+  return {
+    id,
+    nombre,
+    categoria,
+    stock,
+    stockComprometido,
+    aceptaGuarnicion,
+    recetaId,
+    stockLotes,
+  }
 }
 
 export type InputStockMenuProduccion = {
@@ -589,7 +644,7 @@ export async function confirmarPedidoConTransaccion(
       if (p.categoria !== 'principal') {
         throw new Error('La selección de plato principal no es válida')
       }
-      if (p.stock < 1) {
+      if (stockDisponibleParaPedidos(p) < 1) {
         throw new Error('Stock insuficiente del plato principal')
       }
     }
@@ -603,16 +658,20 @@ export async function confirmarPedidoConTransaccion(
       if (g.categoria !== 'guarnicion') {
         throw new Error('La selección de guarnición no es válida')
       }
-      if (g.stock < 1) {
+      if (stockDisponibleParaPedidos(g) < 1) {
         throw new Error('Stock insuficiente de la guarnición')
       }
     }
 
     if (principalRef && p) {
-      transaction.update(principalRef, { stock: p.stock - 1 })
+      transaction.update(principalRef, {
+        stockComprometido: (p.stockComprometido ?? 0) + 1,
+      })
     }
     if (guarnicionRef && g) {
-      transaction.update(guarnicionRef, { stock: g.stock - 1 })
+      transaction.update(guarnicionRef, {
+        stockComprometido: (g.stockComprometido ?? 0) + 1,
+      })
     }
 
     const pedidoRef = doc(collection(db, PEDIDOS_COLLECTION))
@@ -621,6 +680,8 @@ export async function confirmarPedidoConTransaccion(
       lugarEntrega,
       platoPrincipal: p?.nombre ?? '—',
       guarnicion: g?.nombre ?? '—',
+      ...(principalId ? { principalMenuId: principalId } : {}),
+      ...(guarnicionId ? { guarnicionMenuId: guarnicionId } : {}),
       fecha: serverTimestamp(),
       estado: 'activo',
     })
@@ -637,6 +698,9 @@ export interface ConfirmarPedidoSemanalInput {
   nombreCliente: string
   lugarEntrega: string
   lineas: LineaPedidoSemanal[]
+  empresaId?: string
+  empresaNombre?: string
+  planificacionId?: string
 }
 
 /**
@@ -650,7 +714,12 @@ export async function confirmarPedidoSemanalConTransaccion(
   if (!nombre) {
     throw new Error('El nombre y apellido son obligatorios')
   }
-  if (!input.lugarEntrega || !esLugarEntregaValido(input.lugarEntrega)) {
+  if (!input.lugarEntrega?.trim()) {
+    throw new Error('Falta el lugar de entrega')
+  }
+  const lugarEntrega = input.lugarEntrega.trim()
+  const esPedidoEmpresa = Boolean(input.empresaNombre?.trim())
+  if (!esPedidoEmpresa && !esLugarEntregaValido(lugarEntrega)) {
     throw new Error('Elegí un lugar de entrega válido')
   }
 
@@ -715,9 +784,9 @@ export async function confirmarPedidoSemanalConTransaccion(
         throw new Error('Un ítem del menú seleccionado ya no existe')
       }
       const item = mapDoc(snap.id, snap.data() as Record<string, unknown>)
-      if (item.stock < cantidad) {
+      if (stockDisponibleParaPedidos(item) < cantidad) {
         throw new Error(
-          `Stock insuficiente para «${item.nombre}» (pediste ${cantidad}, hay ${item.stock}).`,
+          `Stock insuficiente para «${item.nombre}» (pediste ${cantidad}, hay ${stockDisponibleParaPedidos(item)} disponible${cantidad === 1 ? '' : 's'}).`,
         )
       }
       cache.set(menuId, item)
@@ -738,7 +807,9 @@ export async function confirmarPedidoSemanalConTransaccion(
     for (const [menuId, cantidad] of cantidadPorMenuId) {
       const item = cache.get(menuId)!
       const ref = doc(db, MENU_COLLECTION, menuId)
-      transaction.update(ref, { stock: item.stock - cantidad })
+      transaction.update(ref, {
+        stockComprometido: (item.stockComprometido ?? 0) + cantidad,
+      })
     }
 
     for (const line of lineasValidadas) {
@@ -746,15 +817,27 @@ export async function confirmarPedidoSemanalConTransaccion(
       const g = line.guarnicionId ? cache.get(line.guarnicionId) ?? null : null
 
       const pedidoRef = doc(collection(db, PEDIDOS_COLLECTION))
-      transaction.set(pedidoRef, {
+      const pedidoData: Record<string, unknown> = {
         nombreCliente: nombre,
-        lugarEntrega: input.lugarEntrega,
+        lugarEntrega,
         platoPrincipal: p?.nombre ?? '—',
         guarnicion: g?.nombre ?? '—',
         fecha: serverTimestamp(),
         estado: 'activo',
         fechaConsumo: line.fechaConsumo,
-      })
+      }
+      if (line.principalId) pedidoData.principalMenuId = line.principalId
+      if (line.guarnicionId) pedidoData.guarnicionMenuId = line.guarnicionId
+      if (input.empresaId?.trim()) {
+        pedidoData.empresaId = input.empresaId.trim()
+      }
+      if (input.empresaNombre?.trim()) {
+        pedidoData.empresaNombre = input.empresaNombre.trim()
+      }
+      if (input.planificacionId?.trim()) {
+        pedidoData.planificacionId = input.planificacionId.trim()
+      }
+      transaction.set(pedidoRef, pedidoData)
     }
   })
 }
@@ -768,13 +851,48 @@ const BATCH_LIMIT = 500
 export async function archivarPedidosActivos(): Promise<number> {
   const db = getDb()
   const snap = await getDocs(collection(db, PEDIDOS_COLLECTION))
-  let batch = writeBatch(db)
-  let ops = 0
-  let total = 0
+
+  const liberarPorMenu = new Map<string, number>()
+  const refsArchivar: ReturnType<typeof doc>[] = []
+
   for (const d of snap.docs) {
     const data = d.data()
     if (data.estado === 'archivado') continue
-    batch.update(d.ref, { estado: 'archivado' })
+
+    refsArchivar.push(d.ref)
+
+    const estado = data.estado
+    if (estado === 'activo' || estado === undefined || estado === null) {
+      const pid =
+        typeof data.principalMenuId === 'string' ? data.principalMenuId.trim() : ''
+      const gid =
+        typeof data.guarnicionMenuId === 'string' ? data.guarnicionMenuId.trim() : ''
+      if (pid) liberarPorMenu.set(pid, (liberarPorMenu.get(pid) ?? 0) + 1)
+      if (gid) liberarPorMenu.set(gid, (liberarPorMenu.get(gid) ?? 0) + 1)
+    }
+  }
+
+  if (refsArchivar.length === 0) return 0
+
+  if (liberarPorMenu.size > 0) {
+    await runTransaction(db, async (transaction) => {
+      for (const [menuId, qty] of liberarPorMenu) {
+        const ref = doc(db, MENU_COLLECTION, menuId)
+        const ms = await transaction.get(ref)
+        if (!ms.exists()) continue
+        const actual = stockComprometidoDesdeData(ms.data() as Record<string, unknown>)
+        transaction.update(ref, {
+          stockComprometido: Math.max(0, actual - qty),
+        })
+      }
+    })
+  }
+
+  let batch = writeBatch(db)
+  let ops = 0
+  let total = 0
+  for (const ref of refsArchivar) {
+    batch.update(ref, { estado: 'archivado' })
     ops++
     total++
     if (ops >= BATCH_LIMIT) {

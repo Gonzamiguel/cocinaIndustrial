@@ -2,6 +2,7 @@ import {
   collection,
   deleteDoc,
   doc,
+  getDoc,
   getDocs,
   onSnapshot,
   query,
@@ -16,6 +17,7 @@ import {
 } from 'firebase/firestore'
 import { getDb } from './firebase'
 import type { FilaImportPadronEmpresa, PadronEmpresa } from '../types/padronEmpresa'
+import type { RolEmpresaPadron } from '../types/compras'
 
 export const COL_PADRON_EMPRESAS = 'padron_empresas'
 
@@ -58,7 +60,26 @@ export function claveNombreEmpresa(nombre: string): string {
 }
 
 export function normalizarCuit(cuit: string): string {
-  return cuit.trim()
+  return cuit.trim().replace(/\D/g, '')
+}
+
+function parseRolesPadron(data: Record<string, unknown>): RolEmpresaPadron[] | undefined {
+  if (!Array.isArray(data.roles)) return undefined
+  const roles: RolEmpresaPadron[] = []
+  for (const r of data.roles) {
+    if (r === 'CONTRATISTA' || r === 'PROVEEDOR' || r === 'CLIENTE') {
+      roles.push(r)
+    }
+  }
+  return roles.length > 0 ? roles : undefined
+}
+
+export function esClienteViandasEmpresa(empresa: PadronEmpresa): boolean {
+  return empresa.roles?.includes('CLIENTE') ?? false
+}
+
+export function filtrarClientesViandasPadron(empresas: PadronEmpresa[]): PadronEmpresa[] {
+  return empresas.filter(esClienteViandasEmpresa)
 }
 
 export function mapPadronEmpresa(id: string, data: Record<string, unknown>): PadronEmpresa {
@@ -67,6 +88,7 @@ export function mapPadronEmpresa(id: string, data: Record<string, unknown>): Pad
     nombre: typeof data.nombre === 'string' ? normalizarNombreEmpresa(data.nombre) : '',
     cuit: typeof data.cuit === 'string' ? normalizarCuit(data.cuit) : '',
     creadoEn: tsToDate(data.creadoEn),
+    roles: parseRolesPadron(data),
   }
 }
 
@@ -216,6 +238,48 @@ export async function crearEmpresaPadron(input: {
   const db = getDb()
   const ref = doc(collection(db, COL_PADRON_EMPRESAS))
   await setDoc(ref, { nombre, cuit, creadoEn: serverTimestamp() })
+  return ref.id
+}
+
+/**
+ * Alta de cliente de viandas (cocina central). Misma colección que campamento/finanzas,
+ * rol `CLIENTE` para no mezclar con contratistas de campamento ni proveedores.
+ */
+export async function crearClienteViandasPadron(input: {
+  nombre: string
+  cuit: string
+}): Promise<string> {
+  const nombre = normalizarNombreEmpresa(input.nombre)
+  if (!nombre) throw new Error('El nombre de empresa es obligatorio.')
+  const cuit = normalizarCuit(input.cuit)
+  if (cuit.length < 8) {
+    throw new Error('El CUIT es obligatorio (mínimo 8 dígitos).')
+  }
+
+  const exist = await buscarEmpresaPadronPorNombre(nombre)
+  const db = getDb()
+
+  if (exist) {
+    const ref = doc(db, COL_PADRON_EMPRESAS, exist.id)
+    const snap = await getDoc(ref)
+    const data = (snap.data() ?? {}) as Record<string, unknown>
+    const roles = new Set(parseRolesPadron(data) ?? [])
+    roles.add('CLIENTE')
+    await updateDoc(ref, {
+      nombre,
+      cuit,
+      roles: Array.from(roles),
+    })
+    return exist.id
+  }
+
+  const ref = doc(collection(db, COL_PADRON_EMPRESAS))
+  await setDoc(ref, {
+    nombre,
+    cuit,
+    roles: ['CLIENTE'],
+    creadoEn: serverTimestamp(),
+  })
   return ref.id
 }
 

@@ -72,6 +72,64 @@
         { "fieldPath": "dni", "order": "ASCENDING" },
         { "fieldPath": "servicio", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "documentos_adjuntos",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "entidadId", "order": "ASCENDING" },
+        { "fieldPath": "entidadTipo", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "facturas_proveedores",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "ordenCompraId", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "facturas_proveedores",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "proveedorId", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "documentos_adjuntos",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "ordenCompraId", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "documentos_adjuntos",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "proveedorId", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "ordenes_compra",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "proveedorId", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "movimientos_inventario",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "ordenCompraId", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "planificacion_menu_empresa",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "tokenPublico", "order": "ASCENDING" },
+        { "fieldPath": "estado", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

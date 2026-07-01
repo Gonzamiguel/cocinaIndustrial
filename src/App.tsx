@@ -16,11 +16,13 @@ import { DepositoInventarioPage } from './views/deposito/DepositoInventarioPage'
 import { DepositoMovimientosPage } from './views/deposito/DepositoMovimientosPage'
 import { DepositoTrazabilidadPage } from './views/deposito/DepositoTrazabilidadPage'
 import { DepositoOrdenesCompraPage } from './views/deposito/DepositoOrdenesCompraPage'
+import { DepositoNuevoIngresoPage } from './views/deposito/DepositoNuevoIngresoPage'
 import { AdminMenuPage } from './views/admin/AdminMenuPage'
 import { AdminDespachoPage } from './views/admin/AdminDespachoPage'
 import { AdminTrazabilidadViandaPage } from './views/admin/AdminTrazabilidadViandaPage'
 import { AdminMercaderiaPage } from './views/admin/AdminMercaderiaPage'
 import { AdminPedidosPage } from './views/admin/AdminPedidosPage'
+import { AdminPlanificacionEmpresaPage } from './views/admin/AdminPlanificacionEmpresaPage'
 import { AdminRecetarioPage } from './views/admin/AdminRecetarioPage'
 import { DashboardPage } from './views/admin/DashboardPage'
 import { NutricionDashboardPage } from './views/nutricion/NutricionDashboardPage'
@@ -36,7 +38,7 @@ import { AnalistaAuditoriaPage } from './views/analista/AnalistaAuditoriaPage'
 import { AnalistaDashboardPage } from './views/analista/AnalistaDashboardPage'
 import { AnalistaLiquidacionesPage } from './views/analista/AnalistaLiquidacionesPage'
 import { AnalistaMovimientosPage } from './views/analista/AnalistaMovimientosPage'
-// import { ClientView } from './views/ClientView'
+import { ClientView } from './views/ClientView'
 import { LoginPage } from './views/LoginPage'
 import { DashboardHoteleriaPage } from './views/hoteleria/DashboardHoteleriaPage'
 import { MapaCamasPage } from './views/hoteleria/MapaCamasPage'
@@ -48,6 +50,9 @@ import { ReporteLimpiezaPage } from './views/hoteleria/ReporteLimpiezaPage'
 import { DashboardFacturacionPage } from './views/control/DashboardFacturacionPage'
 import { TesoreriaDashboardPage } from './views/control/TesoreriaDashboardPage'
 import { ComprasAprobacionPage } from './views/control/ComprasAprobacionPage'
+import { OcDetallePage } from './views/control/OcDetallePage'
+import { ProveedoresPage } from './views/control/ProveedoresPage'
+import { ProveedorDetallePage } from './views/control/ProveedorDetallePage'
 import { LiquidacionesPage } from './views/control/LiquidacionesPage'
 import { SolicitudMercaderiaDetallePage } from './views/SolicitudMercaderiaDetallePage'
 import {
@@ -151,6 +156,30 @@ export default function App() {
           }
         />
         <Route
+          path="proveedores/:id"
+          element={
+            <ProtectedRoute rolesPermitidos={[...ROLES_FINANZAS_LECTURA]}>
+              <ProveedorDetallePage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="proveedores"
+          element={
+            <ProtectedRoute rolesPermitidos={[...ROLES_FINANZAS_LECTURA]}>
+              <ProveedoresPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="compras/:id"
+          element={
+            <ProtectedRoute rolesPermitidos={[...ROLES_FINANZAS_LECTURA]}>
+              <OcDetallePage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
           path="compras"
           element={
             <ProtectedRoute rolesPermitidos={[...ROLES_FINANZAS_LECTURA]}>
@@ -216,6 +245,7 @@ export default function App() {
         <Route path="insumos" element={<DepositoInsumosPage />} />
         <Route path="configuracion" element={<DepositoConfiguracionPage />} />
         <Route path="movimientos" element={<DepositoMovimientosPage />} />
+        <Route path="ingreso" element={<DepositoNuevoIngresoPage />} />
         <Route path="inventario" element={<DepositoInventarioPage />} />
         <Route path="trazabilidad" element={<DepositoTrazabilidadPage />} />
         <Route
@@ -238,6 +268,7 @@ export default function App() {
           element={<SolicitudMercaderiaDetallePage />}
         />
         <Route path="pedidos" element={<AdminPedidosPage />} />
+        <Route path="planificacion" element={<AdminPlanificacionEmpresaPage />} />
         <Route path="menu" element={<AdminMenuPage />} />
         <Route path="despacho" element={<AdminDespachoPage />} />
         <Route path="trazabilidad" element={<AdminTrazabilidadViandaPage />} />
@@ -324,6 +355,9 @@ export default function App() {
         <Route path="reporte-limpieza" element={<ReporteLimpiezaPage />} />
         <Route path="configuracion" element={<ConfiguracionHoteleriaPage />} />
       </Route>
+
+      <Route path="/pedido/:token" element={<ClientView />} />
+      <Route path="/pedido" element={<ClientView />} />
 
       <Route path="*" element={<Navigate to="/login" replace />} />
     </Routes>

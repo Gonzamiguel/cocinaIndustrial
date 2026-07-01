@@ -89,6 +89,59 @@ function parseOrdenCompraDoc(raw: Record<string, unknown>): OrdenCompraDoc {
   return raw as unknown as OrdenCompraDoc
 }
 
+/** Firestore rechaza `undefined` en arrays/objetos anidados al hacer update. */
+function serializarLineaOcParaFirestore(linea: OrdenCompraLinea): Record<string, unknown> {
+  const out: Record<string, unknown> = {
+    lineaId: linea.lineaId,
+    insumoId: linea.insumoId,
+    nombreSnapshot: linea.nombreSnapshot,
+    unidadBase: linea.unidadBase,
+    cantidadSolicitada: linea.cantidadSolicitada,
+    precioUnitario: linea.precioUnitario,
+    descuentoPorcentaje: linea.descuentoPorcentaje,
+    subtotalLinea: linea.subtotalLinea,
+    cantidadRecibida: linea.cantidadRecibida,
+    cantidadPendiente: linea.cantidadPendiente,
+    estadoLinea: linea.estadoLinea,
+    movimientosIngresoIds: linea.movimientosIngresoIds ?? [],
+  }
+  const presentacion = linea.presentacion?.trim()
+  if (presentacion) out.presentacion = presentacion
+  if (
+    linea.factorPresentacion != null &&
+    Number.isFinite(linea.factorPresentacion) &&
+    linea.factorPresentacion > 0
+  ) {
+    out.factorPresentacion = linea.factorPresentacion
+  }
+  return out
+}
+
+function serializarCambioEstadoOcParaFirestore(
+  cambio: CambioEstadoOrdenCompra,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {
+    estadoAnterior: cambio.estadoAnterior,
+    estadoNuevo: cambio.estadoNuevo,
+    fecha: cambio.fecha,
+    usuarioUid: cambio.usuarioUid,
+    usuarioNombre: cambio.usuarioNombre,
+  }
+  const comentario = cambio.comentario?.trim()
+  if (comentario) out.comentario = comentario
+  return out
+}
+
+function serializarLineasOcParaFirestore(items: OrdenCompraLinea[]): Record<string, unknown>[] {
+  return items.map(serializarLineaOcParaFirestore)
+}
+
+function serializarHistorialOcParaFirestore(
+  historial: CambioEstadoOrdenCompra[],
+): Record<string, unknown>[] {
+  return historial.map(serializarCambioEstadoOcParaFirestore)
+}
+
 function recalcularEstadoLinea(
   cantidadSolicitada: number,
   cantidadRecibida: number,
@@ -218,7 +271,8 @@ export type EnviarOrdenCompraAprobacionInput = {
 }
 
 /**
- * Alta de OC en estado BORRADOR (numeración transaccional OC-AAAA-NNNNNN).
+ * Alta de OC emitida directamente en estado APROBADA (numeración transaccional OC-AAAA-NNNNNN).
+ * Finanzas es autoridad de compra: la OC queda lista para recepción en depósito.
  */
 export async function crearOrdenCompra(
   input: CrearOrdenCompraInput,
@@ -290,6 +344,10 @@ export async function crearOrdenCompra(
     if (!proveedorNombre) {
       throw new OrdenCompraError('El proveedor no tiene nombre válido.', 'PROVEEDOR_INACTIVO')
     }
+    const roles = (prov.roles as string[] | undefined) ?? ['CONTRATISTA']
+    if (!roles.includes('PROVEEDOR') || prov.proveedorActivo !== true) {
+      throw new OrdenCompraError('El proveedor no está activo.', 'PROVEEDOR_INACTIVO')
+    }
 
     const insumoIds = [...new Set(input.lineas.map((l) => l.insumoId.trim()).filter(Boolean))]
     const insumoSnaps = await Promise.all(
@@ -341,7 +399,7 @@ export async function crearOrdenCompra(
         insumoId,
         nombreSnapshot: nombreSnapshot || insumoId,
         unidadBase,
-        presentacion: presentacion || undefined,
+        ...(presentacion ? { presentacion } : {}),
         cantidadSolicitada,
         precioUnitario,
         descuentoPorcentaje,
@@ -353,16 +411,17 @@ export async function crearOrdenCompra(
       })
     }
 
-    const totales = calcularTotales(items)
+    const itemsNormalizados = recalcularLineasParaAprobacion(items)
+    const totales = calcularTotales(itemsNormalizados)
     const numeracion = reservarNumeroOrdenCompra(tx, contadorSnap, ahora)
 
     const historialInicial: CambioEstadoOrdenCompra = {
       estadoAnterior: null,
-      estadoNuevo: 'BORRADOR',
+      estadoNuevo: 'APROBADA',
       fecha: Timestamp.fromDate(ahora),
       usuarioUid: input.usuarioUid,
       usuarioNombre: input.usuarioNombre,
-      comentario: 'Alta de orden de compra',
+      comentario: 'Emisión de orden de compra',
     }
 
     const docData: Omit<OrdenCompraDoc, 'creadoEn' | 'actualizadoEn'> & {
@@ -372,7 +431,7 @@ export async function crearOrdenCompra(
       numero: numeracion.numero,
       anio: numeracion.anio,
       secuencial: numeracion.secuencial,
-      estado: 'BORRADOR',
+      estado: 'APROBADA',
       proveedorId,
       proveedorNombre,
       proveedorCuit,
@@ -383,10 +442,13 @@ export async function crearOrdenCompra(
       plazoPagoDias,
       condicionPago,
       ...totales,
-      items,
+      items: itemsNormalizados,
       historialEstados: [historialInicial],
       creadoPorUid: input.usuarioUid,
       creadoPorNombre: input.usuarioNombre,
+      aprobadoPorUid: input.usuarioUid,
+      aprobadoPorNombre: input.usuarioNombre,
+      aprobadoEn: Timestamp.fromDate(ahora),
       movimientosIngresoIds: [],
       recepcionCompleta: false,
       creadoEn: serverTimestamp(),
@@ -395,7 +457,11 @@ export async function crearOrdenCompra(
       ...(solicitudId ? { solicitudMercaderiaId: solicitudId } : {}),
     }
 
-    tx.set(ocRef, docData)
+    tx.set(ocRef, {
+      ...docData,
+      items: serializarLineasOcParaFirestore(itemsNormalizados),
+      historialEstados: serializarHistorialOcParaFirestore([historialInicial]),
+    })
 
     if (solicitudRef && solicitudId) {
       tx.update(solicitudRef, {
@@ -449,7 +515,10 @@ export async function enviarOrdenCompraAprobacion(
 
     tx.update(ocRef, {
       estado: 'PENDIENTE_APROBACION',
-      historialEstados: [...(raw.historialEstados ?? []), cambio],
+      historialEstados: serializarHistorialOcParaFirestore([
+        ...(raw.historialEstados ?? []),
+        cambio,
+      ]),
       enviadoAprobacionEn: serverTimestamp(),
       enviadoAprobacionPorUid: input.usuarioUid,
       actualizadoEn: serverTimestamp(),
@@ -617,14 +686,17 @@ export async function aprobarOrdenCompra(
       fecha: Timestamp.now(),
       usuarioUid: input.aprobadorUid,
       usuarioNombre: input.aprobadorNombre,
-      comentario: input.comentario?.trim() || undefined,
+      ...(input.comentario?.trim() ? { comentario: input.comentario.trim() } : {}),
     }
 
     tx.update(ocRef, {
       estado: 'APROBADA',
-      items: itemsNormalizados,
+      items: serializarLineasOcParaFirestore(itemsNormalizados),
       ...totales,
-      historialEstados: [...(raw.historialEstados ?? []), cambio],
+      historialEstados: serializarHistorialOcParaFirestore([
+        ...(raw.historialEstados ?? []),
+        cambio,
+      ]),
       aprobadoPorUid: input.aprobadorUid,
       aprobadoPorNombre: input.aprobadorNombre,
       aprobadoEn: serverTimestamp(),
@@ -790,16 +862,18 @@ export async function registrarRecepcionOcEnIngreso(
         fecha: Timestamp.now(),
         usuarioUid: input.usuarioUid,
         usuarioNombre: input.usuarioNombre,
-        comentario: input.observaciones?.trim() || undefined,
+        ...(input.observaciones?.trim()
+          ? { comentario: input.observaciones.trim() }
+          : {}),
       })
     }
 
     tx.update(ocRef, {
       estado: estadoNuevo,
-      items: itemsActualizados,
+      items: serializarLineasOcParaFirestore(itemsActualizados),
       movimientosIngresoIds: [...(oc.movimientosIngresoIds ?? []), movimientoId],
       recepcionCompleta,
-      historialEstados: historial,
+      historialEstados: serializarHistorialOcParaFirestore(historial),
       actualizadoEn: serverTimestamp(),
     })
 

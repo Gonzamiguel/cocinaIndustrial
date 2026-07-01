@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { Factory, UtensilsCrossed } from 'lucide-react'
 import {
   deleteMenuItem,
+  stockDisponibleParaPedidos,
   subscribeMenu,
   updateMenuNombre,
   updateMenuStock,
@@ -60,6 +61,66 @@ function PencilIcon({ className }: { className?: string }) {
       <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
       <path d="m15 5 4 4" />
     </svg>
+  )
+}
+
+function CheckIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      xmlns="http://www.w3.org/2000/svg"
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M20 6 9 17l-5-5" />
+    </svg>
+  )
+}
+
+function StockInventarioCelda({ item }: { item: MenuItem }) {
+  const fisico = item.stock
+  const comprometido = item.stockComprometido ?? 0
+  const disponible = stockDisponibleParaPedidos(item)
+
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      <span
+        className="inline-flex items-baseline gap-1 rounded-md bg-gray-50 px-2 py-1 text-xs tabular-nums ring-1 ring-gray-200"
+        title="Unidades en cocina (lotes o stock manual)"
+      >
+        <span className="text-[10px] font-semibold uppercase tracking-wide text-[#8997A6]">
+          Fís.
+        </span>
+        <span className="font-semibold text-[#171717]">{fisico}</span>
+      </span>
+      {comprometido > 0 ? (
+        <span
+          className="inline-flex items-baseline gap-1 rounded-md bg-amber-50 px-2 py-1 text-xs tabular-nums ring-1 ring-amber-200/80"
+          title="Reservado por pedidos activos sin despachar"
+        >
+          <span className="text-[10px] font-semibold uppercase tracking-wide text-amber-800/80">
+            Comp.
+          </span>
+          <span className="font-semibold text-amber-950">{comprometido}</span>
+        </span>
+      ) : null}
+      <span
+        className="inline-flex items-baseline gap-1 rounded-md bg-[#CD1818]/8 px-2 py-1 text-xs tabular-nums ring-1 ring-[#CD1818]/15"
+        title="Lo que pueden pedir todavía (formulario público)"
+      >
+        <span className="text-[10px] font-semibold uppercase tracking-wide text-[#CD1818]/80">
+          Disp.
+        </span>
+        <span className="font-bold text-[#CD1818]">{disponible}</span>
+      </span>
+    </div>
   )
 }
 
@@ -259,9 +320,14 @@ export function AdminMenuPage() {
           </div>
         ) : null}
 
-            <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">
+            <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <p className="order-2 text-xs text-[#8997A6] sm:order-1">
+              <span className="font-medium text-[#171717]">Fís.</span> en cocina ·{' '}
+              <span className="font-medium text-[#171717]">Comp.</span> pedidos activos ·{' '}
+              <span className="font-medium text-[#CD1818]">Disp.</span> para nuevos pedidos
+            </p>
             <div
-              className="inline-flex rounded-lg border border-neutral-200 bg-white p-1"
+              className="order-1 inline-flex self-end rounded-lg border border-neutral-200 bg-white p-1 sm:order-2"
               role="tablist"
               aria-label="Filtrar por categoría"
             >
@@ -320,7 +386,7 @@ export function AdminMenuPage() {
           ) : (
             <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[min(100%,640px)] border-collapse text-left text-sm sm:min-w-[640px]">
+                <table className="w-full min-w-[min(100%,720px)] border-collapse text-left text-sm sm:min-w-[720px]">
                   <thead>
                     <tr className="border-b border-gray-200 bg-gray-50 text-[#8997A6]">
                       <th className="w-14 whitespace-nowrap px-3 py-3 pl-4 font-semibold sm:px-4">
@@ -330,10 +396,10 @@ export function AdminMenuPage() {
                         Nombre
                       </th>
                       <th className="whitespace-nowrap px-3 py-3 font-semibold sm:px-4">
-                        Estado
+                        Inventario
                       </th>
                       <th className="whitespace-nowrap px-3 py-3 font-semibold sm:px-4">
-                        Stock
+                        Manual
                       </th>
                       <th className="w-px whitespace-nowrap px-3 py-3 pr-4 text-right font-semibold sm:px-4">
                         Acción
@@ -344,10 +410,10 @@ export function AdminMenuPage() {
                     {itemsPaginados.map((it) => {
                       const busy = busyId === it.id
                       const nombreBusy = busyNombreId === it.id
-                      const disponible = it.stock > 0
                       const isEditing = editingId === it.id
                       const expanded = expandidos[it.id] === true
                       const lotes = it.stockLotes ?? []
+                      const stockManual = lotes.length === 0
                       return (
                         <Fragment key={it.id}>
                         <tr
@@ -441,72 +507,80 @@ export function AdminMenuPage() {
                               </div>
                             )}
                           </td>
-                          <td className="whitespace-nowrap px-3 py-2.5 align-middle sm:px-4">
-                            <span
-                              className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide ring-1 ${
-                                disponible
-                                  ? 'bg-gray-100 text-[#171717] ring-gray-200'
-                                  : 'bg-gray-100 text-[#8997A6] ring-gray-200'
-                              }`}
-                            >
-                              {disponible ? 'Disponible' : 'Agotado'}
-                            </span>
-                          </td>
-                          <td className="whitespace-nowrap px-3 py-2.5 align-middle sm:px-4">
-                            <div className="flex items-center gap-2">
-                              <input
-                                type="number"
-                                min={0}
-                                step={1}
-                                value={draftStockView[it.id] ?? it.stock}
-                                disabled={busyStockId === it.id}
-                                onChange={(e) =>
-                                  setDraftStockValue(
-                                    it.id,
-                                    Number.isNaN(e.target.valueAsNumber)
-                                      ? Number(e.target.value) || 0
-                                      : e.target.valueAsNumber,
-                                  )
-                                }
-                                onBlur={() => void saveStock(it.id)}
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter') {
-                                    e.preventDefault()
-                                    void saveStock(it.id)
-                                  }
-                                }}
-                                className="min-w-[4.5rem] rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-semibold tabular-nums text-[#171717] outline-none transition focus:border-[#CD1818]/30 focus:ring-2 focus:ring-[#CD1818]/10 disabled:opacity-50"
-                                aria-label={`Stock de ${it.nombre}`}
-                              />
-                              <button
-                                type="button"
-                                onMouseDown={(e) => e.preventDefault()}
-                                disabled={
-                                  busyStockId === it.id ||
-                                  (draftStockView[it.id] ?? it.stock) === it.stock
-                                }
-                                onClick={() => void saveStock(it.id)}
-                                className="flex items-center gap-1 rounded-lg bg-[#CD1818] px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:brightness-105 disabled:cursor-not-allowed disabled:bg-gray-200 disabled:text-white disabled:shadow-none"
-                              >
-                                {busyStockId === it.id ? 'Guardando…' : 'Guardar'}
-                              </button>
-                            </div>
+                          <td className="px-3 py-2.5 align-middle sm:px-4">
+                            <StockInventarioCelda item={it} />
                             {lotes.length > 0 ? (
-                              <p className="mt-1 text-[10px] text-[#8997A6]">
-                                {lotes.length} lote{lotes.length === 1 ? '' : 's'} · expandir
+                              <p className="mt-1.5 text-[10px] text-[#8997A6]">
+                                {lotes.length} lote{lotes.length === 1 ? '' : 's'} · expandir fila
                               </p>
                             ) : null}
+                          </td>
+                          <td className="whitespace-nowrap px-3 py-2.5 align-middle sm:px-4">
+                            {stockManual ? (
+                              <div className="flex items-center gap-1.5">
+                                <input
+                                  type="number"
+                                  min={0}
+                                  step={1}
+                                  value={draftStockView[it.id] ?? it.stock}
+                                  disabled={busyStockId === it.id}
+                                  onChange={(e) =>
+                                    setDraftStockValue(
+                                      it.id,
+                                      Number.isNaN(e.target.valueAsNumber)
+                                        ? Number(e.target.value) || 0
+                                        : e.target.valueAsNumber,
+                                    )
+                                  }
+                                  onBlur={() => void saveStock(it.id)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                      e.preventDefault()
+                                      void saveStock(it.id)
+                                    }
+                                  }}
+                                  className="w-14 rounded-lg border border-gray-200 bg-white px-1.5 py-1.5 text-center text-sm font-semibold tabular-nums text-[#171717] outline-none transition focus:border-[#CD1818]/30 focus:ring-2 focus:ring-[#CD1818]/10 disabled:opacity-50"
+                                  aria-label={`Stock manual de ${it.nombre}`}
+                                />
+                                <button
+                                  type="button"
+                                  onMouseDown={(e) => e.preventDefault()}
+                                  disabled={
+                                    busyStockId === it.id ||
+                                    (draftStockView[it.id] ?? it.stock) === it.stock
+                                  }
+                                  onClick={() => void saveStock(it.id)}
+                                  title="Guardar stock"
+                                  aria-label={`Guardar stock de ${it.nombre}`}
+                                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#CD1818] text-white shadow-sm transition hover:brightness-105 disabled:cursor-not-allowed disabled:bg-gray-200 disabled:text-white disabled:shadow-none"
+                                >
+                                  {busyStockId === it.id ? (
+                                    <span className="text-[10px] font-bold">…</span>
+                                  ) : (
+                                    <CheckIcon />
+                                  )}
+                                </button>
+                              </div>
+                            ) : (
+                              <span
+                                className="inline-flex items-center gap-1 rounded-md bg-gray-50 px-2 py-1 text-[10px] font-medium text-[#8997A6] ring-1 ring-gray-200"
+                                title="Este plato tiene lotes de producción. El stock físico se actualiza al registrar producción o al despachar."
+                              >
+                                <Factory className="h-3 w-3 shrink-0" aria-hidden />
+                                Producción
+                              </span>
+                            )}
                           </td>
                           <td className="whitespace-nowrap px-3 py-2.5 pr-4 text-right align-middle sm:px-4">
                             <button
                               type="button"
                               disabled={busy}
                               onClick={() => handleDelete(it.id)}
-                              className="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-medium text-[#8997A6] transition hover:bg-gray-50 hover:text-[#CD1818] disabled:opacity-40"
+                              className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-[#8997A6] transition hover:bg-gray-50 hover:text-[#CD1818] disabled:opacity-40"
                               title="Eliminar plato"
+                              aria-label={`Eliminar ${it.nombre}`}
                             >
                               <TrashIcon className="shrink-0 opacity-80" />
-                              <span className="hidden sm:inline">Eliminar</span>
                             </button>
                           </td>
                         </tr>

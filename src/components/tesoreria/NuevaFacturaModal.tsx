@@ -1,9 +1,16 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { useToast } from '../../context/ToastContext'
+import { ComprobanteUploadField } from '../compras/ComprobanteUploadField'
+import {
+  mensajeErrorDocumento,
+  subirDocumentoAdjunto,
+} from '../../lib/documentos'
 import { registrarFacturaProveedor } from '../../lib/tesoreria'
+import { cargarPrefillFacturaOc, type PrefillFacturaOc } from '../../lib/comprasQueries'
 import {
   esProveedorTesoreria,
+  ocPendienteFacturar,
   type ProveedorTesoreria,
 } from '../../lib/tesoreriaQueries'
 import {
@@ -20,13 +27,14 @@ import {
   TesoreriaFormModal,
 } from './TesoreriaFormModal'
 
-const ESTADOS_OC_FACTURABLES = new Set(['RECIBIDA_PARCIAL', 'COMPLETADA'])
-
 export type NuevaFacturaModalProps = {
   open: boolean
   onClose: () => void
   proveedores: ProveedorTesoreria[]
   ordenesCompra: OrdenCompra[]
+  /** Pre-selección al abrir desde bandeja pendientes de facturar. */
+  ordenCompraIdInicial?: string
+  proveedorIdInicial?: string
 }
 
 export function NuevaFacturaModal({
@@ -34,6 +42,8 @@ export function NuevaFacturaModal({
   onClose,
   proveedores,
   ordenesCompra,
+  ordenCompraIdInicial,
+  proveedorIdInicial,
 }: NuevaFacturaModalProps) {
   const { user } = useAuth()
   const { showToast } = useToast()
@@ -48,7 +58,10 @@ export function NuevaFacturaModal({
   const [montoPercepciones, setMontoPercepciones] = useState('')
   const [total, setTotal] = useState('')
   const [observaciones, setObservaciones] = useState('')
+  const [archivoFactura, setArchivoFactura] = useState<File | null>(null)
   const [saving, setSaving] = useState(false)
+  const [cargandoPrefill, setCargandoPrefill] = useState(false)
+  const [prefill, setPrefill] = useState<PrefillFacturaOc | null>(null)
 
   const proveedoresOpciones = useMemo(
     () => proveedores.filter(esProveedorTesoreria),
@@ -58,8 +71,7 @@ export function NuevaFacturaModal({
   const ocsFiltradas = useMemo(() => {
     if (!proveedorId) return []
     return ordenesCompra.filter(
-      (oc) =>
-        oc.proveedorId === proveedorId && ESTADOS_OC_FACTURABLES.has(oc.estado),
+      (oc) => oc.proveedorId === proveedorId && ocPendienteFacturar(oc),
     )
   }, [ordenesCompra, proveedorId])
 
@@ -70,8 +82,14 @@ export function NuevaFacturaModal({
 
   useEffect(() => {
     if (!open) return
-    setProveedorId('')
-    setOrdenCompraId('')
+    const ocPreset = ordenCompraIdInicial?.trim() ?? ''
+    const provPreset = proveedorIdInicial?.trim() ?? ''
+    const ocRef =
+      ocPreset && !provPreset
+        ? ordenesCompra.find((oc) => oc.id === ocPreset)
+        : undefined
+    setProveedorId(provPreset || ocRef?.proveedorId || '')
+    setOrdenCompraId(ocPreset)
     setNumeroFactura('')
     setFechaEmision(hoyYmdLocal())
     setFechaVencimiento('')
@@ -80,11 +98,44 @@ export function NuevaFacturaModal({
     setMontoPercepciones('')
     setTotal('')
     setObservaciones('')
-  }, [open])
+    setArchivoFactura(null)
+    setPrefill(null)
+    setCargandoPrefill(false)
+  }, [open, ordenCompraIdInicial, proveedorIdInicial, ordenesCompra])
 
   useEffect(() => {
+    if (!open) return
+    const ocId = ordenCompraIdInicial?.trim() || ordenCompraId.trim()
+    if (!ocId) {
+      setPrefill(null)
+      return
+    }
+    let cancelado = false
+    setCargandoPrefill(true)
+    void cargarPrefillFacturaOc(ocId)
+      .then((data) => {
+        if (cancelado || !data) return
+        setPrefill(data)
+        setNumeroFactura((prev) => prev || data.numeroFactura)
+        setFechaEmision((prev) => prev || data.fechaEmision)
+        setFechaVencimiento((prev) => prev || data.fechaVencimiento)
+        setNeto((prev) => prev || data.neto)
+        setMontoIva((prev) => prev || data.montoIva)
+        setMontoPercepciones((prev) => prev || data.montoPercepciones)
+        setTotal((prev) => prev || data.total)
+      })
+      .finally(() => {
+        if (!cancelado) setCargandoPrefill(false)
+      })
+    return () => {
+      cancelado = true
+    }
+  }, [open, ordenCompraIdInicial, ordenCompraId])
+
+  useEffect(() => {
+    if (!open || ordenCompraIdInicial) return
     setOrdenCompraId('')
-  }, [proveedorId])
+  }, [proveedorId, open, ordenCompraIdInicial])
 
   useEffect(() => {
     if (!ocSeleccionada) return
@@ -130,8 +181,35 @@ export function NuevaFacturaModal({
         usuarioUid: user.uid,
         usuarioNombre: nombreUsuarioFromAuth(user),
       })
+
+      if (archivoFactura) {
+        try {
+          await subirDocumentoAdjunto({
+            file: archivoFactura,
+            entidadId: result.facturaId,
+            entidadTipo: 'FACTURA_PROVEEDOR',
+            tipoComprobante: 'FACTURA',
+            ordenCompraId,
+            proveedorId,
+            usuario: {
+              uid: user.uid,
+              nombre: nombreUsuarioFromAuth(user),
+            },
+          })
+        } catch (docErr) {
+          showToast(
+            `Factura ${result.numeroFactura} registrada, pero no se pudo adjuntar el PDF: ${mensajeErrorDocumento(docErr)}`,
+            'error',
+          )
+          onClose()
+          return
+        }
+      }
+
       showToast(
-        `Factura ${result.numeroFactura} registrada correctamente.`,
+        archivoFactura
+          ? `Factura ${result.numeroFactura} registrada y PDF archivado.`
+          : `Factura ${result.numeroFactura} registrada correctamente.`,
         'success',
       )
       onClose()
@@ -155,6 +233,25 @@ export function NuevaFacturaModal({
       maxWidthClass="max-w-xl"
     >
       <div className="space-y-4">
+        {cargandoPrefill ? (
+          <p className="rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-900">
+            Cargando datos sugeridos desde la recepción de depósito…
+          </p>
+        ) : null}
+        {prefill && !cargandoPrefill ? (
+          <div className="rounded-xl border border-emerald-100 bg-emerald-50/80 px-4 py-3 text-sm text-emerald-950">
+            <p className="font-semibold">Sugerido desde depósito</p>
+            <p className="mt-1 text-emerald-900">
+              {prefill.numeroComprobanteDeposito
+                ? `Comprobante ${prefill.tipoComprobanteDeposito === 'FACTURA' ? 'factura' : 'remito'} Nº ${prefill.numeroComprobanteDeposito}. `
+                : ''}
+              Montos calculados según saldo pendiente de la OC.
+              {prefill.pdfEnExpedienteOc
+                ? ' El PDF ya está en el expediente de la OC; no hace falta volver a subirlo.'
+                : ' Podés adjuntar el PDF fiscal abajo si lo tenés.'}
+            </p>
+          </div>
+        ) : null}
         <div>
           <label className={labelClass} htmlFor="nf-proveedor">
             Proveedor
@@ -325,6 +422,22 @@ export function NuevaFacturaModal({
             onChange={(e) => setObservaciones(e.target.value)}
           />
         </div>
+
+        <ComprobanteUploadField
+          label={
+            prefill?.pdfEnExpedienteOc
+              ? 'PDF adicional (opcional)'
+              : 'PDF de la factura (opcional)'
+          }
+          hint={
+            prefill?.pdfEnExpedienteOc
+              ? 'Depósito ya archivó un comprobante en el expediente de la OC.'
+              : 'Adjuntá el comprobante recibido por mail. Queda en el expediente de la factura.'
+          }
+          disabled={saving}
+          file={archivoFactura}
+          onFileChange={setArchivoFactura}
+        />
       </div>
     </TesoreriaFormModal>
   )

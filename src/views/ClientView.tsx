@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Navigate } from 'react-router-dom'
+import { Navigate, useParams } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { rutaHomePorRol } from '../lib/rbac'
 import {
   confirmarPedidoSemanalConTransaccion,
   LUGARES_ENTREGA,
+  stockDisponibleParaPedidos,
   subscribeMenu,
   type LugarEntrega,
   type MenuItem,
@@ -14,7 +15,17 @@ import {
   getVentanaRodanteConsumo,
   type DiaConsumo,
 } from '../lib/fechasDinamicas'
-import { ensureSesionClienteAnonima } from '../lib/authPublico'
+import { ensureSesionFormularioPedido } from '../lib/authPublico'
+import {
+  diasConsumoDesdePlanificacion,
+  fetchPlanificacionByToken,
+  itemsMenuDesdeOpcionesPlanificadas,
+  opcionesGuarnicionesPermitidas,
+  opcionesPrincipalesPermitidas,
+  seleccionInicialDesdePlanificacion,
+  validarLineasContraPlanificacion,
+} from '../lib/planificacionMenuEmpresa'
+import type { PlanificacionMenuEmpresa } from '../types/planificacionMenuEmpresa'
 
 /** Paleta sobria alineada con dashboard. */
 const TAB_ACTIVO = 'bg-[#CD1818] text-white shadow-sm'
@@ -67,26 +78,38 @@ function validarPedidoSemanal(input: {
   nombreCliente: string
   lugarEntrega: LugarEntrega | ''
   hayAlMenosUnDiaConMenú: boolean
+  esFormularioEmpresa: boolean
 }): string | null {
   const nombre = input.nombreCliente.trim()
   if (!nombre) {
     return 'Por favor, ingresá tu nombre y apellido.'
   }
-  if (!input.lugarEntrega) {
+  if (!input.esFormularioEmpresa && !input.lugarEntrega) {
     return 'Por favor, elegí un lugar de entrega.'
   }
   if (!input.hayAlMenosUnDiaConMenú) {
-    return 'Elegí al menos un día dentro de los próximos 7 días con plato principal o guarnición.'
+    return input.esFormularioEmpresa
+      ? 'Elegí al menos un día con plato principal o guarnición.'
+      : 'Elegí al menos un día dentro de los próximos 7 días con plato principal o guarnición.'
   }
   return null
 }
 
 export function ClientView() {
+  const { token } = useParams<{ token?: string }>()
   const { user, rol, loading: authLoading } = useAuth()
-  const diasDisponibles = useMemo(() => getVentanaRodanteConsumo(), [])
+  const modoPlanificacion = Boolean(token?.trim())
+  const diasGenericos = useMemo(() => getVentanaRodanteConsumo(), [])
+  const [planificacion, setPlanificacion] = useState<PlanificacionMenuEmpresa | null>(null)
+  const [planCargando, setPlanCargando] = useState(modoPlanificacion)
+  const [planError, setPlanError] = useState<string | null>(null)
+  const diasDisponibles = useMemo(() => {
+    if (planificacion) return diasConsumoDesdePlanificacion(planificacion)
+    return diasGenericos
+  }, [planificacion, diasGenericos])
   const [items, setItems] = useState<MenuItem[]>([])
   const [selecciones, setSelecciones] = useState<Record<string, SeleccionDia>>(() =>
-    seleccionInicial(diasDisponibles),
+    seleccionInicial(diasGenericos),
   )
   const [diaActivo, setDiaActivo] = useState(
     () => diasDisponibles[0]?.fechaConsumo ?? '',
@@ -100,10 +123,55 @@ export function ClientView() {
   const [authListo, setAuthListo] = useState(false)
 
   useEffect(() => {
+    if (!modoPlanificacion || !token?.trim()) {
+      setPlanificacion(null)
+      setPlanCargando(false)
+      return
+    }
     let cancelado = false
+    setPlanCargando(true)
+    setPlanError(null)
     void (async () => {
       try {
-        await ensureSesionClienteAnonima()
+        await ensureSesionFormularioPedido()
+        const plan = await fetchPlanificacionByToken(token)
+        if (cancelado) return
+        if (!plan || plan.estado !== 'PUBLICADA') {
+          setPlanError('Este formulario no está disponible o expiró.')
+          setPlanificacion(null)
+          return
+        }
+        setPlanificacion(plan)
+        setSelecciones(seleccionInicialDesdePlanificacion(plan))
+        setAuthListo(true)
+      } catch (err) {
+        if (!cancelado) {
+          const code = (err as { code?: string })?.code
+          if (code === 'permission-denied') {
+            setPlanError(
+              'Sin permiso para abrir este formulario. Publicá la planificación y desplegá las reglas de Firestore (`firebase deploy --only firestore:rules,firestore:indexes`).',
+            )
+          } else {
+            setPlanError(
+              err instanceof Error ? err.message : 'No se pudo cargar el formulario',
+            )
+          }
+        }
+      } finally {
+        if (!cancelado) setPlanCargando(false)
+      }
+    })()
+    return () => {
+      cancelado = true
+    }
+  }, [modoPlanificacion, token])
+
+  useEffect(() => {
+    let cancelado = false
+    if (modoPlanificacion) return
+    void (async () => {
+      try {
+        await ensureSesionFormularioPedido()
       } catch (err) {
         console.error(err)
       } finally {
@@ -113,21 +181,32 @@ export function ClientView() {
     return () => {
       cancelado = true
     }
-  }, [])
+  }, [modoPlanificacion])
 
   useEffect(() => {
-    if (!authListo) return
+    if (modoPlanificacion) {
+      if (planCargando || !planificacion) return
+    } else if (!authListo) {
+      return
+    }
     return subscribeMenu(setItems)
-  }, [authListo])
+  }, [authListo, modoPlanificacion, planCargando, planificacion])
 
   useEffect(() => {
+    if (planificacion) return
     setSelecciones((prev) => normalizarSelecciones(diasDisponibles, prev))
     setDiaActivo((prev) =>
       diasDisponibles.some((dia) => dia.fechaConsumo === prev)
         ? prev
         : diasDisponibles[0]?.fechaConsumo ?? '',
     )
-  }, [diasDisponibles])
+  }, [diasDisponibles, planificacion])
+
+  useEffect(() => {
+    if (!planificacion) return
+    setSelecciones(seleccionInicialDesdePlanificacion(planificacion))
+    setDiaActivo(planificacion.dias[0]?.fechaConsumo ?? '')
+  }, [planificacion])
 
   const itemsById = useMemo(
     () => new Map(items.map((i) => [i.id, i])),
@@ -157,7 +236,7 @@ export function ClientView() {
   }, [selecciones])
 
   function disponibleParaDia(menuId: string, fechaConsumo: string): number {
-    const base = itemsById.get(menuId)?.stock ?? 0
+    const base = stockDisponibleParaPedidos(itemsById.get(menuId))
     const usadoGlobal = usoPorItemId.get(menuId) ?? 0
     const sel = selecciones[fechaConsumo]
     const enEsteDía =
@@ -222,8 +301,14 @@ export function ClientView() {
 
   function resetForm() {
     setNombreCliente('')
-    setLugarEntrega('')
-    setSelecciones(seleccionInicial(diasDisponibles))
+    if (!planificacion) {
+      setLugarEntrega('')
+    }
+    setSelecciones(
+      planificacion
+        ? seleccionInicialDesdePlanificacion(planificacion)
+        : seleccionInicial(diasDisponibles),
+    )
     setDiaActivo(diasDisponibles[0]?.fechaConsumo ?? '')
   }
 
@@ -235,6 +320,7 @@ export function ClientView() {
       nombreCliente,
       lugarEntrega,
       hayAlMenosUnDiaConMenú,
+      esFormularioEmpresa: Boolean(planificacion),
     })
     if (msg) {
       setError(msg)
@@ -243,10 +329,27 @@ export function ClientView() {
 
     setLoading(true)
     try {
+      if (planificacion) {
+        const msgPlan = validarLineasContraPlanificacion(planificacion, lineasParaEnvio)
+        if (msgPlan) {
+          setError(msgPlan)
+          return
+        }
+      }
+
       await confirmarPedidoSemanalConTransaccion({
         nombreCliente,
-        lugarEntrega,
+        lugarEntrega: planificacion
+          ? planificacion.empresaNombre
+          : lugarEntrega,
         lineas: lineasParaEnvio,
+        ...(planificacion
+          ? {
+              empresaId: planificacion.empresaId,
+              empresaNombre: planificacion.empresaNombre,
+              planificacionId: planificacion.id,
+            }
+          : {}),
       })
       resetForm()
       setSuccessModalOpen(true)
@@ -283,15 +386,95 @@ export function ClientView() {
   const selTarjeta = fcTarjeta
     ? (selecciones[fcTarjeta] ?? crearSeleccionVacia())
     : crearSeleccionVacia()
-  const principalTarjeta = selTarjeta.principalId
-    ? itemsById.get(selTarjeta.principalId)
-    : null
   const hayPrincipalTarjeta = Boolean(selTarjeta.principalId)
+
+  function principalesParaDia(fechaConsumo: string, sel: SeleccionDia): MenuItem[] {
+    if (planificacion) {
+      return itemsMenuDesdeOpcionesPlanificadas(
+        opcionesPrincipalesPermitidas(planificacion, fechaConsumo),
+        'principal',
+        itemsById,
+        sel.principalId,
+      )
+    }
+    return principales
+  }
+
+  function guarnicionesParaDia(fechaConsumo: string, sel: SeleccionDia): MenuItem[] {
+    if (planificacion) {
+      const principal = sel.principalId ? itemsById.get(sel.principalId) : null
+      const principalSnap = sel.principalId
+        ? opcionesPrincipalesPermitidas(planificacion, fechaConsumo).find(
+            (o) => o.menuId === sel.principalId,
+          )
+        : null
+      const aceptaGuarnicion =
+        principal?.aceptaGuarnicion ??
+        (principalSnap ? true : sel.principalId ? true : false)
+      if (!sel.principalId || aceptaGuarnicion === false) return []
+      return itemsMenuDesdeOpcionesPlanificadas(
+        opcionesGuarnicionesPermitidas(planificacion, fechaConsumo),
+        'guarnicion',
+        itemsById,
+        sel.guarnicionId,
+      )
+    }
+    return guarniciones
+  }
+
+  function opcionesFiltradasPorStock(
+    lista: MenuItem[],
+    fechaConsumo: string,
+    seleccionadoId: string | null,
+  ): MenuItem[] {
+    if (planificacion) return lista
+    return lista.filter((item) => {
+      const disp = disponibleParaDia(item.id, fechaConsumo)
+      return disp > 0 || seleccionadoId === item.id
+    })
+  }
+
+  function etiquetaOpcionMenu(item: MenuItem, fechaConsumo: string, esActual: boolean): string {
+    if (planificacion) return item.nombre
+    const disp = disponibleParaDia(item.id, fechaConsumo)
+    if (disp > 0) {
+      return `${item.nombre} (${disp} disponible${disp === 1 ? '' : 's'})`
+    }
+    return esActual ? `${item.nombre} — sin stock (elegí otro)` : item.nombre
+  }
+
+  const principalesDia = principalesParaDia(diaVista?.fechaConsumo ?? '', selTarjeta)
+  const guarnicionesDia = guarnicionesParaDia(diaVista?.fechaConsumo ?? '', selTarjeta)
+  const hayGuarnicionesPlanificadas =
+    !planificacion ||
+    opcionesGuarnicionesPermitidas(planificacion, diaVista?.fechaConsumo ?? '').length > 0
+  const principalTarjeta = selTarjeta.principalId
+    ? itemsById.get(selTarjeta.principalId) ??
+      principalesDia.find((p) => p.id === selTarjeta.principalId) ??
+      null
+    : null
   const aceptaGuarnicionTarjeta = principalTarjeta?.aceptaGuarnicion !== false
 
-  if (!authLoading && user && rol) {
+  if (!authLoading && user && rol && !modoPlanificacion) {
     const home = rutaHomePorRol(rol)
     return <Navigate to={home ?? '/login'} replace />
+  }
+
+  if (modoPlanificacion && planCargando) {
+    return (
+      <div className="flex min-h-dvh items-center justify-center bg-gray-50 text-sm text-[#8997A6]">
+        Cargando formulario…
+      </div>
+    )
+  }
+
+  if (modoPlanificacion && planError) {
+    return (
+      <div className="flex min-h-dvh flex-col items-center justify-center gap-3 bg-gray-50 px-4 text-center">
+        <p className="text-lg font-semibold text-[#CD1818]">Formulario no disponible</p>
+        <p className="max-w-sm text-sm text-[#8997A6]">{planError}</p>
+      </div>
+    )
   }
 
   return (
@@ -299,19 +482,36 @@ export function ClientView() {
       <header className="border-b border-gray-200 bg-white px-4 pb-8 pt-10 shadow-sm">
         <div className="mx-auto max-w-lg text-center">
           <p className="text-[10px] font-semibold uppercase tracking-[0.25em] text-[#8997A6]">
-            Pedidos anticipados
+            {planificacion ? 'Pedido planificado' : 'Pedidos anticipados'}
           </p>
           <h1 className="mt-2 text-2xl font-bold tracking-tight text-[#CD1818]">
-            Comedor industrial
+            {planificacion ? planificacion.empresaNombre : 'Comedor industrial'}
           </h1>
           <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-[#8997A6]">
-            Reservá tu menú para los{' '}
-            <strong className="font-semibold text-[#CD1818]">
-              próximos 7 días
-            </strong>
-            , incluyendo fin de semana. El stock es único: lo que elegís en un
-            día deja menos disponible en los demás. Al menos un día con plato
-            principal o guarnición.
+            {planificacion ? (
+              <>
+                Completá tu pedido eligiendo entre las opciones planificadas para{' '}
+                {planificacion.empresaNombre}. La empresa comparte este link con cada empleado.
+                {planificacion.mensajeEmpresa?.trim() ? (
+                  <>
+                    {' '}
+                    <span className="mt-2 block font-medium text-[#171717]">
+                      {planificacion.mensajeEmpresa.trim()}
+                    </span>
+                  </>
+                ) : null}
+              </>
+            ) : (
+              <>
+                Reservá tu menú para los{' '}
+                <strong className="font-semibold text-[#CD1818]">
+                  próximos 7 días
+                </strong>
+                , incluyendo fin de semana. El stock es único: lo que elegís en un
+                día deja menos disponible en los demás. Al menos un día con plato
+                principal o guarnición.
+              </>
+            )}
           </p>
         </div>
       </header>
@@ -345,28 +545,30 @@ export function ClientView() {
                   required
                 />
               </label>
-              <label className="block text-left">
-                <span className="text-xs font-medium text-[#8997A6]">
-                  Lugar de entrega
-                </span>
-                <select
-                  name="lugarEntrega"
-                  value={lugarEntrega}
-                  onChange={(e) => {
-                    setError(null)
-                    setLugarEntrega(e.target.value as LugarEntrega | '')
-                  }}
-                  className={inputClass}
-                  required
-                >
-                  <option value="">Seleccioná…</option>
-                  {LUGARES_ENTREGA.map((l) => (
-                    <option key={l} value={l}>
-                      {l}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              {!planificacion ? (
+                <label className="block text-left">
+                  <span className="text-xs font-medium text-[#8997A6]">
+                    Lugar de entrega
+                  </span>
+                  <select
+                    name="lugarEntrega"
+                    value={lugarEntrega}
+                    onChange={(e) => {
+                      setError(null)
+                      setLugarEntrega(e.target.value as LugarEntrega | '')
+                    }}
+                    className={inputClass}
+                    required
+                  >
+                    <option value="">Seleccioná…</option>
+                    {LUGARES_ENTREGA.map((l) => (
+                      <option key={l} value={l}>
+                        {l}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
             </div>
           </section>
 
@@ -376,8 +578,9 @@ export function ClientView() {
                 Menú por día
               </h2>
               <p className="mt-1 text-xs leading-relaxed text-[#8997A6]">
-                Elegí el día en las pestañas. El stock es compartido entre todos
-                los días.
+                {planificacion
+                  ? 'Elegí un plato principal (y guarnición si corresponde) entre las opciones de ese día.'
+                  : 'Elegí el día en las pestañas. El stock es compartido entre todos los días.'}
               </p>
             </div>
 
@@ -423,8 +626,9 @@ export function ClientView() {
                   {diaVista.fechaConsumo}
                 </h3>
                 <p className="mt-0.5 text-xs text-[#8997A6]">
-                  Elegí tu plato principal para este día y, si corresponde, su
-                  guarnición.
+                  {planificacion
+                    ? 'Opciones planificadas para este día. Si no pedís, dejá «No pedir nada este día».'
+                    : 'Elegí tu plato principal para este día y, si corresponde, su guarnición.'}
                 </p>
 
                 <div className="mt-6 space-y-5">
@@ -444,32 +648,19 @@ export function ClientView() {
                       className={inputClass}
                     >
                       <option value="">-- No pedir nada este día --</option>
-                      {principales
-                        .filter((p) => {
-                          const disp = disponibleParaDia(
-                            p.id,
+                      {opcionesFiltradasPorStock(
+                        principalesDia,
+                        diaVista.fechaConsumo,
+                        selTarjeta.principalId,
+                      ).map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {etiquetaOpcionMenu(
+                            p,
                             diaVista.fechaConsumo,
-                          )
-                          const esActual = selTarjeta.principalId === p.id
-                          return disp > 0 || esActual
-                        })
-                        .map((p) => {
-                          const disp = disponibleParaDia(
-                            p.id,
-                            diaVista.fechaConsumo,
-                          )
-                          const esActual = selTarjeta.principalId === p.id
-                          return (
-                            <option key={p.id} value={p.id}>
-                              {p.nombre}
-                              {disp > 0
-                                ? ` (${disp} disponible${disp === 1 ? '' : 's'})`
-                                : esActual
-                                  ? ' — sin stock (elegí otro)'
-                                  : ''}
-                            </option>
-                          )
-                        })}
+                            selTarjeta.principalId === p.id,
+                          )}
+                        </option>
+                      ))}
                     </select>
                   </label>
 
@@ -481,14 +672,20 @@ export function ClientView() {
                     <p className="rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm text-[#171717]">
                       Este plato no requiere guarnición.
                     </p>
+                  ) : !hayGuarnicionesPlanificadas ? (
+                    <p className="rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm text-[#8997A6]">
+                      No hay guarniciones planificadas para este día.
+                    </p>
                   ) : (
                     <label className="block text-left">
                       <span className="text-xs font-medium text-[#8997A6]">
                         Guarnición
-                        <span className="font-normal text-[#8997A6]">
-                          {' '}
-                          (opcional si elegís principal)
-                        </span>
+                        {!planificacion ? (
+                          <span className="font-normal text-[#8997A6]">
+                            {' '}
+                            (opcional si elegís principal)
+                          </span>
+                        ) : null}
                       </span>
                       <select
                         value={selTarjeta.guarnicionId ?? ''}
@@ -502,32 +699,19 @@ export function ClientView() {
                         className={inputClass}
                       >
                         <option value="">-- Sin guarnición --</option>
-                        {guarniciones
-                          .filter((g) => {
-                            const disp = disponibleParaDia(
-                              g.id,
+                        {opcionesFiltradasPorStock(
+                          guarnicionesDia,
+                          diaVista.fechaConsumo,
+                          selTarjeta.guarnicionId,
+                        ).map((g) => (
+                          <option key={g.id} value={g.id}>
+                            {etiquetaOpcionMenu(
+                              g,
                               diaVista.fechaConsumo,
-                            )
-                            const esActual = selTarjeta.guarnicionId === g.id
-                            return disp > 0 || esActual
-                          })
-                          .map((g) => {
-                            const disp = disponibleParaDia(
-                              g.id,
-                              diaVista.fechaConsumo,
-                            )
-                            const esActual = selTarjeta.guarnicionId === g.id
-                            return (
-                              <option key={g.id} value={g.id}>
-                                {g.nombre}
-                                {disp > 0
-                                  ? ` (${disp} disponible${disp === 1 ? '' : 's'})`
-                                  : esActual
-                                    ? ' — sin stock (elegí otro)'
-                                    : ''}
-                              </option>
-                            )
-                          })}
+                              selTarjeta.guarnicionId === g.id,
+                            )}
+                          </option>
+                        ))}
                       </select>
                     </label>
                   )}
@@ -573,9 +757,11 @@ export function ClientView() {
               </div>
             ) : null}
 
-            <p className="mt-3 text-center text-[11px] leading-snug text-[#8997A6]">
-              El stock se descuenta en una sola operación segura al confirmar.
-            </p>
+            {!planificacion ? (
+              <p className="mt-3 text-center text-[11px] leading-snug text-[#8997A6]">
+                El stock se descuenta en una sola operación segura al confirmar.
+              </p>
+            ) : null}
           </div>
         </form>
       </div>

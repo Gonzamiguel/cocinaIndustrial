@@ -12,7 +12,11 @@ import {
   type Unsubscribe,
 } from 'firebase/firestore'
 import { getDb } from './firebase'
-import { descontarStockMenuLotesEnData, type MenuStockLote } from './menu'
+import {
+  descontarStockMenuLotesEnData,
+  stockComprometidoDesdeData,
+  type MenuStockLote,
+} from './menu'
 
 export const COLLECTION_DESPACHOS_VIANDAS = 'despachos_viandas'
 
@@ -38,6 +42,7 @@ export type DespachoViandaRegistro = {
   lugarEntrega: string
   numeroRemito: string
   pedidoIds: string[]
+  fechaConsumoPedidos?: string
   items: DespachoViandaItem[]
   observaciones: string
 }
@@ -63,6 +68,11 @@ function mapDespachoDoc(id: string, data: Record<string, unknown>): DespachoVian
       if (typeof p === 'string' && p.trim()) pedidoIds.push(p.trim())
     }
   }
+
+  const fechaConsumoPedidos =
+    typeof data.fechaConsumoPedidos === 'string'
+      ? data.fechaConsumoPedidos.trim()
+      : undefined
 
   const items: DespachoViandaItem[] = []
   if (Array.isArray(data.items)) {
@@ -104,6 +114,7 @@ function mapDespachoDoc(id: string, data: Record<string, unknown>): DespachoVian
     lugarEntrega,
     numeroRemito,
     pedidoIds,
+    fechaConsumoPedidos,
     items,
     observaciones,
   }
@@ -200,6 +211,7 @@ export async function registrarDespachoViandas(input: {
   empresa: string
   lugarEntrega?: string
   pedidoIds?: string[]
+  fechaConsumoPedidos?: string
   marcarPedidosDespachados?: boolean
   items: DespachoViandaItem[]
   observaciones?: string
@@ -236,6 +248,7 @@ export async function registrarDespachoViandas(input: {
   const lugarEntrega = input.lugarEntrega?.trim() ?? ''
   const pedidoIds = [...new Set((input.pedidoIds ?? []).map((p) => p.trim()).filter(Boolean))]
   const observaciones = input.observaciones?.trim() ?? ''
+  const fechaConsumoPedidos = input.fechaConsumoPedidos?.trim() ?? ''
   const marcarPedidos = input.marcarPedidosDespachados !== false && pedidoIds.length > 0
 
   await runTransaction(db, async (t) => {
@@ -251,6 +264,7 @@ export async function registrarDespachoViandas(input: {
       ref: ReturnType<typeof doc>
       stock: number
       stockLotes: unknown
+      stockComprometido: number
     }[] = []
 
     for (let i = 0; i < items.length; i++) {
@@ -259,8 +273,9 @@ export async function registrarDespachoViandas(input: {
       if (!snap.exists()) {
         throw new Error(`El plato «${it.nombrePlato}» ya no está en el menú.`)
       }
+      const data = snap.data() as Record<string, unknown>
       const merged = descontarStockMenuLotesEnData(
-        snap.data() as Record<string, unknown>,
+        data,
         it.lotes.map((l) => ({
           lote: l.lote,
           fechaVencimiento: l.fechaVencimiento,
@@ -268,10 +283,12 @@ export async function registrarDespachoViandas(input: {
           cantidad: l.cantidad,
         })),
       )
+      const comprometido = stockComprometidoDesdeData(data)
       menuUpdates.push({
         ref: snap.ref,
         stock: merged.stock,
         stockLotes: merged.stockLotes,
+        stockComprometido: Math.max(0, comprometido - it.cantidadTotal),
       })
     }
 
@@ -281,6 +298,7 @@ export async function registrarDespachoViandas(input: {
       lugarEntrega,
       numeroRemito,
       pedidoIds,
+      ...(fechaConsumoPedidos ? { fechaConsumoPedidos } : {}),
       items: items.map((it) => ({
         menuItemId: it.menuItemId,
         nombrePlato: it.nombrePlato,
@@ -301,6 +319,7 @@ export async function registrarDespachoViandas(input: {
       t.update(upd.ref, {
         stock: upd.stock,
         stockLotes: upd.stockLotes,
+        stockComprometido: upd.stockComprometido,
       })
     }
 

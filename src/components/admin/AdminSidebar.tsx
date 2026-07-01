@@ -69,6 +69,20 @@ function IconSearchTrace(props: IconProps) {
   )
 }
 
+function IconCalendar(props: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" {...props}>
+      <path d="M7.5 4.75v2" />
+      <path d="M16.5 4.75v2" />
+      <path d="M4.75 8.25h14.5" />
+      <path d="M6.25 6h11.5A2.25 2.25 0 0 1 20 8.25v11.5A2.25 2.25 0 0 1 17.75 22H6.25A2.25 2.25 0 0 1 4 19.75V8.25A2.25 2.25 0 0 1 6.25 6Z" />
+      <path d="M8 12h2.5" />
+      <path d="M8 15.5h2.5" />
+      <path d="M13.5 12H16" />
+    </svg>
+  )
+}
+
 const navItems = [
   {
     to: '/admin/pedidos',
@@ -80,6 +94,12 @@ const navItems = [
     to: '/admin/menu',
     label: 'Gestión de menú',
     Icon: IconUtensils,
+    accent: false,
+  },
+  {
+    to: '/admin/planificacion',
+    label: 'Planificación empresas',
+    Icon: IconCalendar,
     accent: false,
   },
   {

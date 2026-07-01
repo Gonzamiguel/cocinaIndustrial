@@ -1,14 +1,9 @@
 import { Loader2 } from 'lucide-react'
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { InsumoSearchSelect } from '../../components/insumos/InsumoSearchSelect'
 import { PresentacionCantidadFields } from '../../components/insumos/PresentacionCantidadFields'
-import {
-  ModalEtiquetasQR,
-  type EtiquetaIngresoFila,
-} from '../../components/deposito/ModalEtiquetasQR'
 import { DepositoSolicitudesMercaderiaPanel } from '../../components/deposito/DepositoSolicitudesMercaderiaPanel'
-import { useQRScanner } from '../../hooks/useQRScanner'
 import { useToast } from '../../context/ToastContext'
 import type { EgresoPrefillDesdeSolicitud } from '../../lib/depositoEgresoPrefill'
 import {
@@ -29,7 +24,6 @@ import {
   type ItemMovimientoInventario,
   type LoteDisponibleEgreso,
   type MovimientoInventario,
-  type TipoDocumentoRecepcion,
   type TipoMovimientoInventario,
 } from '../../lib/movimientosInventario'
 import {
@@ -228,10 +222,22 @@ const inputCompact =
 const itemGridClass =
   'flex flex-col gap-4 md:grid md:grid-cols-12 md:gap-3 md:items-center w-full'
 
-const TIPOS_DOC: TipoDocumentoRecepcion[] = ['Remito', 'Factura']
+function badgeOrigenIngreso(m: MovimientoInventario): { label: string; className: string } | null {
+  if (m.tipo !== 'INGRESO') return null
+  if (m.ordenCompraId) {
+    return {
+      label: m.ordenCompraNumero ? `OC ${m.ordenCompraNumero}` : 'Con OC',
+      className: 'bg-indigo-50 text-indigo-800 ring-indigo-200',
+    }
+  }
+  return {
+    label: 'Libre',
+    className: 'bg-neutral-100 text-neutral-700 ring-neutral-200',
+  }
+}
+
 
 const TIPOS_MOV: { value: TipoMovimientoInventario; label: string }[] = [
-  { value: 'INGRESO', label: 'Ingreso' },
   { value: 'EGRESO', label: 'Egreso' },
   { value: 'AJUSTE', label: 'Ajuste de stock' },
   { value: 'DECOMISO', label: 'Decomiso' },
@@ -377,10 +383,7 @@ export function DepositoMovimientosPage() {
   }, [])
 
   const [tipoMovimiento, setTipoMovimiento] =
-    useState<TipoMovimientoInventario>('INGRESO')
-  const [proveedor, setProveedor] = useState('')
-  const [tipoDocumento, setTipoDocumento] =
-    useState<TipoDocumentoRecepcion>('Remito')
+    useState<TipoMovimientoInventario>('EGRESO')
   const [destino, setDestino] = useState<string>(DESTINOS_EGRESO[0])
   const [motivo, setMotivo] = useState('')
   const [fechaOperacion, setFechaOperacion] = useState(() => hoyISO())
@@ -404,13 +407,6 @@ export function DepositoMovimientosPage() {
   const [egresoDestinoBloqueado, setEgresoDestinoBloqueado] = useState(false)
   const [egresoUbicacionDestinoExplicita, setEgresoUbicacionDestinoExplicita] =
     useState<string | undefined>(undefined)
-  const [ingresoEtiquetas, setIngresoEtiquetas] = useState<{
-    movimientoId: string
-    numeroDocumento: string
-    filas: EtiquetaIngresoFila[]
-  } | null>(null)
-  const [copiasEtiquetas, setCopiasEtiquetas] = useState<number[]>([])
-  const pendingQrFilaKeyRef = useRef<string | null>(null)
 
   useEffect(() => {
     return subscribeInsumos(setInsumos)
@@ -544,66 +540,6 @@ export function DepositoMovimientosPage() {
     return map
   }, [movimientosCentrales, filas, tipoMovimiento])
 
-  const handleQrEgresoScan = useCallback(
-    (insumoIdRaw: string, loteStr: string) => {
-      if (!isCreating || tipoMovimiento !== 'EGRESO') return
-      const id = insumoIdRaw.trim()
-      if (!id) return
-      const ins = insumosById.get(id)
-      if (!ins) {
-        showToast('El insumo del código QR no está en el catálogo.', 'error')
-        return
-      }
-      setFilas((prev) => {
-        const lotes = lotesDisponiblesParaEgreso(movimientosCentrales, id)
-        const keySel = normalizarLoteKey(loteStr)
-        const bucket = lotes.find((x) => x.loteKey === keySel)
-        const reserved = stockReservadoOtrasFilasEgreso(
-          prev,
-          prev.length,
-          id,
-          keySel,
-          insumosById,
-        )
-        const stockDisp = bucket ? bucket.stock - reserved : 0
-        if (!bucket || stockDisp <= 1e-9) {
-          showToast('Este lote no tiene stock disponible.', 'error')
-          return prev
-        }
-        const row: FilaDraft = {
-          ...nuevaFila(),
-          insumoId: id,
-          nombreSnapshot: formatLabelInsumo(ins),
-          lote: bucket.lotePersistido,
-          fechaVencimiento: bucket.fechaVencimiento?.trim() ?? '',
-          egresoLoteDefinido: true,
-          cantidad: '',
-        }
-        pendingQrFilaKeyRef.current = row.key
-        return [...prev, row]
-      })
-    },
-    [isCreating, tipoMovimiento, insumosById, movimientosCentrales, showToast],
-  )
-
-  useLayoutEffect(() => {
-    const k = pendingQrFilaKeyRef.current
-    if (!k) return
-    pendingQrFilaKeyRef.current = null
-    queueMicrotask(() => {
-      cantidadInputRefs.current[k]?.focus()
-    })
-  }, [filas])
-
-  useQRScanner({
-    enabled:
-      isCreating &&
-      tipoMovimiento === 'EGRESO' &&
-      ingresoEtiquetas === null,
-    onScan: handleQrEgresoScan,
-  })
-
-  const mostrarPrecio = tipoMovimiento === 'INGRESO'
   const requiereTransporte = useMemo(
     () =>
       tipoMovimiento === 'EGRESO' && requiereDatosTransporte(destino),
@@ -614,16 +550,14 @@ export function DepositoMovimientosPage() {
     if (!fechaOperacion.trim()) return false
 
     const encabezadoCompleto =
-      tipoMovimiento === 'INGRESO'
-        ? Boolean(proveedor.trim() && numeroDocumento.trim())
-        : tipoMovimiento === 'EGRESO'
-          ? Boolean(
-              destino.trim() &&
-                numeroDocumento.trim() &&
-                (!requiereTransporte ||
-                  (chofer.trim() && patente.trim() && precinto.trim())),
-            )
-          : Boolean(motivo.trim())
+      tipoMovimiento === 'EGRESO'
+        ? Boolean(
+            destino.trim() &&
+              numeroDocumento.trim() &&
+              (!requiereTransporte ||
+                (chofer.trim() && patente.trim() && precinto.trim())),
+          )
+        : Boolean(motivo.trim())
 
     if (!encabezadoCompleto) return false
 
@@ -659,7 +593,6 @@ export function DepositoMovimientosPage() {
     numeroDocumento,
     patente,
     precinto,
-    proveedor,
     requiereTransporte,
     tipoMovimiento,
   ])
@@ -679,9 +612,7 @@ export function DepositoMovimientosPage() {
   }
 
   function resetFormulario() {
-    setTipoMovimiento('INGRESO')
-    setProveedor('')
-    setTipoDocumento('Remito')
+    setTipoMovimiento('EGRESO')
     setDestino(DESTINOS_EGRESO[0])
     setMotivo('')
     setFechaOperacion(hoyISO())
@@ -694,22 +625,6 @@ export function DepositoMovimientosPage() {
     setEgresoDestinoBloqueado(false)
     setEgresoUbicacionDestinoExplicita(undefined)
     prefillConsumidoRef.current = false
-  }
-
-  function cerrarModalEtiquetasYContinuar() {
-    setIngresoEtiquetas(null)
-    setCopiasEtiquetas([])
-    resetFormulario()
-    setIsCreating(false)
-  }
-
-  function handleChangeCopiasEtiqueta(index: number, value: number) {
-    const n = Math.max(1, Math.min(99, Math.floor(Number.isFinite(value) ? value : 1)))
-    setCopiasEtiquetas((prev) => {
-      const next = [...prev]
-      next[index] = n
-      return next
-    })
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -803,16 +718,6 @@ export function DepositoMovimientosPage() {
       const temp = f.temperatura.trim()
       if (temp) row.temperatura = temp
 
-      if (tipoMovimiento === 'INGRESO') {
-        const precioStr = f.precioUnitarioFacturado.trim().replace(',', '.')
-        if (precioStr) {
-          const precio = Number(precioStr)
-          if (Number.isFinite(precio) && precio > 0) {
-            row.precioUnitarioFacturado = precio
-          }
-        }
-      }
-
       payloadItems.push(row)
     }
 
@@ -828,33 +733,7 @@ export function DepositoMovimientosPage() {
     try {
       const fecha = parseFechaLocal(fechaOperacion)
 
-      if (tipoMovimiento === 'INGRESO') {
-        const ingresoId = await crearMovimiento({
-          tipo: 'INGRESO',
-          fecha,
-          proveedor: proveedor.trim(),
-          tipoDocumento,
-          numeroDocumento: numeroDocumento.trim(),
-          items: payloadItems,
-        })
-        setRemitoReciente(null)
-        const filasEq: EtiquetaIngresoFila[] = payloadItems.map((it) => ({
-          insumoId: it.insumoId,
-          nombreInsumo: it.nombreSnapshot,
-          lote: (it.lote ?? '').trim(),
-          fechaVencimiento: (it.fechaVencimiento ?? '').trim(),
-        }))
-        setCopiasEtiquetas(filasEq.map(() => 1))
-        setIngresoEtiquetas({
-          movimientoId: ingresoId,
-          numeroDocumento: numeroDocumento.trim(),
-          filas: filasEq,
-        })
-        showToast(
-          'Ingreso registrado. Podés imprimir etiquetas QR para cada lote.',
-          'success',
-        )
-      } else if (tipoMovimiento === 'EGRESO') {
+      if (tipoMovimiento === 'EGRESO') {
         const transporte = requiereTransporte
           ? {
               chofer: chofer.trim(),
@@ -902,17 +781,15 @@ export function DepositoMovimientosPage() {
         setRemitoReciente(null)
       }
 
-      if (tipoMovimiento !== 'INGRESO') {
-        if (tipoMovimiento === 'EGRESO' && egresoSolicitudId) {
-          showToast(
-            `Egreso generado y solicitud ${egresoSolicitudId} marcada como enviada.`,
-          )
-        } else {
-          showToast('Movimiento registrado correctamente.', 'success')
-        }
-        resetFormulario()
-        setIsCreating(false)
+      if (tipoMovimiento === 'EGRESO' && egresoSolicitudId) {
+        showToast(
+          `Egreso generado y solicitud ${egresoSolicitudId} marcada como enviada.`,
+        )
+      } else {
+        showToast('Movimiento registrado correctamente.', 'success')
       }
+      resetFormulario()
+      setIsCreating(false)
     } catch (err) {
       showToast(
         err instanceof Error ? err.message : 'No se pudo registrar el movimiento.',
@@ -956,20 +833,35 @@ export function DepositoMovimientosPage() {
                 </button>
               </nav>
             </div>
-            <button
-              type="button"
-              onClick={() => setIsCreating(true)}
-              disabled={depositoVistaTab !== 'historial'}
-              title={
-                depositoVistaTab !== 'historial'
-                  ? 'Volvé al historial para registrar un movimiento nuevo'
-                  : undefined
-              }
-              className="inline-flex min-h-12 shrink-0 items-center justify-center gap-2 rounded-xl bg-[#CD1818] px-6 text-base font-semibold text-white shadow-sm transition hover:brightness-105 active:brightness-95 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              <span className="text-xl leading-none">+</span>
-              Nuevo movimiento
-            </button>
+            <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
+              <button
+                type="button"
+                onClick={() => navigate('/deposito/ingreso')}
+                disabled={depositoVistaTab !== 'historial'}
+                title={
+                  depositoVistaTab !== 'historial'
+                    ? 'Volvé al historial para registrar un ingreso'
+                    : undefined
+                }
+                className="inline-flex min-h-12 shrink-0 items-center justify-center gap-2 rounded-xl bg-[#CD1818] px-6 text-base font-semibold text-white shadow-sm transition hover:brightness-105 active:brightness-95 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <span className="text-xl leading-none">+</span>
+                Nuevo ingreso
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsCreating(true)}
+                disabled={depositoVistaTab !== 'historial'}
+                title={
+                  depositoVistaTab !== 'historial'
+                    ? 'Volvé al historial para registrar un movimiento nuevo'
+                    : undefined
+                }
+                className="inline-flex min-h-12 shrink-0 items-center justify-center gap-2 rounded-xl border border-[#CD1818]/30 bg-white px-6 text-base font-semibold text-[#CD1818] shadow-sm transition hover:bg-[#CD1818]/5 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Egreso / ajuste
+              </button>
+            </div>
           </div>
         </header>
 
@@ -1129,7 +1021,19 @@ export function DepositoMovimientosPage() {
                           {formatFechaHora(m.fecha)}
                         </td>
                         <td className="whitespace-nowrap px-4 py-3 text-[#171717]">
-                          {etiquetaTipo(m.tipo)}
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span>{etiquetaTipo(m.tipo)}</span>
+                            {(() => {
+                              const badge = badgeOrigenIngreso(m)
+                              return badge ? (
+                                <span
+                                  className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ${badge.className}`}
+                                >
+                                  {badge.label}
+                                </span>
+                              ) : null
+                            })()}
+                          </div>
                         </td>
                         <td className="max-w-[260px] truncate px-4 py-3 text-[#171717]">
                           {resumenMovimiento(m)}
@@ -1187,6 +1091,10 @@ export function DepositoMovimientosPage() {
                   {movimientoDetalle.tipo === 'INGRESO'
                     ? ` · ${movimientoDetalle.proveedor} · ${movimientoDetalle.tipoDocumento} ${movimientoDetalle.numeroDocumento}`
                     : null}
+                  {(() => {
+                    const badge = badgeOrigenIngreso(movimientoDetalle)
+                    return badge ? ` · ${badge.label}` : null
+                  })()}
                   {movimientoDetalle.tipo === 'EGRESO'
                     ? ` · ${movimientoDetalle.destino} · Doc. ${movimientoDetalle.numeroDocumento}${
                         movimientoDetalle.solicitudId
@@ -1380,8 +1288,15 @@ export function DepositoMovimientosPage() {
           Nuevo movimiento
         </h1>
         <p className="mt-1.5 text-sm leading-relaxed text-[#8997A6]">
-          Elegí el tipo de movimiento y completá el encabezado. En ingresos, el
-          precio unitario facturado actualiza el costo del envase en el catálogo.
+          Egresos, ajustes y decomisos. Para ingresar mercadería usá{' '}
+          <button
+            type="button"
+            onClick={() => navigate('/deposito/ingreso')}
+            className="font-semibold text-[#CD1818] underline-offset-2 hover:underline"
+          >
+            Nuevo ingreso
+          </button>
+          .
         </p>
         {egresoSolicitudId ? (
           <p className="mt-3 rounded-lg border border-[#CD1818]/20 bg-[#CD1818]/5 px-3 py-2 text-sm text-[#171717]">
@@ -1439,56 +1354,6 @@ export function DepositoMovimientosPage() {
                     className="mt-2 w-full min-h-12 rounded-xl border border-gray-200 bg-white px-4 text-sm text-[#171717] shadow-sm outline-none transition focus:border-[#CD1818]/30 focus:ring-2 focus:ring-[#CD1818]/10"
                   />
                 </label>
-
-                {tipoMovimiento === 'INGRESO' ? (
-                  <>
-                    <label className="block text-left sm:col-span-2">
-                      <span className="text-xs font-medium text-[#8997A6]">
-                        Proveedor
-                      </span>
-                      <input
-                        type="text"
-                        value={proveedor}
-                        onChange={(e) => setProveedor(e.target.value)}
-                        required
-                        className="mt-2 w-full min-h-12 rounded-xl border border-gray-200 bg-white px-4 text-sm text-[#171717] shadow-sm outline-none transition focus:border-[#CD1818]/30 focus:ring-2 focus:ring-[#CD1818]/10"
-                        placeholder="Razón social o nombre"
-                      />
-                    </label>
-                    <label className="block text-left">
-                      <span className="text-xs font-medium text-[#8997A6]">
-                        Tipo de documento
-                      </span>
-                      <select
-                        value={tipoDocumento}
-                        onChange={(e) =>
-                          setTipoDocumento(
-                            e.target.value as TipoDocumentoRecepcion,
-                          )
-                        }
-                        className="mt-2 w-full min-h-12 rounded-xl border border-gray-200 bg-white px-4 text-sm text-[#171717] shadow-sm outline-none transition focus:border-[#CD1818]/30 focus:ring-2 focus:ring-[#CD1818]/10"
-                      >
-                        {TIPOS_DOC.map((t) => (
-                          <option key={t} value={t}>
-                            {t}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label className="block text-left sm:col-span-2">
-                      <span className="text-xs font-medium text-[#8997A6]">
-                        Número de documento
-                      </span>
-                      <input
-                        type="text"
-                        value={numeroDocumento}
-                        onChange={(e) => setNumeroDocumento(e.target.value)}
-                        required
-                        className="mt-2 w-full min-h-12 rounded-xl border border-gray-200 bg-white px-4 text-sm text-[#171717] shadow-sm outline-none transition focus:border-[#CD1818]/30 focus:ring-2 focus:ring-[#CD1818]/10"
-                      />
-                    </label>
-                  </>
-                ) : null}
 
                 {tipoMovimiento === 'EGRESO' ? (
                   <>
@@ -1612,9 +1477,7 @@ export function DepositoMovimientosPage() {
                 {tipoMovimiento === 'EGRESO' ? (
                   <>
                     Insumo, cantidad, lote y temperatura; la fecha de
-                    vencimiento queda registrada al elegir el lote (FEFO). Con un
-                    lector USB podés escanear la etiqueta QR del ingreso para
-                    agregar una fila con insumo y lote ya cargados.
+                    vencimiento queda registrada al elegir el lote (FEFO).
                   </>
                 ) : (
                   <>
@@ -1627,9 +1490,7 @@ export function DepositoMovimientosPage() {
               </p>
 
               <div
-                className={`mb-3 hidden rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 md:text-[11px] md:font-semibold md:uppercase md:tracking-[0.16em] md:text-[#8997A6] ${
-                  mostrarPrecio ? 'hidden' : 'md:grid'
-                } ${itemGridClass}`}
+                className={`mb-3 hidden rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 md:grid md:text-[11px] md:font-semibold md:uppercase md:tracking-[0.16em] md:text-[#8997A6] ${itemGridClass}`}
               >
                 {tipoMovimiento === 'EGRESO' ? (
                   <>
@@ -1647,30 +1508,6 @@ export function DepositoMovimientosPage() {
                     </span>
                     <span className="col-span-12 text-center md:col-span-1">
                       CC
-                    </span>
-                  </>
-                ) : mostrarPrecio ? (
-                  <>
-                    <span className="col-span-12 text-left md:col-span-3">
-                      Insumo
-                    </span>
-                    <span className="col-span-12 text-center md:col-span-2">
-                      Cant.
-                    </span>
-                    <span className="col-span-12 text-left md:col-span-2">
-                      Lote
-                    </span>
-                    <span className="col-span-12 text-left md:col-span-2">
-                      Vto.
-                    </span>
-                    <span className="col-span-12 text-center md:col-span-1">
-                      Temp.
-                    </span>
-                    <span className="col-span-12 text-center md:col-span-1">
-                      CC
-                    </span>
-                    <span className="col-span-12 text-right md:col-span-1">
-                      Precio
                     </span>
                   </>
                 ) : (
@@ -1724,171 +1561,7 @@ export function DepositoMovimientosPage() {
                         )
                       : null
 
-                  return mostrarPrecio ? (
-                    <div
-                      key={fila.key}
-                      className="rounded-xl border border-gray-200 bg-gray-50 p-5 shadow-sm"
-                    >
-                      <div className="flex flex-col gap-4 border-b border-gray-200 pb-4 sm:flex-row sm:items-start sm:justify-between">
-                        <div className="min-w-0 flex-1">
-                          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[#8997A6]">
-                            Ítem {i + 1}
-                          </p>
-                          <InsumoSearchSelect
-                            compact
-                            insumos={insumos}
-                            selectedId={idInsumo}
-                            selectedLabel={
-                              fila.nombreSnapshot ||
-                              (ins ? formatLabelInsumo(ins) : '')
-                            }
-                            onSelect={(sel) =>
-                              actualizarFila(i, {
-                                insumoId: sel.id,
-                                nombreSnapshot: formatLabelInsumo(sel),
-                                presentacionEmpaqueId: PRESENTACION_BASE_ID,
-                              })
-                            }
-                            onAfterSelect={() =>
-                              queueMicrotask(() =>
-                                cantidadInputRefs.current[fila.key]?.focus(),
-                              )
-                            }
-                            onClear={() =>
-                              actualizarFila(i, {
-                                insumoId: null,
-                                nombreSnapshot: '',
-                              })
-                            }
-                          />
-                          {idInsumo && !ins ? (
-                            <p className="mt-2 text-xs text-[#CD1818]">
-                              Insumo no encontrado en el catálogo.
-                            </p>
-                          ) : null}
-                        </div>
-
-                        <button
-                          type="button"
-                          onClick={() => quitarFila(i)}
-                          disabled={filas.length <= 1}
-                          className="min-h-10 rounded-xl px-3 text-sm font-medium text-[#8997A6] underline-offset-2 transition hover:bg-white hover:text-[#CD1818] hover:underline disabled:opacity-30 disabled:hover:bg-transparent"
-                        >
-                          Quitar
-                        </button>
-                      </div>
-
-                      <div className="mt-5 grid gap-4 lg:grid-cols-2">
-                        <div className="space-y-4">
-                          <PresentacionCantidadFields
-                            insumo={ins}
-                            cantidad={fila.cantidad}
-                            presentacionEmpaqueId={fila.presentacionEmpaqueId}
-                            onCantidadChange={(v) =>
-                              actualizarFila(i, { cantidad: v })
-                            }
-                            onPresentacionChange={(id) =>
-                              actualizarFila(i, { presentacionEmpaqueId: id })
-                            }
-                            cantidadInputRef={registerCantidadRef(fila.key)}
-                            required={Boolean(idInsumo)}
-                          />
-
-                          <label className="block text-left">
-                            <span className="text-xs font-medium uppercase tracking-wide text-[#8997A6]">
-                              Lote
-                            </span>
-                            <input
-                              type="text"
-                              value={fila.lote}
-                              onChange={(e) =>
-                                actualizarFila(i, { lote: e.target.value })
-                              }
-                              className={`${inputCompact} w-full`}
-                              placeholder="Ej. LT-2026-001"
-                            />
-                          </label>
-
-                          <label className="block text-left">
-                            <span className="text-xs font-medium uppercase tracking-wide text-[#8997A6]">
-                              Fecha de vencimiento
-                            </span>
-                            <input
-                              type="date"
-                              value={fila.fechaVencimiento}
-                              onChange={(e) =>
-                                actualizarFila(i, {
-                                  fechaVencimiento: e.target.value,
-                                })
-                              }
-                              className={`${inputCompact} w-full`}
-                            />
-                          </label>
-                        </div>
-
-                        <div className="space-y-4">
-                          <label className="block text-left">
-                            <span className="text-xs font-medium uppercase tracking-wide text-[#8997A6]">
-                              Temperatura
-                            </span>
-                            <input
-                              type="text"
-                              value={fila.temperatura}
-                              onChange={(e) =>
-                                actualizarFila(i, { temperatura: e.target.value })
-                              }
-                              className={`${inputCompact} w-full`}
-                              placeholder="Ej. 4°C"
-                            />
-                          </label>
-
-                          <div className="rounded-xl border border-gray-200 bg-white px-4 py-3">
-                            <p className="text-xs font-medium uppercase tracking-wide text-[#8997A6]">
-                              Control de calidad
-                            </p>
-                            <label className="mt-2 flex cursor-pointer items-center gap-2 text-sm text-[#171717]">
-                              <input
-                                type="checkbox"
-                                checked={fila.controlCalidadOk}
-                                onChange={(e) =>
-                                  actualizarFila(i, {
-                                    controlCalidadOk: e.target.checked,
-                                  })
-                                }
-                                className="h-4 w-4 rounded border-gray-300 text-[#CD1818] focus:ring-[#CD1818]/30"
-                                title="Control de calidad OK"
-                              />
-                              Calidad OK
-                            </label>
-                          </div>
-
-                          <label className="block text-left">
-                            <span className="text-xs font-medium uppercase tracking-wide text-[#8997A6]">
-                              Precio unitario facturado
-                            </span>
-                            <input
-                              type="number"
-                              inputMode="decimal"
-                              min={0}
-                              step="any"
-                              value={fila.precioUnitarioFacturado}
-                              onChange={(e) =>
-                                actualizarFila(i, {
-                                  precioUnitarioFacturado: e.target.value,
-                                })
-                              }
-                              className={`${inputCompact} w-full`}
-                              placeholder={
-                                tipoDocumento === 'Factura'
-                                  ? 'Precio según factura'
-                                  : 'Opcional'
-                              }
-                            />
-                          </label>
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
+                  return (
                     <div
                       key={fila.key}
                       className={`rounded-xl border border-gray-200 bg-gray-50 p-5 shadow-sm md:p-4 ${itemGridClass}`}
@@ -2181,17 +1854,6 @@ export function DepositoMovimientosPage() {
         </fieldset>
       </form>
 
-      {ingresoEtiquetas ? (
-        <ModalEtiquetasQR
-          open
-          onClose={cerrarModalEtiquetasYContinuar}
-          movimientoId={ingresoEtiquetas.movimientoId}
-          numeroDocumento={ingresoEtiquetas.numeroDocumento}
-          filas={ingresoEtiquetas.filas}
-          copiasPorFila={copiasEtiquetas}
-          onChangeCopias={handleChangeCopiasEtiqueta}
-        />
-      ) : null}
     </div>
   )
 }

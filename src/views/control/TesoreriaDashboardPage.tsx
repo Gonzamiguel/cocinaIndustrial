@@ -1,5 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Loader2, Plus, Wallet, FileText, CreditCard } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import { AlertCircle, CalendarClock, ClipboardList, ExternalLink, Loader2, Paperclip, Plus, Wallet, FileText, CreditCard } from 'lucide-react'
+import { AdjuntarComprobantePagoModal } from '../../components/tesoreria/AdjuntarComprobantePagoModal'
+import { ocTieneComprobanteDeposito } from '../../lib/comprasQueries'
+import { subscribeDocumentosPorEntidadTipo } from '../../lib/documentos'
+import type { DocumentoAdjunto } from '../../types/documentos'
+import { ProveedorPerfilLink } from '../../components/compras/ProveedorPerfilLink'
 import { useAuth } from '../../context/AuthContext'
 import { useToast } from '../../context/ToastContext'
 import { puedeOperarFinanzas } from '../../lib/rbac'
@@ -9,6 +15,10 @@ import {
 } from '../../lib/tesoreria'
 import {
   esProveedorTesoreria,
+  filtrarOcPendientesFacturar,
+  fechaRecepcionOc,
+  montoFacturadoOc,
+  saldoAFacturarOc,
   subscribeFacturasProveedores,
   subscribeOrdenesCompra,
   subscribeOrdenesPago,
@@ -16,13 +26,16 @@ import {
   type ProveedorTesoreria,
 } from '../../lib/tesoreriaQueries'
 import {
+  estiloBadgeUrgenciaVencimiento,
   formatFechaTimestamp,
   formatMonedaArs,
   formatYmdLegible,
+  hoyYmdLocal,
   mensajeErrorTesoreria,
   moneyIgual,
   nombreUsuarioFromAuth,
   roundMoney,
+  urgenciaVencimiento,
 } from '../../lib/tesoreriaUi'
 import type { FacturaProveedor, OrdenPago } from '../../types/tesoreria'
 import { AnularFacturaDialog } from '../../components/tesoreria/AnularFacturaDialog'
@@ -32,10 +45,12 @@ import { NuevaFacturaModal } from '../../components/tesoreria/NuevaFacturaModal'
 import { NuevaOrdenPagoModal } from '../../components/tesoreria/NuevaOrdenPagoModal'
 import type { OrdenCompra } from '../../types/compras'
 
-type TabId = 'cuentas' | 'facturas' | 'ordenesPago'
+type TabId = 'cuentas' | 'pendientesFacturar' | 'vencimientos' | 'facturas' | 'ordenesPago'
 
 const tabs: { id: TabId; label: string; Icon: typeof Wallet }[] = [
   { id: 'cuentas', label: 'Cuentas corrientes', Icon: Wallet },
+  { id: 'pendientesFacturar', label: 'Pendientes de facturar', Icon: ClipboardList },
+  { id: 'vencimientos', label: 'Vencimientos', Icon: CalendarClock },
   { id: 'facturas', label: 'Facturas', Icon: FileText },
   { id: 'ordenesPago', label: 'Órdenes de pago', Icon: CreditCard },
 ]
@@ -57,6 +72,10 @@ export function TesoreriaDashboardPage() {
   const [cargando, setCargando] = useState(true)
 
   const [modalFactura, setModalFactura] = useState(false)
+  const [facturaOcPreset, setFacturaOcPreset] = useState<{
+    ordenCompraId: string
+    proveedorId: string
+  } | null>(null)
   const [modalOp, setModalOp] = useState(false)
   const [facturaAnular, setFacturaAnular] = useState<FacturaProveedor | null>(null)
   const [opAnular, setOpAnular] = useState<OrdenPago | null>(null)
@@ -65,6 +84,9 @@ export function TesoreriaDashboardPage() {
   const [busquedaCuentas, setBusquedaCuentas] = useState('')
   const [busquedaFacturas, setBusquedaFacturas] = useState('')
   const [filtroEstadoFactura, setFiltroEstadoFactura] = useState<string>('')
+  const [documentosOp, setDocumentosOp] = useState<DocumentoAdjunto[]>([])
+  const [documentosOc, setDocumentosOc] = useState<DocumentoAdjunto[]>([])
+  const [opComprobanteModal, setOpComprobanteModal] = useState<OrdenPago | null>(null)
 
   useEffect(() => {
     let pending = 4
@@ -94,6 +116,37 @@ export function TesoreriaDashboardPage() {
     ]
     return () => unsubs.forEach((u) => u())
   }, [])
+
+  useEffect(() => {
+    const unsubs = [
+      subscribeDocumentosPorEntidadTipo('ORDEN_PAGO', setDocumentosOp),
+      subscribeDocumentosPorEntidadTipo('ORDEN_COMPRA', setDocumentosOc),
+    ]
+    return () => unsubs.forEach((u) => u())
+  }, [])
+
+  const comprobantesPorOp = useMemo(() => {
+    const map = new Map<string, DocumentoAdjunto[]>()
+    for (const doc of documentosOp) {
+      if (doc.tipoComprobante !== 'COMPROBANTE_PAGO') continue
+      const list = map.get(doc.entidadId) ?? []
+      list.push(doc)
+      map.set(doc.entidadId, list)
+    }
+    return map
+  }, [documentosOp])
+
+  const documentosPorOcId = useMemo(() => {
+    const map = new Map<string, DocumentoAdjunto[]>()
+    for (const doc of documentosOc) {
+      const ocId = doc.ordenCompraId?.trim() || doc.entidadId
+      if (!ocId) continue
+      const list = map.get(ocId) ?? []
+      list.push(doc)
+      map.set(ocId, list)
+    }
+    return map
+  }, [documentosOc])
 
   const proveedoresCuentas = useMemo(() => {
     const q = busquedaCuentas.trim().toLowerCase()
@@ -126,6 +179,37 @@ export function TesoreriaDashboardPage() {
       )
     })
   }, [facturas, busquedaFacturas, filtroEstadoFactura])
+
+  const ocPendientesFacturar = useMemo(
+    () => filtrarOcPendientesFacturar(ordenesCompra),
+    [ordenesCompra],
+  )
+
+  const facturasConVencimiento = useMemo(() => {
+    const hoy = hoyYmdLocal()
+    return facturas
+      .filter((f) => f.estado === 'PENDIENTE_PAGO' || f.estado === 'PAGO_PARCIAL')
+      .sort((a, b) => a.fechaVencimiento.localeCompare(b.fechaVencimiento))
+      .map((f) => ({
+        factura: f,
+        urgencia: urgenciaVencimiento(f.fechaVencimiento, hoy),
+      }))
+  }, [facturas])
+
+  function abrirModalFacturaLibre() {
+    setFacturaOcPreset(null)
+    setModalFactura(true)
+  }
+
+  function abrirModalFacturaDesdeOc(oc: (typeof ocPendientesFacturar)[number]) {
+    setFacturaOcPreset({ ordenCompraId: oc.id, proveedorId: oc.proveedorId })
+    setModalFactura(true)
+  }
+
+  function cerrarModalFactura() {
+    setModalFactura(false)
+    setFacturaOcPreset(null)
+  }
 
   async function handleAnularFactura(motivo: string) {
     if (!user || !facturaAnular) return
@@ -178,7 +262,7 @@ export function TesoreriaDashboardPage() {
             <div className="flex flex-wrap gap-2">
               <button
                 type="button"
-                onClick={() => setModalFactura(true)}
+                onClick={abrirModalFacturaLibre}
                 className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-neutral-200 bg-white px-4 text-sm font-semibold text-neutral-800 shadow-sm transition hover:bg-neutral-50"
               >
                 <Plus className="h-4 w-4" aria-hidden />
@@ -257,12 +341,13 @@ export function TesoreriaDashboardPage() {
                       <th className="px-4 py-3 font-semibold">Proveedor</th>
                       <th className="px-4 py-3 font-semibold">CUIT</th>
                       <th className="px-4 py-3 text-right font-semibold">Deuda (proveedor)</th>
+                      <th className="px-4 py-3 font-semibold">Legajo</th>
                     </tr>
                   </thead>
                   <tbody>
                     {proveedoresCuentas.length === 0 ? (
                       <tr>
-                        <td colSpan={3} className="px-4 py-10 text-center text-neutral-500">
+                        <td colSpan={4} className="px-4 py-10 text-center text-neutral-500">
                           No hay proveedores para mostrar.
                         </td>
                       </tr>
@@ -283,8 +368,214 @@ export function TesoreriaDashboardPage() {
                           >
                             {formatMonedaArs(p.saldoProveedor)}
                           </td>
+                          <td className="px-4 py-3">
+                            <ProveedorPerfilLink proveedorId={p.id} variant="button" />
+                          </td>
                         </tr>
                       ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+        ) : null}
+
+        {!cargando && tab === 'pendientesFacturar' ? (
+          <section aria-labelledby="tab-pendientes-facturar">
+            <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <h2 id="tab-pendientes-facturar" className="text-base font-semibold text-neutral-900">
+                  Pendientes de facturar
+                </h2>
+                <p className="text-sm text-neutral-500">
+                  OC recibidas en depósito con saldo contable sin registrar en factura.
+                </p>
+              </div>
+              {puedeEscribir ? (
+                <p className="text-sm font-medium text-neutral-700">
+                  {ocPendientesFacturar.length} OC con saldo pendiente
+                </p>
+              ) : null}
+            </div>
+
+            <div className="overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm">
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[1020px] border-collapse text-left text-sm">
+                  <thead>
+                    <tr className="border-b border-neutral-100 bg-neutral-50/80 text-xs uppercase tracking-wide text-neutral-500">
+                      <th className="px-3 py-3 font-semibold">Nº OC</th>
+                      <th className="px-3 py-3 font-semibold">Proveedor</th>
+                      <th className="px-3 py-3 font-semibold">Fecha recepción</th>
+                      <th className="px-3 py-3 text-right font-semibold">Total OC</th>
+                      <th className="px-3 py-3 text-right font-semibold">Facturado</th>
+                      <th className="px-3 py-3 text-right font-semibold">Saldo a facturar</th>
+                      <th className="px-3 py-3 font-semibold">Comprob. depósito</th>
+                      {puedeEscribir ? (
+                        <th className="px-3 py-3 font-semibold">Acción</th>
+                      ) : null}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {ocPendientesFacturar.length === 0 ? (
+                      <tr>
+                        <td
+                          colSpan={puedeEscribir ? 8 : 7}
+                          className="px-4 py-10 text-center text-neutral-500"
+                        >
+                          No hay OC pendientes de facturar.
+                        </td>
+                      </tr>
+                    ) : (
+                      ocPendientesFacturar.map((oc) => {
+                        const fechaRec = fechaRecepcionOc(oc)
+                        const facturado = montoFacturadoOc(oc)
+                        const saldo = saldoAFacturarOc(oc)
+                        const docsOc = documentosPorOcId.get(oc.id) ?? []
+                        const tieneComprobante = ocTieneComprobanteDeposito(docsOc)
+                        return (
+                          <tr
+                            key={oc.id}
+                            className="border-b border-neutral-50 transition hover:bg-neutral-50/60"
+                          >
+                            <td className="px-3 py-3 font-mono text-xs font-semibold text-neutral-900">
+                              <Link
+                                to={`/control/compras/${oc.id}`}
+                                className="inline-flex items-center gap-1 text-[#CD1818] hover:underline"
+                                title="Ver expediente"
+                              >
+                                {oc.numero}
+                                <ExternalLink className="h-3 w-3 opacity-60" aria-hidden />
+                              </Link>
+                            </td>
+                            <td className="px-3 py-3 text-neutral-700">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span>{oc.proveedorNombre}</span>
+                                <ProveedorPerfilLink
+                                  proveedorId={oc.proveedorId}
+                                  variant="icon"
+                                />
+                              </div>
+                            </td>
+                            <td className="px-3 py-3 text-neutral-600">
+                              {fechaRec ? fechaRec.toLocaleDateString('es-AR') : '—'}
+                            </td>
+                            <td className="px-3 py-3 text-right tabular-nums text-neutral-800">
+                              {formatMonedaArs(oc.total, oc.moneda)}
+                            </td>
+                            <td className="px-3 py-3 text-right tabular-nums text-neutral-600">
+                              {formatMonedaArs(facturado, oc.moneda)}
+                            </td>
+                            <td className="px-3 py-3 text-right tabular-nums font-semibold text-amber-800">
+                              {formatMonedaArs(saldo, oc.moneda)}
+                            </td>
+                            <td className="px-3 py-3">
+                              {tieneComprobante ? (
+                                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-800">
+                                  <Paperclip className="h-3 w-3" aria-hidden />
+                                  Archivado
+                                </span>
+                              ) : (
+                                <span className="text-xs text-neutral-400">Sin archivo</span>
+                              )}
+                            </td>
+                            {puedeEscribir ? (
+                              <td className="px-3 py-3">
+                                <button
+                                  type="button"
+                                  onClick={() => abrirModalFacturaDesdeOc(oc)}
+                                  className="inline-flex items-center gap-1 rounded-lg bg-[#CD1818]/10 px-3 py-1.5 text-xs font-semibold text-[#CD1818] hover:bg-[#CD1818]/15"
+                                >
+                                  <Plus className="h-3.5 w-3.5" aria-hidden />
+                                  Cargar factura
+                                </button>
+                              </td>
+                            ) : null}
+                          </tr>
+                        )
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+        ) : null}
+
+        {!cargando && tab === 'vencimientos' ? (
+          <section aria-labelledby="tab-vencimientos">
+            <div className="mb-4">
+              <h2 id="tab-vencimientos" className="text-base font-semibold text-neutral-900">
+                Próximos vencimientos
+              </h2>
+              <p className="text-sm text-neutral-500">
+                Facturas con saldo pendiente ordenadas por fecha de vencimiento.
+              </p>
+            </div>
+
+            <div className="overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm">
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[960px] border-collapse text-left text-sm">
+                  <thead>
+                    <tr className="border-b border-neutral-100 bg-neutral-50/80 text-xs uppercase tracking-wide text-neutral-500">
+                      <th className="px-3 py-3 font-semibold">Urgencia</th>
+                      <th className="px-3 py-3 font-semibold">Nº factura</th>
+                      <th className="px-3 py-3 font-semibold">Proveedor</th>
+                      <th className="px-3 py-3 font-semibold">OC</th>
+                      <th className="px-3 py-3 font-semibold">Vencimiento</th>
+                      <th className="px-3 py-3 font-semibold">Estado</th>
+                      <th className="px-3 py-3 text-right font-semibold">Saldo</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {facturasConVencimiento.length === 0 ? (
+                      <tr>
+                        <td colSpan={7} className="px-4 py-10 text-center text-neutral-500">
+                          No hay facturas con saldo pendiente.
+                        </td>
+                      </tr>
+                    ) : (
+                      facturasConVencimiento.map(({ factura: f, urgencia }) => {
+                        const badge = estiloBadgeUrgenciaVencimiento(urgencia)
+                        return (
+                          <tr
+                            key={f.id}
+                            className="border-b border-neutral-50 transition hover:bg-neutral-50/60"
+                          >
+                            <td className="px-3 py-3">
+                              <span
+                                className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-semibold ring-1 ${badge.className}`}
+                              >
+                                {urgencia === 'VENCIDA' ? (
+                                  <AlertCircle className="h-3 w-3" aria-hidden />
+                                ) : null}
+                                {badge.label}
+                              </span>
+                            </td>
+                            <td className="px-3 py-3 font-medium text-neutral-900">
+                              {f.numeroFactura}
+                            </td>
+                            <td className="px-3 py-3 text-neutral-700">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span>{f.proveedorNombre}</span>
+                                <ProveedorPerfilLink proveedorId={f.proveedorId} variant="icon" />
+                              </div>
+                            </td>
+                            <td className="px-3 py-3 font-mono text-xs text-neutral-600">
+                              {f.ordenCompraNumero}
+                            </td>
+                            <td className="px-3 py-3 text-neutral-600">
+                              {formatYmdLegible(f.fechaVencimiento)}
+                            </td>
+                            <td className="px-3 py-3">
+                              <EstadoBadge tipo="factura" estado={f.estado} />
+                            </td>
+                            <td className="px-3 py-3 text-right tabular-nums font-medium text-neutral-900">
+                              {formatMonedaArs(f.saldoPendiente, f.moneda)}
+                            </td>
+                          </tr>
+                        )
+                      })
                     )}
                   </tbody>
                 </table>
@@ -364,7 +655,12 @@ export function TesoreriaDashboardPage() {
                             <td className="px-3 py-3 font-medium text-neutral-900">
                               {f.numeroFactura}
                             </td>
-                            <td className="px-3 py-3 text-neutral-700">{f.proveedorNombre}</td>
+                            <td className="px-3 py-3 text-neutral-700">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span>{f.proveedorNombre}</span>
+                                <ProveedorPerfilLink proveedorId={f.proveedorId} variant="icon" />
+                              </div>
+                            </td>
                             <td className="px-3 py-3 font-mono text-xs text-neutral-600">
                               {f.ordenCompraNumero}
                             </td>
@@ -433,6 +729,7 @@ export function TesoreriaDashboardPage() {
                       <th className="px-3 py-3 text-right font-semibold">Monto</th>
                       <th className="px-3 py-3 font-semibold">Estado</th>
                       <th className="px-3 py-3 font-semibold">Facturas</th>
+                      <th className="px-3 py-3 font-semibold">Comprobante</th>
                       {puedeEscribir ? (
                         <th className="px-3 py-3 font-semibold">Acciones</th>
                       ) : null}
@@ -442,14 +739,17 @@ export function TesoreriaDashboardPage() {
                     {ordenesPago.length === 0 ? (
                       <tr>
                         <td
-                          colSpan={puedeEscribir ? 9 : 8}
+                          colSpan={puedeEscribir ? 10 : 9}
                           className="px-4 py-10 text-center text-neutral-500"
                         >
                           No hay órdenes de pago registradas.
                         </td>
                       </tr>
                     ) : (
-                      ordenesPago.map((op) => (
+                      ordenesPago.map((op) => {
+                        const comprobantes = comprobantesPorOp.get(op.id) ?? []
+                        const tieneComprobante = comprobantes.length > 0
+                        return (
                         <tr
                           key={op.id}
                           className="border-b border-neutral-50 transition hover:bg-neutral-50/60"
@@ -457,7 +757,12 @@ export function TesoreriaDashboardPage() {
                           <td className="px-3 py-3 font-mono text-xs font-semibold text-neutral-900">
                             {op.numero}
                           </td>
-                          <td className="px-3 py-3 text-neutral-700">{op.proveedorNombre}</td>
+                          <td className="px-3 py-3 text-neutral-700">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span>{op.proveedorNombre}</span>
+                              <ProveedorPerfilLink proveedorId={op.proveedorId} variant="icon" />
+                            </div>
+                          </td>
                           <td className="px-3 py-3 text-neutral-600">
                             {formatFechaTimestamp(op.fechaPago)}
                           </td>
@@ -478,6 +783,39 @@ export function TesoreriaDashboardPage() {
                                   .join(', ')
                               : '—'}
                           </td>
+                          <td className="px-3 py-3">
+                            {op.estado === 'EMITIDA' && tieneComprobante ? (
+                              <a
+                                href={comprobantes[0]?.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700 hover:underline"
+                              >
+                                <Paperclip className="h-3.5 w-3.5" aria-hidden />
+                                Ver ({comprobantes.length})
+                              </a>
+                            ) : op.estado === 'EMITIDA' && puedeEscribir ? (
+                              <button
+                                type="button"
+                                onClick={() => setOpComprobanteModal(op)}
+                                className="inline-flex items-center gap-1 rounded-lg bg-[#CD1818]/10 px-2.5 py-1 text-xs font-semibold text-[#CD1818] hover:bg-[#CD1818]/15"
+                              >
+                                <Paperclip className="h-3.5 w-3.5" aria-hidden />
+                                Adjuntar
+                              </button>
+                            ) : (
+                              <span className="text-xs text-neutral-400">—</span>
+                            )}
+                            {op.estado === 'EMITIDA' && tieneComprobante && puedeEscribir ? (
+                              <button
+                                type="button"
+                                onClick={() => setOpComprobanteModal(op)}
+                                className="mt-1 block text-[11px] font-medium text-neutral-500 hover:text-[#CD1818]"
+                              >
+                                + otro archivo
+                              </button>
+                            ) : null}
+                          </td>
                           {puedeEscribir ? (
                             <td className="px-3 py-3">
                               {op.estado === 'EMITIDA' ? (
@@ -494,7 +832,8 @@ export function TesoreriaDashboardPage() {
                             </td>
                           ) : null}
                         </tr>
-                      ))
+                        )
+                      })
                     )}
                   </tbody>
                 </table>
@@ -506,9 +845,11 @@ export function TesoreriaDashboardPage() {
 
       <NuevaFacturaModal
         open={modalFactura}
-        onClose={() => setModalFactura(false)}
+        onClose={cerrarModalFactura}
         proveedores={proveedores}
         ordenesCompra={ordenesCompra}
+        ordenCompraIdInicial={facturaOcPreset?.ordenCompraId}
+        proveedorIdInicial={facturaOcPreset?.proveedorId}
       />
 
       <NuevaOrdenPagoModal
@@ -535,6 +876,20 @@ export function TesoreriaDashboardPage() {
         onConfirm={(motivo) => void handleAnularOp(motivo)}
         onCancel={() => {
           if (!anulando) setOpAnular(null)
+        }}
+      />
+
+      <AdjuntarComprobantePagoModal
+        open={Boolean(opComprobanteModal)}
+        onClose={() => setOpComprobanteModal(null)}
+        ordenPago={opComprobanteModal}
+        documentos={documentosOp}
+        onDocumentoSubido={(doc) => {
+          setDocumentosOp((prev) => {
+            const idx = prev.findIndex((d) => d.id === doc.id)
+            if (idx >= 0) return prev
+            return [doc, ...prev]
+          })
         }}
       />
     </div>

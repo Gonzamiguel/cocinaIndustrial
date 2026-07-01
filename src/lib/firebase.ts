@@ -25,6 +25,7 @@ import {
   type Firestore,
   type FirestoreError,
 } from 'firebase/firestore'
+import { getStorage, type FirebaseStorage } from 'firebase/storage'
 
 const firebaseConfig = {
   apiKey: 'AIzaSyC9jbTpOufQ43STX4wCq-AraTpgEQKTZBc',
@@ -43,6 +44,7 @@ export const analytics: Analytics | undefined =
   typeof window !== 'undefined' ? getAnalytics(app) : undefined
 
 let auth: Auth | undefined
+let storage: FirebaseStorage | undefined
 
 /** Instancia única; la persistencia debe activarse antes de cualquier otra operación. */
 const db: Firestore = getFirestore(app)
@@ -78,4 +80,11 @@ export function getAuthApp(): Auth {
 
 export function getDb(): Firestore {
   return db
+}
+
+export function getStorageApp(): FirebaseStorage {
+  if (!storage) {
+    storage = getStorage(app)
+  }
+  return storage
 }

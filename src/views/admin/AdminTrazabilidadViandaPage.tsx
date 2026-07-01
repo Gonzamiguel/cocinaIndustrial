@@ -1,6 +1,17 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
-import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { ArrowLeft, Factory, Package, Search, Truck, Wheat } from 'lucide-react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
+import {
+  AlertCircle,
+  ArrowDownToLine,
+  ArrowLeft,
+  ClipboardList,
+  Download,
+  Factory,
+  PackageCheck,
+  Search,
+  Truck,
+} from 'lucide-react'
+import { useToast } from '../../context/ToastContext'
 import {
   filtrarDespachosPorProduccionId,
   subscribeDespachosViandas,
@@ -8,20 +19,24 @@ import {
 } from '../../lib/despachosViandas'
 import {
   fetchProduccionCocinaById,
+  opcionesHistorialAmplio,
+  subscribeMovimientosInventario,
   subscribeProduccionCocinaRegistros,
+  type MovimientoInventario,
   type ProduccionCocinaRegistro,
 } from '../../lib/movimientosInventario'
-
-function formatFechaHora(d: Date | null): string {
-  if (!d) return '—'
-  return d.toLocaleString('es-AR', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
-}
+import {
+  subscribeSolicitudesMercaderia,
+  type SolicitudMercaderia,
+} from '../../lib/solicitudesMercaderia'
+import { exportarTrazabilidadViandaPdf } from '../../lib/trazabilidadViandaPdf'
+import {
+  construirTimelineVianda,
+  ETIQUETA_TIPO_PASO,
+  formatFechaHoraTrazabilidadVianda,
+  type PasoTrazabilidadVianda,
+  type TipoPasoTrazabilidadVianda,
+} from '../../lib/trazabilidadVianda'
 
 function buscarProduccion(
   producciones: ProduccionCocinaRegistro[],
@@ -42,11 +57,97 @@ function buscarProduccion(
   )
 }
 
+function iconoPaso(tipo: TipoPasoTrazabilidadVianda) {
+  const cls = 'h-4 w-4'
+  switch (tipo) {
+    case 'INGRESO_CENTRAL':
+      return <ArrowDownToLine className={cls} aria-hidden />
+    case 'SOLICITUD_COCINA':
+      return <ClipboardList className={cls} aria-hidden />
+    case 'TRASLADO_SALIDA':
+    case 'DESPACHO_EMPRESA':
+      return <Truck className={cls} aria-hidden />
+    case 'RECEPCION_COCINA':
+      return <PackageCheck className={cls} aria-hidden />
+    case 'PRODUCCION_VIANDA':
+      return <Factory className={cls} aria-hidden />
+    default:
+      return <AlertCircle className={cls} aria-hidden />
+  }
+}
+
+function estiloPaso(tipo: TipoPasoTrazabilidadVianda): string {
+  switch (tipo) {
+    case 'INGRESO_CENTRAL':
+      return 'bg-slate-100 text-slate-800 ring-slate-200'
+    case 'SOLICITUD_COCINA':
+      return 'bg-blue-50 text-blue-900 ring-blue-200'
+    case 'TRASLADO_SALIDA':
+      return 'bg-amber-50 text-amber-900 ring-amber-200'
+    case 'RECEPCION_COCINA':
+      return 'bg-emerald-50 text-emerald-900 ring-emerald-200'
+    case 'PRODUCCION_VIANDA':
+      return 'bg-[#CD1818]/10 text-[#CD1818] ring-[#CD1818]/20'
+    case 'DESPACHO_EMPRESA':
+      return 'bg-violet-50 text-violet-900 ring-violet-200'
+    default:
+      return 'bg-gray-100 text-gray-600 ring-gray-200'
+  }
+}
+
+function PasoTimelineCard({ paso, indice }: { paso: PasoTrazabilidadVianda; indice: number }) {
+  return (
+    <article className="relative">
+      <span
+        className={`absolute -left-[1.85rem] flex h-8 w-8 items-center justify-center rounded-full ring-1 ${estiloPaso(paso.tipo)}`}
+      >
+        {iconoPaso(paso.tipo)}
+      </span>
+      <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#8997A6]">
+              {indice}. {ETIQUETA_TIPO_PASO[paso.tipo]}
+            </p>
+            <h3 className="mt-1 text-sm font-semibold text-[#171717]">{paso.titulo}</h3>
+          </div>
+          <time className="shrink-0 text-xs text-[#8997A6]">
+            {formatFechaHoraTrazabilidadVianda(paso.fecha)}
+          </time>
+        </div>
+        <p className="mt-2 text-sm text-[#8997A6]">{paso.detalle}</p>
+        {paso.insumoNombre || paso.loteInsumo || paso.cantidadTexto ? (
+          <div className="mt-3 flex flex-wrap gap-2">
+            {paso.insumoNombre ? (
+              <span className="rounded-full bg-gray-50 px-2.5 py-0.5 text-xs font-medium text-[#171717] ring-1 ring-gray-200">
+                {paso.insumoNombre}
+              </span>
+            ) : null}
+            {paso.loteInsumo ? (
+              <span className="rounded-full bg-gray-50 px-2.5 py-0.5 font-mono text-xs text-[#171717] ring-1 ring-gray-200">
+                Lote {paso.loteInsumo}
+              </span>
+            ) : null}
+            {paso.cantidadTexto ? (
+              <span className="rounded-full bg-[#CD1818]/8 px-2.5 py-0.5 text-xs font-semibold tabular-nums text-[#CD1818] ring-1 ring-[#CD1818]/15">
+                {paso.cantidadTexto}
+              </span>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+    </article>
+  )
+}
+
 export function AdminTrazabilidadViandaPage() {
   const navigate = useNavigate()
+  const { showToast } = useToast()
   const [searchParams, setSearchParams] = useSearchParams()
   const [producciones, setProducciones] = useState<ProduccionCocinaRegistro[]>([])
   const [despachos, setDespachos] = useState<DespachoViandaRegistro[]>([])
+  const [movimientos, setMovimientos] = useState<MovimientoInventario[]>([])
+  const [solicitudes, setSolicitudes] = useState<SolicitudMercaderia[]>([])
   const [busqueda, setBusqueda] = useState('')
   const [seleccionada, setSeleccionada] = useState<ProduccionCocinaRegistro | null>(null)
   const [cargandoId, setCargandoId] = useState(false)
@@ -57,6 +158,11 @@ export function AdminTrazabilidadViandaPage() {
 
   useEffect(() => subscribeProduccionCocinaRegistros(setProducciones, 500), [])
   useEffect(() => subscribeDespachosViandas(setDespachos, 400), [])
+  useEffect(
+    () => subscribeMovimientosInventario(setMovimientos, opcionesHistorialAmplio(8000)),
+    [],
+  )
+  useEffect(() => subscribeSolicitudesMercaderia(setSolicitudes), [])
 
   useEffect(() => {
     const q = paramProduccionId || paramLote || paramCodigo
@@ -85,17 +191,24 @@ export function AdminTrazabilidadViandaPage() {
         }
       }
 
-      const local = buscarProduccion(producciones, q)
-      setSeleccionada(local)
+      setSeleccionada(buscarProduccion(producciones, q))
     }
     void resolver()
   }, [paramProduccionId, paramLote, paramCodigo, busqueda, producciones])
 
-  const despachosRelacionados = useMemo(
+  const timeline = useMemo(() => {
+    if (!seleccionada) return []
+    return construirTimelineVianda({
+      produccion: seleccionada,
+      movimientos,
+      solicitudes,
+      despachos,
+    })
+  }, [seleccionada, movimientos, solicitudes, despachos])
+
+  const despachosCount = useMemo(
     () =>
-      seleccionada
-        ? filtrarDespachosPorProduccionId(despachos, seleccionada.id)
-        : [],
+      seleccionada ? filtrarDespachosPorProduccionId(despachos, seleccionada.id).length : 0,
     [despachos, seleccionada],
   )
 
@@ -104,6 +217,16 @@ export function AdminTrazabilidadViandaPage() {
     const q = busqueda.trim()
     if (!q) return
     setSearchParams({ produccionId: q })
+  }
+
+  function handleDescargarPdf() {
+    if (!seleccionada || timeline.length === 0) return
+    try {
+      exportarTrazabilidadViandaPdf(seleccionada, timeline)
+      showToast('PDF de trazabilidad generado.', 'success')
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'No se pudo generar el PDF.', 'error')
+    }
   }
 
   return (
@@ -118,14 +241,18 @@ export function AdminTrazabilidadViandaPage() {
           Volver a gestión de menú
         </button>
         <h1 className="text-xl font-semibold tracking-tight text-[#CD1818] sm:text-2xl">
-          Historia de la vianda
+          Trazabilidad de viandas
         </h1>
+        <p className="mt-1 max-w-2xl text-sm text-[#8997A6]">
+          Cadena HACCP desde el ingreso de insumos en central, solicitud y traslado a cocina,
+          producción de este lote y despacho al cliente final.
+        </p>
         <form onSubmit={handleBuscar} className="mt-4 flex max-w-xl flex-wrap gap-2">
           <input
             type="text"
             value={busqueda}
             onChange={(e) => setBusqueda(e.target.value)}
-            placeholder="Lote, código QR o ID de producción…"
+            placeholder="Lote vianda, código QR o ID de producción…"
             className="min-h-11 min-w-0 flex-1 rounded-xl border border-gray-200 bg-white px-4 text-sm outline-none focus:border-[#CD1818]/30 focus:ring-2 focus:ring-[#CD1818]/10"
           />
           <button
@@ -148,185 +275,73 @@ export function AdminTrazabilidadViandaPage() {
         ) : (
           <>
             <section className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
-              <div className="flex flex-wrap items-start justify-between gap-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-[#8997A6]">
+                Lote de vianda rastreado
+              </p>
+              <div className="mt-2 flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <p className="text-lg font-semibold text-[#171717]">{seleccionada.nombreProducto}</p>
+                  <p className="mt-1 font-mono text-sm text-[#CD1818]">{seleccionada.loteProducto}</p>
                   <p className="mt-1 text-sm text-[#8997A6]">
-                    Receta: {seleccionada.recetaNombre} · {seleccionada.cantidadPorciones} viandas
-                    producidas
+                    {seleccionada.cantidadPorciones} viandas · Receta {seleccionada.recetaNombre} ·
+                    Vto {seleccionada.fechaVencimiento}
                   </p>
-                  <p className="mt-1 font-mono text-xs text-[#8997A6]">
-                    Lote {seleccionada.loteProducto} · Vto {seleccionada.fechaVencimiento}
-                  </p>
-                  {seleccionada.codigoTrazabilidad ? (
-                    <p className="mt-0.5 font-mono text-xs text-[#8997A6]">
-                      Código: {seleccionada.codigoTrazabilidad}
-                    </p>
-                  ) : null}
                 </div>
-                <p className="text-xs text-[#8997A6]">{formatFechaHora(seleccionada.fecha)}</p>
+                <div className="flex flex-col items-end gap-2 text-right text-xs text-[#8997A6]">
+                  <p>Producido {formatFechaHoraTrazabilidadVianda(seleccionada.fecha)}</p>
+                  <p>
+                    {despachosCount > 0
+                      ? `${despachosCount} remito${despachosCount === 1 ? '' : 's'}`
+                      : 'Sin despachos aún'}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={handleDescargarPdf}
+                    className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-[#CD1818]/25 bg-white px-3 text-xs font-semibold text-[#CD1818] hover:bg-[#CD1818]/5"
+                  >
+                    <Download className="h-3.5 w-3.5" aria-hidden />
+                    Descargar PDF
+                  </button>
+                </div>
               </div>
             </section>
 
-            <div className="relative ml-4 space-y-6 border-l-2 border-[#CD1818]/20 pl-6">
-              <article className="relative">
-                <span className="absolute -left-[1.85rem] flex h-8 w-8 items-center justify-center rounded-full bg-amber-100 text-amber-800">
-                  <Wheat className="h-4 w-4" aria-hidden />
-                </span>
-                <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-[#CD1818]">
-                    1 · Insumos usados en cocina
-                  </p>
-                  <p className="mt-1 text-xs text-[#8997A6]">
-                    Lo que reportó cocina al producir este lote (teórico vs real).
-                  </p>
-                  {seleccionada.itemsDetalle.length === 0 ? (
-                    <p className="mt-3 text-sm text-[#8997A6]">Sin detalle de insumos guardado.</p>
-                  ) : (
-                    <table className="mt-3 w-full min-w-[480px] border-collapse text-sm">
-                      <thead>
-                        <tr className="text-left text-xs uppercase text-[#8997A6]">
-                          <th className="pb-2 pr-3">Insumo</th>
-                          <th className="pb-2 pr-3 text-right">Ficha</th>
-                          <th className="pb-2 pr-3 text-right">Real</th>
-                          <th className="pb-2">Lote insumo</th>
-                          <th className="pb-2" />
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-gray-100">
-                        {seleccionada.itemsDetalle.map((item, idx) => (
-                          <tr key={`${item.insumoId}-${idx}`}>
-                            <td className="py-2 pr-3">
-                              {item.nombre}
-                              {item.unidad ? (
-                                <span className="text-xs text-[#8997A6]"> ({item.unidad})</span>
-                              ) : null}
-                            </td>
-                            <td className="py-2 pr-3 text-right tabular-nums text-[#8997A6]">
-                              {item.cantidadTeorica.toLocaleString('es-AR', {
-                                maximumFractionDigits: 4,
-                              })}
-                            </td>
-                            <td className="py-2 pr-3 text-right tabular-nums font-medium">
-                              {item.cantidadReal > 0
-                                ? item.cantidadReal.toLocaleString('es-AR', {
-                                    maximumFractionDigits: 4,
-                                  })
-                                : '—'}
-                            </td>
-                            <td className="py-2 font-mono text-xs">{item.loteInsumo || '—'}</td>
-                            <td className="py-2 text-right">
-                              {item.loteInsumo ? (
-                                <Link
-                                  to={`/deposito/trazabilidad?lote=${encodeURIComponent(item.loteInsumo)}`}
-                                  className="text-xs font-semibold text-[#CD1818] hover:underline"
-                                >
-                                  Origen en depósito
-                                </Link>
-                              ) : null}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  )}
-                </div>
-              </article>
+            <section className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+              <p className="text-xs font-semibold uppercase tracking-wide text-[#CD1818]">
+                Leyenda del recorrido
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2 text-xs">
+                {(
+                  [
+                    'INGRESO_CENTRAL',
+                    'SOLICITUD_COCINA',
+                    'TRASLADO_SALIDA',
+                    'RECEPCION_COCINA',
+                    'PRODUCCION_VIANDA',
+                    'DESPACHO_EMPRESA',
+                  ] as TipoPasoTrazabilidadVianda[]
+                ).map((t) => (
+                  <span
+                    key={t}
+                    className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 font-semibold ring-1 ${estiloPaso(t)}`}
+                  >
+                    {iconoPaso(t)}
+                    {ETIQUETA_TIPO_PASO[t]}
+                  </span>
+                ))}
+              </div>
+            </section>
 
-              <article className="relative">
-                <span className="absolute -left-[1.85rem] flex h-8 w-8 items-center justify-center rounded-full bg-[#CD1818]/10 text-[#CD1818]">
-                  <Factory className="h-4 w-4" aria-hidden />
-                </span>
-                <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-[#CD1818]">
-                    2 · Producción del lote
-                  </p>
-                  <ul className="mt-3 space-y-1 text-sm text-[#171717]">
-                    <li>
-                      <span className="text-[#8997A6]">Viandas:</span>{' '}
-                      {seleccionada.cantidadPorciones}
-                    </li>
-                    <li>
-                      <span className="text-[#8997A6]">Costo teórico:</span>{' '}
-                      {seleccionada.costoTeorico.toLocaleString('es-AR', {
-                        minimumFractionDigits: 2,
-                      })}
-                    </li>
-                    <li>
-                      <span className="text-[#8997A6]">Costo real:</span>{' '}
-                      {seleccionada.costoReal.toLocaleString('es-AR', {
-                        minimumFractionDigits: 2,
-                      })}{' '}
-                      <span className="text-xs text-[#8997A6]">
-                        ({seleccionada.desvioPorcentaje.toFixed(1)}% desvío)
-                      </span>
-                    </li>
-                  </ul>
-                </div>
-              </article>
-
-              <article className="relative">
-                <span className="absolute -left-[1.85rem] flex h-8 w-8 items-center justify-center rounded-full bg-blue-100 text-blue-800">
-                  <Truck className="h-4 w-4" aria-hidden />
-                </span>
-                <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-[#CD1818]">
-                    3 · Despachos a empresas
-                  </p>
-                  {despachosRelacionados.length === 0 ? (
-                    <p className="mt-3 text-sm text-[#8997A6]">
-                      Este lote todavía no fue despachado en un remito.
-                    </p>
-                  ) : (
-                    <ul className="mt-3 space-y-3">
-                      {despachosRelacionados.map((d) => {
-                        const lineas = d.items.flatMap((it) =>
-                          it.lotes
-                            .filter((l) => l.produccionId === seleccionada.id)
-                            .map((l) => ({
-                              plato: it.nombrePlato,
-                              cantidad: l.cantidad,
-                            })),
-                        )
-                        return (
-                          <li
-                            key={d.id}
-                            className="rounded-lg border border-gray-100 bg-gray-50/80 px-3 py-2.5 text-sm"
-                          >
-                            <p className="font-semibold text-[#171717]">{d.empresa}</p>
-                            <p className="text-xs text-[#8997A6]">
-                              Remito {d.numeroRemito || d.id.slice(0, 8)} ·{' '}
-                              {formatFechaHora(d.fecha)}
-                              {d.lugarEntrega ? ` · ${d.lugarEntrega}` : ''}
-                            </p>
-                            <ul className="mt-1 text-xs text-[#171717]">
-                              {lineas.map((ln, i) => (
-                                <li key={i}>
-                                  {ln.cantidad} × {ln.plato}
-                                </li>
-                              ))}
-                            </ul>
-                          </li>
-                        )
-                      })}
-                    </ul>
-                  )}
-                </div>
-              </article>
-
-              <article className="relative">
-                <span className="absolute -left-[1.85rem] flex h-8 w-8 items-center justify-center rounded-full bg-gray-100 text-gray-600">
-                  <Package className="h-4 w-4" aria-hidden />
-                </span>
-                <div className="rounded-xl border border-dashed border-gray-200 bg-white p-4 text-sm text-[#8997A6]">
-                  Stock restante de este lote: consultalo en{' '}
-                  <Link to="/admin/menu" className="font-semibold text-[#CD1818] hover:underline">
-                    Gestión de menú
-                  </Link>{' '}
-                  expandiendo el plato correspondiente.
-                </div>
-              </article>
-            </div>
+            <section>
+              <h2 className="mb-4 text-xs font-bold uppercase tracking-[0.15em] text-[#CD1818]">
+                Línea de tiempo (orden cronológico)
+              </h2>
+              <div className="relative ml-4 space-y-6 border-l-2 border-[#CD1818]/20 pl-6">
+                {timeline.map((paso, idx) => (
+                  <PasoTimelineCard key={paso.id} paso={paso} indice={idx + 1} />
+                ))}
+              </div>
+            </section>
           </>
         )}
       </div>

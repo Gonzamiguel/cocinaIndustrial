@@ -512,6 +512,12 @@ export function rolPuedeAccederRuta(rol: UserRole, pathname: string): boolean {
 
     }
 
+    if (pathname === '/control/proveedores' || pathname.startsWith('/control/proveedores/')) {
+
+      return esRolFinanzasLectura(rol)
+
+    }
+
     if (pathname === '/control/liquidaciones' || pathname.startsWith('/control/liquidaciones/')) {
 
       return esRolLiquidacionesLectura(rol)

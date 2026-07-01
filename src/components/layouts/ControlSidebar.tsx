@@ -66,6 +66,7 @@ const navItemsComensales: NavItem[] = [
 
 const navItemsComprasPagos: NavItem[] = [
   { to: '/control/compras', label: 'Compras (OC)', Icon: ClipboardList, end: false },
+  { to: '/control/proveedores', label: 'Proveedores', Icon: Building2, end: false },
   { to: '/control/tesoreria', label: 'Tesorería', Icon: Wallet, end: false },
 ]
 

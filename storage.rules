@@ -1,0 +1,50 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function userPath(uid) {
+      return /databases/(default)/documents/usuarios/$(uid);
+    }
+
+    function userDocExists(uid) {
+      return signedIn() && firestore.exists(userPath(uid));
+    }
+
+    function userRole(uid) {
+      return userDocExists(uid) ? firestore.get(userPath(uid)).data.rol : null;
+    }
+
+    function isAdminDeposito() {
+      return signedIn() && userRole(request.auth.uid) == 'admin_deposito';
+    }
+
+    function isAdministrativoFinanzas() {
+      return signedIn() && userRole(request.auth.uid) == 'administrativo_finanzas';
+    }
+
+    function finanzasLectura() {
+      return signedIn() && userRole(request.auth.uid) in [
+        'administrativo_finanzas', 'gerencia', 'analista'
+      ];
+    }
+
+    function puedeLeerDocumentosFinanzas() {
+      return finanzasLectura() || isAdminDeposito();
+    }
+
+    function puedeSubirDocumentosFinanzas() {
+      return isAdministrativoFinanzas() || isAdminDeposito();
+    }
+
+    match /documentos_finanzas/{allPaths=**} {
+      allow read: if puedeLeerDocumentosFinanzas();
+      allow write: if puedeSubirDocumentosFinanzas()
+        && request.resource.size < 10 * 1024 * 1024
+        && request.resource.contentType.matches('application/pdf|image/.*');
+    }
+  }
+}

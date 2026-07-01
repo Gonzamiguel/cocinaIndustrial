@@ -24,6 +24,10 @@ import type {
 import type { PadronEmpresaExtendido, RolEmpresaPadron } from '../types/compras'
 import { normalizarCuit, normalizarNombreEmpresa } from './padronEmpresas'
 import { leerSaldoProveedor } from './padronSaldos'
+import { roundMoney } from './tesoreriaUi'
+
+const ESTADOS_OC_FACTURABLES = new Set(['RECIBIDA_PARCIAL', 'COMPLETADA'])
+const TOLERANCIA_SALDO_FACTURAR = 0.02
 
 type FirestoreErrorish = { code?: string; message?: string }
 
@@ -135,6 +139,46 @@ function sortOrdenesPago(rows: OrdenPago[]): OrdenPago[] {
 
 function sortOrdenesCompra(rows: OrdenCompra[]): OrdenCompra[] {
   return [...rows].sort((a, b) => b.numero.localeCompare(a.numero, 'es'))
+}
+
+/** Monto ya facturado contra una OC (activo). */
+export function montoFacturadoOc(oc: OrdenCompra): number {
+  return roundMoney(oc.montoFacturadoAcumulado ?? 0)
+}
+
+/** Saldo pendiente de registrar en facturas de proveedor. */
+export function saldoAFacturarOc(oc: OrdenCompra): number {
+  return roundMoney(Math.max(0, oc.total - montoFacturadoOc(oc)))
+}
+
+/** OC recibida en depósito con saldo contable pendiente de facturar. */
+export function ocPendienteFacturar(oc: OrdenCompra): boolean {
+  if (!ESTADOS_OC_FACTURABLES.has(oc.estado)) return false
+  return saldoAFacturarOc(oc) > TOLERANCIA_SALDO_FACTURAR
+}
+
+/** Primera fecha de recepción física registrada en el historial de la OC. */
+export function fechaRecepcionOc(oc: OrdenCompra): Date | null {
+  for (const cambio of oc.historialEstados ?? []) {
+    if (
+      cambio.estadoNuevo === 'RECIBIDA_PARCIAL' ||
+      cambio.estadoNuevo === 'COMPLETADA'
+    ) {
+      const d = tsToDate(cambio.fecha)
+      if (d) return d
+    }
+  }
+  return null
+}
+
+export function filtrarOcPendientesFacturar(ordenes: OrdenCompra[]): OrdenCompra[] {
+  return ordenes
+    .filter(ocPendienteFacturar)
+    .sort((a, b) => {
+      const fa = fechaRecepcionOc(a)?.getTime() ?? 0
+      const fb = fechaRecepcionOc(b)?.getTime() ?? 0
+      return fb - fa
+    })
 }
 
 export function subscribeProveedoresTesoreria(

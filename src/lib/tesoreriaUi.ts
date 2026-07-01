@@ -133,3 +133,54 @@ export function parseNumeroInput(raw: string): number {
 export function moneyIgual(a: number, b: number, tolerancia = 0.02): boolean {
   return Math.abs(roundMoney(a) - roundMoney(b)) <= tolerancia
 }
+
+export type UrgenciaVencimiento = 'VENCIDA' | 'PROXIMA' | 'OK'
+
+function parseYmdLocal(ymd: string): Date | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd.trim())
+  if (!m) return null
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]))
+  return Number.isNaN(d.getTime()) ? null : d
+}
+
+function diffDiasYmd(desdeYmd: string, hastaYmd: string): number {
+  const desde = parseYmdLocal(desdeYmd)
+  const hasta = parseYmdLocal(hastaYmd)
+  if (!desde || !hasta) return 0
+  const ms = hasta.getTime() - desde.getTime()
+  return Math.round(ms / (1000 * 60 * 60 * 24))
+}
+
+/** Clasifica urgencia de pago según fecha de vencimiento (YYYY-MM-DD). */
+export function urgenciaVencimiento(
+  fechaVencimiento: string,
+  hoyYmd: string = hoyYmdLocal(),
+): UrgenciaVencimiento {
+  const diff = diffDiasYmd(hoyYmd, fechaVencimiento)
+  if (diff < 0) return 'VENCIDA'
+  if (diff <= 7) return 'PROXIMA'
+  return 'OK'
+}
+
+export function estiloBadgeUrgenciaVencimiento(urgencia: UrgenciaVencimiento): {
+  className: string
+  label: string
+} {
+  switch (urgencia) {
+    case 'VENCIDA':
+      return {
+        className: 'bg-red-100 text-red-800 ring-red-200',
+        label: 'Vencida',
+      }
+    case 'PROXIMA':
+      return {
+        className: 'bg-amber-100 text-amber-900 ring-amber-200',
+        label: 'Vence pronto',
+      }
+    default:
+      return {
+        className: 'bg-emerald-100 text-emerald-800 ring-emerald-200',
+        label: 'Al día',
+      }
+  }
+}

@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom'
 import { Plus, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { InsumoSearchSelect } from '../insumos/InsumoSearchSelect'
@@ -166,7 +167,7 @@ export function NuevaOrdenCompraModal({
         usuarioUid: user.uid,
         usuarioNombre: nombreUsuarioFromAuth(user),
       })
-      showToast(`OC ${result.numero} creada en borrador.`, 'success')
+      showToast(`OC ${result.numero} emitida. Depósito puede recepcionar.`, 'success')
       onClose()
     } catch (err) {
       showToast(mensajeErrorCompras(err), 'error')
@@ -179,12 +180,12 @@ export function NuevaOrdenCompraModal({
     <TesoreriaFormModal
       open={open}
       title="Nueva orden de compra"
-      subtitle="Elegí proveedor y precios. Se guardará como borrador para enviar a aprobación."
+      subtitle="Elegí proveedor, ítems y precios. La OC se emite aprobada y el depósito puede recepcionar."
       onClose={onClose}
       onSave={() => void handleSave()}
       saving={saving}
       saveDisabled={!formValid}
-      saveLabel="Guardar borrador"
+      saveLabel="Emitir OC"
       maxWidthClass="max-w-3xl"
     >
       <div className="space-y-4">
@@ -236,6 +237,15 @@ export function NuevaOrdenCompraModal({
                 </option>
               ))}
             </select>
+            {proveedoresOpciones.length === 0 ? (
+              <p className="mt-1.5 text-xs text-amber-700">
+                No hay proveedores activos.{' '}
+                <Link to="/control/proveedores" className="font-semibold underline">
+                  Dá de alta un proveedor
+                </Link>{' '}
+                con razón social y CUIT antes de emitir la OC.
+              </p>
+            ) : null}
           </div>
           <div>
             <label className={labelClass} htmlFor="oc-entrega">

@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useState } from 'react'
+import { Eye, Pencil, Trash2 } from 'lucide-react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import {
   subscribeCategorias,
   type Categoria,
 } from '../../lib/categorias'
 import { useToast } from '../../context/ToastContext'
 import {
-  COLLECTION_INSUMOS,
   UNIDADES_BASE_INSUMO,
   actualizarInsumo,
   computeCostoPorUnidadBase,
@@ -22,6 +22,42 @@ import { nuevaPresentacionInsumo } from '../../lib/presentacionesInsumo'
 
 const inputClass =
   'mt-2 w-full min-h-11 rounded-xl border border-gray-200 bg-white px-4 text-sm text-[#171717] shadow-sm outline-none transition focus:border-[#CD1818]/30 focus:ring-2 focus:ring-[#CD1818]/10'
+
+const iconActionClass =
+  'inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-gray-200 bg-white text-neutral-600 shadow-sm transition hover:border-[#CD1818]/30 hover:text-[#CD1818] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#CD1818]/20'
+
+const iconActionPrimaryClass =
+  'inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[#CD1818] bg-[#CD1818] text-white shadow-sm transition hover:brightness-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#CD1818]/30'
+
+const iconActionDangerClass =
+  'inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-gray-200 bg-white text-neutral-500 shadow-sm transition hover:border-red-200 hover:bg-red-50 hover:text-red-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-200/50'
+
+function DetalleCampo({
+  label,
+  value,
+  className = '',
+  destacado = false,
+}: {
+  label: string
+  value: ReactNode
+  className?: string
+  destacado?: boolean
+}) {
+  return (
+    <div className={className}>
+      <p className="text-[11px] font-medium uppercase tracking-wide text-neutral-500">
+        {label}
+      </p>
+      <p
+        className={`mt-0.5 text-sm font-semibold tabular-nums text-neutral-900 ${
+          destacado ? 'text-base text-[#CD1818]' : ''
+        }`}
+      >
+        {value}
+      </p>
+    </div>
+  )
+}
 
 export function DepositoInsumosPage() {
   const { showToast } = useToast()
@@ -286,27 +322,33 @@ export function DepositoInsumosPage() {
                           })}
                         </td>
                         <td className="px-4 py-3 text-right">
-                          <div className="flex flex-wrap justify-end gap-2">
+                          <div className="inline-flex items-center justify-end gap-1.5">
                             <button
                               type="button"
                               onClick={() => setDetalleModalId(row.id)}
-                              className="inline-flex min-h-10 items-center justify-center rounded-xl border border-gray-200 bg-white px-4 text-sm font-semibold text-[#CD1818] transition hover:bg-gray-50"
+                              className={iconActionClass}
+                              aria-label={`Ver detalle de ${formatLabelInsumo(row)}`}
+                              title="Ver detalle"
                             >
-                              Ver detalle
+                              <Eye className="h-4 w-4" aria-hidden />
                             </button>
                             <button
                               type="button"
                               onClick={() => abrirEditar(row)}
-                              className="inline-flex min-h-10 items-center justify-center rounded-xl bg-[#CD1818] px-4 text-sm font-semibold text-white shadow-sm transition hover:brightness-105"
+                              className={iconActionPrimaryClass}
+                              aria-label={`Editar ${formatLabelInsumo(row)}`}
+                              title="Editar"
                             >
-                              Editar
+                              <Pencil className="h-4 w-4" aria-hidden />
                             </button>
                             <button
                               type="button"
                               onClick={() => void handleEliminar(row.id)}
-                              className="inline-flex min-h-10 items-center justify-center rounded-xl px-3 text-sm font-semibold text-[#8997A6] transition hover:bg-red-50 hover:text-[#CD1818]"
+                              className={iconActionDangerClass}
+                              aria-label={`Eliminar ${formatLabelInsumo(row)}`}
+                              title="Eliminar"
                             >
-                              Eliminar
+                              <Trash2 className="h-4 w-4" aria-hidden />
                             </button>
                           </div>
                         </td>
@@ -321,7 +363,7 @@ export function DepositoInsumosPage() {
 
         {insumoEnDetalle ? (
           <div
-            className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4 backdrop-blur-[2px]"
+            className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-4 backdrop-blur-[2px] sm:p-6"
             role="presentation"
             onClick={() => setDetalleModalId(null)}
           >
@@ -329,17 +371,26 @@ export function DepositoInsumosPage() {
               role="dialog"
               aria-modal="true"
               aria-labelledby="modal-insumo-titulo"
-              className="flex max-h-[min(90vh,680px)] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-xl"
+              className="w-full max-w-3xl rounded-2xl border border-neutral-200 bg-white shadow-2xl"
               onClick={(e) => e.stopPropagation()}
             >
-              <div className="flex shrink-0 items-start justify-between gap-3 border-b border-neutral-100 px-5 py-4">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#8997A6]">
-                    Insumo
-                  </p>
+              <div className="flex items-start justify-between gap-4 border-b border-neutral-100 px-6 py-5">
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    {insumoEnDetalle.rubro ? (
+                      <span className="rounded-full bg-neutral-100 px-2.5 py-0.5 text-xs font-semibold text-neutral-700">
+                        {insumoEnDetalle.rubro}
+                      </span>
+                    ) : null}
+                    {insumoEnDetalle.subrubro ? (
+                      <span className="rounded-full bg-[#CD1818]/8 px-2.5 py-0.5 text-xs font-semibold text-[#CD1818]">
+                        {insumoEnDetalle.subrubro}
+                      </span>
+                    ) : null}
+                  </div>
                   <h2
                     id="modal-insumo-titulo"
-                    className="mt-1 text-lg font-semibold text-[#CD1818]"
+                    className="mt-2 text-xl font-semibold leading-snug text-neutral-900"
                   >
                     {formatLabelInsumo(insumoEnDetalle)}
                   </h2>
@@ -347,7 +398,7 @@ export function DepositoInsumosPage() {
                 <button
                   type="button"
                   onClick={() => setDetalleModalId(null)}
-                  className="rounded-lg p-1.5 text-neutral-500 transition hover:bg-neutral-100 hover:text-neutral-800"
+                  className="shrink-0 rounded-lg p-2 text-neutral-400 transition hover:bg-neutral-100 hover:text-neutral-700"
                   aria-label="Cerrar"
                 >
                   <svg
@@ -355,141 +406,93 @@ export function DepositoInsumosPage() {
                     viewBox="0 0 20 20"
                     fill="currentColor"
                     className="h-5 w-5"
+                    aria-hidden
                   >
                     <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
                   </svg>
                 </button>
               </div>
 
-              <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
-                    <p className="text-xs font-medium uppercase tracking-wide text-[#8997A6]">
-                      Nombre genérico
-                    </p>
-                    <p className="mt-1 font-semibold text-[#171717]">
-                      {insumoEnDetalle.nombreGenerico || '—'}
-                    </p>
-                  </div>
-                  <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
-                    <p className="text-xs font-medium uppercase tracking-wide text-[#8997A6]">
-                      Marca
-                    </p>
-                    <p className="mt-1 font-semibold text-[#171717]">
-                      {insumoEnDetalle.marca || '—'}
-                    </p>
-                  </div>
-                  <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 sm:col-span-2">
-                    <p className="text-xs font-medium uppercase tracking-wide text-[#8997A6]">
-                      Rubro
-                    </p>
-                    <p className="mt-1 font-semibold text-[#171717]">
-                      {insumoEnDetalle.rubro || '—'}
-                    </p>
-                  </div>
-                  <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 sm:col-span-2">
-                    <p className="text-xs font-medium uppercase tracking-wide text-[#8997A6]">
-                      Subrubro
-                    </p>
-                    <p className="mt-1 font-semibold text-[#171717]">
-                      {insumoEnDetalle.subrubro || '—'}
-                    </p>
-                  </div>
-                  <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 sm:col-span-2">
-                    <p className="text-xs font-medium uppercase tracking-wide text-[#8997A6]">
-                      Presentación
-                    </p>
-                    <p className="mt-1 font-semibold text-[#171717]">
-                      {insumoEnDetalle.presentacion || '—'}
-                    </p>
-                  </div>
-                  <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
-                    <p className="text-xs font-medium uppercase tracking-wide text-[#8997A6]">
-                      Unidad base
-                    </p>
-                    <p className="mt-1 font-semibold text-[#171717]">
-                      {insumoEnDetalle.unidadBase}
-                    </p>
-                  </div>
-                  <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
-                    <p className="text-xs font-medium uppercase tracking-wide text-[#8997A6]">
-                      Contenido neto
-                    </p>
-                    <p className="mt-1 font-semibold tabular-nums text-[#171717]">
-                      {insumoEnDetalle.contenidoNeto}
-                    </p>
-                  </div>
-                  <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
-                    <p className="text-xs font-medium uppercase tracking-wide text-[#8997A6]">
-                      Costo envase
-                    </p>
-                    <p className="mt-1 font-semibold tabular-nums text-[#171717]">
-                      ${' '}
-                      {insumoEnDetalle.costoEnvase.toLocaleString('es-AR', {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                      })}
-                    </p>
-                  </div>
-                  <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
-                    <p className="text-xs font-medium uppercase tracking-wide text-[#8997A6]">
-                      Costo por {labelUnidadBase(insumoEnDetalle.unidadBase)}
-                    </p>
-                    <p className="mt-1 font-semibold tabular-nums text-[#171717]">
-                      ${' '}
-                      {insumoEnDetalle.costoPorUnidadBase.toLocaleString(
-                        'es-AR',
-                        {
-                          minimumFractionDigits: 2,
-                          maximumFractionDigits: 4,
-                        },
-                      )}
-                    </p>
-                  </div>
+              <div className="space-y-5 px-6 py-5">
+                <div className="grid gap-x-6 gap-y-4 sm:grid-cols-3">
+                  <DetalleCampo
+                    label="Nombre genérico"
+                    value={insumoEnDetalle.nombreGenerico || '—'}
+                  />
+                  <DetalleCampo
+                    label="Marca"
+                    value={insumoEnDetalle.marca || '—'}
+                  />
+                  <DetalleCampo
+                    label="Presentación"
+                    value={insumoEnDetalle.presentacion || '—'}
+                  />
                 </div>
-                <p className="mt-4 text-xs text-[#8997A6]">
-                  Colección Firestore:{' '}
-                  <code className="rounded bg-gray-100 px-1">{COLLECTION_INSUMOS}</code>{' '}
-                  · ID:{' '}
-                  <span className="font-mono text-[#171717]">{insumoEnDetalle.id}</span>
-                </p>
+
+                <div className="grid grid-cols-2 gap-3 rounded-xl bg-neutral-50 p-4 sm:grid-cols-4">
+                  <DetalleCampo
+                    label="Unidad base"
+                    value={insumoEnDetalle.unidadBase}
+                  />
+                  <DetalleCampo
+                    label="Contenido neto"
+                    value={`${insumoEnDetalle.contenidoNeto} ${insumoEnDetalle.unidadBase}`}
+                  />
+                  <DetalleCampo
+                    label="Costo envase"
+                    value={`$ ${insumoEnDetalle.costoEnvase.toLocaleString('es-AR', {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })}`}
+                  />
+                  <DetalleCampo
+                    label={`Costo / ${labelUnidadBase(insumoEnDetalle.unidadBase)}`}
+                    value={`$ ${insumoEnDetalle.costoPorUnidadBase.toLocaleString('es-AR', {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 4,
+                    })}`}
+                    destacado
+                  />
+                </div>
+
+                {insumoEnDetalle.presentaciones &&
+                insumoEnDetalle.presentaciones.length > 0 ? (
+                  <div>
+                    <p className="text-[11px] font-medium uppercase tracking-wide text-neutral-500">
+                      Presentaciones de empaque
+                    </p>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {insumoEnDetalle.presentaciones.map((p) => (
+                        <span
+                          key={p.id}
+                          className="inline-flex items-center rounded-lg border border-neutral-200 bg-white px-3 py-1.5 text-sm text-neutral-800"
+                        >
+                          <span className="font-medium">{p.nombre}</span>
+                          <span className="ml-1.5 text-neutral-500">
+                            ×{p.factorMultiplicador} {insumoEnDetalle.unidadBase}
+                          </span>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
               </div>
 
-              {insumoEnDetalle.presentaciones &&
-              insumoEnDetalle.presentaciones.length > 0 ? (
-                <div className="mx-5 mb-2 rounded-xl border border-gray-200 bg-white px-4 py-3">
-                  <p className="text-xs font-medium uppercase tracking-wide text-[#8997A6]">
-                    Presentaciones de empaque
-                  </p>
-                  <ul className="mt-2 space-y-1 text-sm text-[#171717]">
-                    {insumoEnDetalle.presentaciones.map((p) => (
-                      <li key={p.id}>
-                        {p.nombre}{' '}
-                        <span className="text-[#8997A6]">
-                          (×{p.factorMultiplicador} {insumoEnDetalle.unidadBase})
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ) : null}
-
-              <div className="flex shrink-0 flex-wrap justify-end gap-2 border-t border-neutral-100 bg-white px-5 py-4">
-                <button
-                  type="button"
-                  onClick={() => {
-                    abrirEditar(insumoEnDetalle)
-                  }}
-                  className="min-h-10 rounded-xl bg-[#CD1818] px-5 text-sm font-semibold text-white shadow-sm transition hover:brightness-105"
-                >
-                  Editar insumo
-                </button>
+              <div className="flex flex-wrap items-center justify-end gap-2 border-t border-neutral-100 px-6 py-4">
                 <button
                   type="button"
                   onClick={() => setDetalleModalId(null)}
-                  className="min-h-10 rounded-xl border border-neutral-300 bg-white px-5 text-sm font-semibold text-neutral-800 shadow-sm transition hover:bg-neutral-50"
+                  className="min-h-10 rounded-xl border border-neutral-200 bg-white px-5 text-sm font-semibold text-neutral-700 transition hover:bg-neutral-50"
                 >
                   Cerrar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => abrirEditar(insumoEnDetalle)}
+                  className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-[#CD1818] px-5 text-sm font-semibold text-white shadow-sm transition hover:brightness-105"
+                >
+                  <Pencil className="h-4 w-4" aria-hidden />
+                  Editar
                 </button>
               </div>
             </div>
@@ -772,12 +775,6 @@ export function DepositoInsumosPage() {
                         maximumFractionDigits: 4,
                       })}`
                     : '—'}
-                </p>
-                <p className="mt-1 text-xs text-[#8997A6]">
-                  Costo envase ÷ contenido neto · colección{' '}
-                  <code className="rounded bg-gray-100 px-1 text-[11px]">
-                    {COLLECTION_INSUMOS}
-                  </code>
                 </p>
               </div>
             </section>

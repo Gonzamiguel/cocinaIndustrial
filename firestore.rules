@@ -276,7 +276,15 @@ service cloud.firestore {
         );
     }
 
-    /** Descuento de stock del menú: solo baja estricta de `stock`. */
+    /** Reserva de stock al confirmar pedido: solo sube `stockComprometido`. */
+    function menuComprometeStockPedido() {
+      return request.resource.data.diff(resource.data).changedKeys().hasOnly(['stockComprometido'])
+        && request.resource.data.stockComprometido is int
+        && request.resource.data.stockComprometido >= 0
+        && request.resource.data.stockComprometido > resource.data.get('stockComprometido', 0);
+    }
+
+    /** Descuento de stock del menú: solo baja estricta de `stock` (legado). */
     function menuSoloDescuentaStock() {
       return request.resource.data.diff(resource.data).changedKeys().hasOnly(['stock'])
         && request.resource.data.stock is int
@@ -309,8 +317,9 @@ service cloud.firestore {
           'total', 'items', 'historialEstados', 'creadoPorUid', 'creadoPorNombre',
           'movimientosIngresoIds', 'recepcionCompleta'
         ])
-        && request.resource.data.estado == 'BORRADOR'
+        && request.resource.data.estado == 'APROBADA'
         && request.resource.data.creadoPorUid == request.auth.uid
+        && request.resource.data.aprobadoPorUid == request.auth.uid
         && request.resource.data.recepcionCompleta == false
         && request.resource.data.movimientosIngresoIds.size() == 0
         && request.resource.data.items is list
@@ -379,12 +388,34 @@ service cloud.firestore {
 
     function puedeLeerPadronEmpresas() {
       return panelControlLectura() || isAdministrativoCampamento()
-        || isAdminDeposito();
+        || isAdminDeposito() || finanzasLectura() || isAdminCocina();
     }
 
     function puedeEscribirPadronEmpresas() {
       return panelControlEscritura() || isAdminDeposito() || finanzasEscritura()
         || liquidacionesEscritura();
+    }
+
+    /** Cocina central: alta de clientes de viandas (rol CLIENTE, con CUIT). */
+    function altaClienteViandasPadronValida() {
+      return isAdminCocina()
+        && request.resource.data.keys().hasAll(['nombre', 'cuit', 'creadoEn', 'roles'])
+        && request.resource.data.nombre is string
+        && request.resource.data.nombre.size() > 0
+        && request.resource.data.cuit is string
+        && request.resource.data.cuit.size() >= 8
+        && request.resource.data.roles.size() == 1
+        && request.resource.data.roles[0] == 'CLIENTE';
+    }
+
+    function actualizacionClienteViandasPadronValida() {
+      return isAdminCocina()
+        && request.resource.data.diff(resource.data).changedKeys()
+          .hasOnly(['nombre', 'cuit', 'roles'])
+        && request.resource.data.nombre is string
+        && request.resource.data.cuit is string
+        && request.resource.data.cuit.size() >= 8
+        && request.resource.data.roles.hasAny(['CLIENTE']);
     }
 
     /** INGRESO de depósito (incluye recepción vinculada a OC). */
@@ -619,6 +650,7 @@ service cloud.firestore {
       allow read: if signedIn();
       allow create, delete: if isAdminCocina() || isNutricion() || panelControlEscritura();
       allow update: if isAdminCocina() || isNutricion() || panelControlEscritura()
+        || (menuComprometeStockPedido() && isClientePedido())
         || (menuSoloDescuentaStock() && isClientePedido());
     }
 
@@ -627,6 +659,14 @@ service cloud.firestore {
       allow create: if pedidoClienteValido() && isClientePedido();
       allow update: if isAdminCocina();
       allow delete: if isAdminCocina();
+    }
+
+    match /planificacion_menu_empresa/{planId} {
+      allow read: if signedIn() && (
+        isAdminCocina() || isNutricion() || isAnalista() || isGerencia()
+        || resource.data.estado == 'PUBLICADA'
+      );
+      allow create, update, delete: if isAdminCocina();
     }
 
     match /insumos/{insumoId} {
@@ -722,7 +762,13 @@ service cloud.firestore {
 
     match /padron_empresas/{id} {
       allow read: if signedIn() && puedeLeerPadronEmpresas();
-      allow create, update, delete: if signedIn() && puedeEscribirPadronEmpresas();
+      allow create: if signedIn() && (
+        puedeEscribirPadronEmpresas() || altaClienteViandasPadronValida()
+      );
+      allow update: if signedIn() && (
+        puedeEscribirPadronEmpresas() || actualizacionClienteViandasPadronValida()
+      );
+      allow delete: if signedIn() && puedeEscribirPadronEmpresas();
     }
 
     match /registros_comedor/{id} {
@@ -810,6 +856,83 @@ service cloud.firestore {
       allow create: if signedIn() && finanzasEscritura() && creacionOrdenPagoValida();
       allow update: if signedIn() && financieroAnulaOrdenPago();
       allow delete: if false;
+    }
+
+    // ─── Expediente digital: documentos adjuntos ───────────────────────────
+
+    function tipoEntidadDocumentoValido(t) {
+      return t == 'ORDEN_COMPRA' || t == 'FACTURA_PROVEEDOR' || t == 'ORDEN_PAGO' || t == 'PROVEEDOR';
+    }
+
+    function tipoComprobanteDocumentoValido(t) {
+      return t == 'FACTURA' || t == 'REMITO' || t == 'COMPROBANTE_PAGO' || t == 'LISTA_PRECIOS' || t == 'OTRO';
+    }
+
+    function camposOpcionalesDocumentoAdjuntoOk() {
+      return (
+        !request.resource.data.keys().hasAny(['ordenCompraId'])
+        || (
+          request.resource.data.ordenCompraId is string
+          && request.resource.data.ordenCompraId.size() > 0
+        )
+      ) && (
+        !request.resource.data.keys().hasAny(['proveedorId'])
+        || (
+          request.resource.data.proveedorId is string
+          && request.resource.data.proveedorId.size() > 0
+        )
+      ) && (
+        !request.resource.data.keys().hasAny(['subidoPorNombre'])
+        || (
+          request.resource.data.subidoPorNombre is string
+          && request.resource.data.subidoPorNombre.size() > 0
+        )
+      );
+    }
+
+    function creacionDocumentoAdjuntoValida() {
+      return request.resource.data.keys().hasAll([
+          'entidadId', 'entidadTipo', 'tipoComprobante', 'url', 'nombreArchivo',
+          'subidoPorUid', 'fechaSubida'
+        ])
+        && request.resource.data.entidadId is string
+        && request.resource.data.entidadId.size() > 0
+        && tipoEntidadDocumentoValido(request.resource.data.entidadTipo)
+        && tipoComprobanteDocumentoValido(request.resource.data.tipoComprobante)
+        && request.resource.data.url is string
+        && request.resource.data.url.size() > 0
+        && request.resource.data.nombreArchivo is string
+        && request.resource.data.nombreArchivo.size() > 0
+        && request.resource.data.subidoPorUid == request.auth.uid
+        && camposOpcionalesDocumentoAdjuntoOk();
+    }
+
+    /** Depósito: foto/PDF del remito o factura al confirmar ingreso contra OC. */
+    function depositoSubeComprobanteOc() {
+      return isAdminDeposito()
+        && creacionDocumentoAdjuntoValida()
+        && request.resource.data.entidadTipo == 'ORDEN_COMPRA'
+        && request.resource.data.tipoComprobante in ['REMITO', 'FACTURA']
+        && request.resource.data.keys().hasAny(['ordenCompraId', 'proveedorId'])
+        && request.resource.data.ordenCompraId == request.resource.data.entidadId;
+    }
+
+    function financieroActualizaDocumentoAdjunto() {
+      return finanzasEscritura()
+        && request.resource.data.diff(resource.data).changedKeys().hasOnly([
+          'tipoComprobante', 'url', 'nombreArchivo', 'mimeType', 'tamanoBytes'
+        ])
+        && tipoComprobanteDocumentoValido(request.resource.data.tipoComprobante);
+    }
+
+    match /documentos_adjuntos/{docId} {
+      allow read: if signedIn() && (finanzasLectura() || isAdminDeposito());
+      allow create: if signedIn() && (
+        (finanzasEscritura() && creacionDocumentoAdjuntoValida())
+        || depositoSubeComprobanteOc()
+      );
+      allow update: if signedIn() && financieroActualizaDocumentoAdjunto();
+      allow delete: if signedIn() && finanzasEscritura();
     }
 
     // ─── Módulo C: Liquidaciones contratistas ──────────────────────────────

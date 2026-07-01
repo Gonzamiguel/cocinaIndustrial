@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import { useLocation } from 'react-router-dom'
 import { ModalDespachoRemitoDetalle } from '../../components/cocina/ModalDespachoRemitoDetalle'
 import { useToast } from '../../context/ToastContext'
 import { exportarRemitoDespachoPdf } from '../../lib/despachoRemitoPdf'
@@ -11,6 +12,15 @@ import {
   type DespachoViandaItem,
   type DespachoViandaRegistro,
 } from '../../lib/despachosViandas'
+import { empresaLabelPedido } from '../../lib/adminPedidosUi'
+import {
+  construirRemitoDesdePedidos,
+  fechaConsumoAInputDate,
+  nuevaKeyFilaDespacho,
+  opcionesDiaConsumoEmpresa,
+  pedidosActivosEmpresaDia,
+  type DespachoDesdePedidosState,
+} from '../../lib/pedidosDespacho'
 import {
   subscribeMenu,
   subscribePedidos,
@@ -56,22 +66,35 @@ function formatFechaHora(d: Date | null): string {
 
 function nuevaFila(): FilaDespacho {
   return {
-    key:
-      typeof crypto !== 'undefined' && crypto.randomUUID
-        ? crypto.randomUUID()
-        : String(Date.now() + Math.random()),
+    key: nuevaKeyFilaDespacho(),
     menuItemId: '',
     cantidadStr: '',
     lotesQty: {},
   }
 }
 
+function filasDesdeLineasPedidos(
+  lineas: { menuItemId: string; cantidadTotal: number; lotesQty: Record<string, string> }[],
+): FilaDespacho[] {
+  return lineas.map((l) => ({
+    key: nuevaKeyFilaDespacho(l.menuItemId),
+    menuItemId: l.menuItemId,
+    cantidadStr: String(l.cantidadTotal),
+    lotesQty: l.lotesQty,
+  }))
+}
+
 export function AdminDespachoPage() {
   const { showToast } = useToast()
+  const location = useLocation()
+  const prefillAplicado = useRef(false)
   const [menuItems, setMenuItems] = useState<MenuItem[]>([])
   const [pedidos, setPedidos] = useState<PedidoDelDia[]>([])
   const [historial, setHistorial] = useState<DespachoViandaRegistro[]>([])
   const [empresa, setEmpresa] = useState('')
+  const [diaPedidosSeleccionado, setDiaPedidosSeleccionado] = useState('')
+  const [fechaConsumoPedidos, setFechaConsumoPedidos] = useState('')
+  const [pedidoIdsVinculados, setPedidoIdsVinculados] = useState<string[]>([])
   const [lugarEntrega, setLugarEntrega] = useState('')
   const [fechaDespacho, setFechaDespacho] = useState(toInputDate(new Date()))
   const [observaciones, setObservaciones] = useState('')
@@ -94,18 +117,125 @@ export function AdminDespachoPage() {
   const empresasPedidos = useMemo(() => {
     const set = new Set<string>()
     for (const p of pedidos) {
-      if (p.nombreCliente.trim()) set.add(p.nombreCliente.trim())
+      const label = empresaLabelPedido(p)
+      if (label !== 'Sin empresa') set.add(label)
     }
     return [...set].sort((a, b) => a.localeCompare(b, 'es'))
   }, [pedidos])
 
-  const pedidosEmpresa = useMemo(
-    () =>
-      pedidos.filter(
-        (p) => p.nombreCliente.trim().toLowerCase() === empresa.trim().toLowerCase(),
-      ),
+  const pedidosEmpresa = useMemo(() => {
+    const emp = empresa.trim().toLowerCase()
+    if (!emp) return []
+    return pedidos.filter((p) => {
+      if (empresaLabelPedido(p).toLowerCase() !== emp) return false
+      if (fechaConsumoPedidos && p.fechaConsumo !== fechaConsumoPedidos) return false
+      return true
+    })
+  }, [pedidos, empresa, fechaConsumoPedidos])
+
+  const pedidoIdsParaRemito = useMemo(() => {
+    if (pedidoIdsVinculados.length > 0) return pedidoIdsVinculados
+    return pedidosEmpresa.map((p) => p.id)
+  }, [pedidoIdsVinculados, pedidosEmpresa])
+
+  const opcionesDiaEmpresa = useMemo(
+    () => opcionesDiaConsumoEmpresa(pedidos, empresa),
     [pedidos, empresa],
   )
+
+  function aplicarRemitoDesdePedidos(
+    empresaNombre: string,
+    fechaConsumo: string,
+    pedidosFuente: PedidoDelDia[],
+  ): boolean {
+    const { items, pedidoIds, lineas } = construirRemitoDesdePedidos(
+      pedidosFuente,
+      menuItems,
+    )
+    if (items.length === 0) return false
+
+    setEmpresa(empresaNombre)
+    setDiaPedidosSeleccionado(fechaConsumo)
+    setFechaConsumoPedidos(fechaConsumo)
+    setPedidoIdsVinculados(pedidoIds)
+    setLugarEntrega((prev) => prev.trim() || empresaNombre)
+    setMarcarPedidosDespachados(true)
+
+    const fechaInput = fechaConsumoAInputDate(fechaConsumo)
+    if (fechaInput) setFechaDespacho(fechaInput)
+
+    setFilas(filasDesdeLineasPedidos(lineas))
+    return true
+  }
+
+  function cargarDesdePedidos() {
+    if (!empresa.trim() || !diaPedidosSeleccionado) {
+      showToast('Elegí empresa y día de consumo.', 'error')
+      return
+    }
+    const lista = pedidosActivosEmpresaDia(pedidos, empresa, diaPedidosSeleccionado)
+    if (lista.length === 0) {
+      showToast('No hay pedidos activos para esa empresa y día.', 'error')
+      return
+    }
+    const ok = aplicarRemitoDesdePedidos(empresa.trim(), diaPedidosSeleccionado, lista)
+    if (!ok) {
+      showToast('No se reconocieron platos de menú en esos pedidos.', 'error')
+      return
+    }
+    showToast(
+      `${lista.length} pedido(s) cargados con lotes FIFO sugeridos. Revisá y confirmá el remito.`,
+      'success',
+    )
+  }
+
+  function handleEmpresaChange(valor: string) {
+    setEmpresa(valor)
+    setDiaPedidosSeleccionado('')
+    setFechaConsumoPedidos('')
+    setPedidoIdsVinculados([])
+  }
+
+  useEffect(() => {
+    if (prefillAplicado.current) return
+    const prefill = location.state as DespachoDesdePedidosState | null
+    if (!prefill?.empresa || prefill.items.length === 0) return
+    if (menuItems.length === 0) return
+
+    const pedidosPrefill = pedidos.filter((p) => prefill.pedidoIds.includes(p.id))
+    const fuente =
+      pedidosPrefill.length > 0
+        ? pedidosPrefill
+        : pedidosActivosEmpresaDia(pedidos, prefill.empresa, prefill.fechaConsumo)
+
+    prefillAplicado.current = true
+    setVistaFormulario(true)
+
+    if (aplicarRemitoDesdePedidos(prefill.empresa, prefill.fechaConsumo, fuente)) {
+      showToast(
+        `Remito precargado: ${prefill.items.length} vianda(s) con lotes FIFO sugeridos. Revisá y confirmá.`,
+        'success',
+      )
+    } else {
+      setEmpresa(prefill.empresa)
+      setDiaPedidosSeleccionado(prefill.fechaConsumo)
+      setFechaConsumoPedidos(prefill.fechaConsumo)
+      setPedidoIdsVinculados(prefill.pedidoIds)
+      setLugarEntrega(prefill.empresa)
+      setFilas(filasDesdeLineasPedidos(
+        prefill.items.map((item) => ({
+          menuItemId: item.menuItemId,
+          cantidadTotal: item.cantidadTotal,
+          lotesQty: sugerirAsignacionFifo(
+            menuPorId.get(item.menuItemId)?.stockLotes ?? [],
+            item.cantidadTotal,
+          ),
+        })),
+      ))
+      showToast('Remito precargado desde pedidos del día.', 'success')
+    }
+    window.history.replaceState({}, document.title)
+  }, [location.state, menuItems, menuPorId, pedidos, showToast])
 
   const alertasStock = useMemo(() => {
     let vencidos = 0
@@ -235,7 +365,7 @@ export function AdminDespachoPage() {
     const [y, m, d] = fechaDespacho.split('-').map(Number)
     const fecha = new Date(y, m - 1, d, 12, 0, 0, 0)
 
-    const idsPedidos = marcarPedidosDespachados ? pedidosEmpresa.map((p) => p.id) : []
+    const idsPedidos = marcarPedidosDespachados ? pedidoIdsParaRemito : []
 
     setIsSubmitting(true)
     try {
@@ -244,18 +374,22 @@ export function AdminDespachoPage() {
         empresa: empresa.trim(),
         lugarEntrega: lugarEntrega.trim(),
         pedidoIds: idsPedidos,
+        fechaConsumoPedidos: fechaConsumoPedidos.trim() || undefined,
         marcarPedidosDespachados,
         items,
         observaciones: observaciones.trim(),
       })
       showToast(
         marcarPedidosDespachados && idsPedidos.length > 0
-          ? `Remito ${res.numeroRemito} registrado. Pedidos marcados como despachados.`
+          ? `Remito ${res.numeroRemito} registrado. ${idsPedidos.length} pedido(s) marcados como despachados.`
           : `Remito ${res.numeroRemito} registrado.`,
         'success',
       )
       setFilas([nuevaFila()])
       setObservaciones('')
+      setPedidoIdsVinculados([])
+      setFechaConsumoPedidos('')
+      setDiaPedidosSeleccionado('')
       setVistaFormulario(false)
     } catch (err) {
       showToast(err instanceof Error ? err.message : 'No se pudo registrar el despacho.', 'error')
@@ -281,6 +415,9 @@ export function AdminDespachoPage() {
         <h1 className="text-xl font-semibold tracking-tight text-[#CD1818] sm:text-2xl">
           Despacho / remito de salida
         </h1>
+        <p className="mt-1 text-sm text-[#8997A6]">
+          Elegí empresa y día de consumo para cargar pedidos, revisá lotes FIFO y registrá el remito.
+        </p>
       </header>
 
       <div className="flex flex-1 flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
@@ -396,7 +533,7 @@ export function AdminDespachoPage() {
                   <input
                     list="empresas-pedidos"
                     value={empresa}
-                    onChange={(e) => setEmpresa(e.target.value)}
+                    onChange={(e) => handleEmpresaChange(e.target.value)}
                     className={inputClassComanda}
                     placeholder="Nombre de la empresa"
                   />
@@ -425,12 +562,57 @@ export function AdminDespachoPage() {
                   />
                 </label>
               </div>
-              {pedidosEmpresa.length > 0 ? (
+
+              <div className="mt-4 rounded-xl border border-dashed border-gray-200 bg-gray-50/80 p-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-[#CD1818]">
+                  Cargar desde pedidos
+                </p>
+                <p className="mt-1 text-xs text-[#8997A6]">
+                  Trae cantidades por plato y sugiere lotes por vencimiento (FIFO).
+                </p>
+                <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
+                  <label className="block min-w-[12rem] flex-1 text-sm font-medium text-[#171717]">
+                    Día de consumo
+                    <select
+                      value={diaPedidosSeleccionado}
+                      onChange={(e) => setDiaPedidosSeleccionado(e.target.value)}
+                      disabled={!empresa.trim() || opcionesDiaEmpresa.length === 0}
+                      className={selectClassComanda}
+                    >
+                      <option value="">
+                        {!empresa.trim()
+                          ? 'Primero elegí empresa'
+                          : opcionesDiaEmpresa.length === 0
+                            ? 'Sin pedidos activos'
+                            : '— Elegir día —'}
+                      </option>
+                      {opcionesDiaEmpresa.map((op) => (
+                        <option key={op.fechaConsumo} value={op.fechaConsumo}>
+                          {op.labelCorto} ({op.cantidad} pedido
+                          {op.cantidad === 1 ? '' : 's'})
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={cargarDesdePedidos}
+                    disabled={!empresa.trim() || !diaPedidosSeleccionado}
+                    className="inline-flex min-h-11 items-center justify-center rounded-xl bg-[#CD1818] px-5 text-sm font-semibold text-white shadow-sm transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    Cargar pedidos
+                  </button>
+                </div>
+              </div>
+
+              {pedidosEmpresa.length > 0 || pedidoIdsParaRemito.length > 0 ? (
                 <p className="mt-4 text-xs text-[#8997A6]">
-                  {pedidosEmpresa.length} pedido(s) activo(s) para esta empresa
+                  {pedidoIdsParaRemito.length} pedido(s) vinculado
+                  {pedidoIdsParaRemito.length === 1 ? '' : 's'}
+                  {fechaConsumoPedidos ? ` · consumo ${fechaConsumoPedidos}` : ''}
                 </p>
               ) : null}
-              {pedidosEmpresa.length > 0 ? (
+              {pedidoIdsParaRemito.length > 0 ? (
                 <label className="mt-4 flex cursor-pointer items-center gap-2 text-sm text-[#171717]">
                   <input
                     type="checkbox"
@@ -438,7 +620,8 @@ export function AdminDespachoPage() {
                     checked={marcarPedidosDespachados}
                     onChange={(e) => setMarcarPedidosDespachados(e.target.checked)}
                   />
-                  Marcar pedidos vinculados como despachados al registrar ({pedidosEmpresa.length})
+                  Marcar pedidos vinculados como despachados al registrar (
+                  {pedidoIdsParaRemito.length})
                 </label>
               ) : null}
             </div>
