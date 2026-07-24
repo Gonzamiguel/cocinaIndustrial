@@ -334,7 +334,7 @@ export function AdminTrazabilidadViandaPage() {
 
             <section>
               <h2 className="mb-4 text-xs font-bold uppercase tracking-[0.15em] text-[#CD1818]">
-                Línea de tiempo (orden cronológico)
+                Línea de tiempo (cronológica · despacho al final)
               </h2>
               <div className="relative ml-4 space-y-6 border-l-2 border-[#CD1818]/20 pl-6">
                 {timeline.map((paso, idx) => (

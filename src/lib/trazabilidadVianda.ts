@@ -360,6 +360,10 @@ export function construirTimelineVianda(input: {
   }
 
   return pasos.sort((a, b) => {
+    const aEsDespacho = a.tipo === 'DESPACHO_EMPRESA'
+    const bEsDespacho = b.tipo === 'DESPACHO_EMPRESA'
+    if (aEsDespacho !== bEsDespacho) return aEsDespacho ? 1 : -1
+
     const ta = fechaMs(a.fecha)
     const tb = fechaMs(b.fecha)
     if (ta !== tb) return ta - tb

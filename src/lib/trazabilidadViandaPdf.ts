@@ -58,7 +58,7 @@ export function exportarTrazabilidadViandaPdf(
   doc.setFontSize(8)
   doc.setTextColor(120, 130, 140)
   doc.text(
-    'Línea de tiempo ordenada cronológicamente (más antiguo → más reciente). Pasos sin fecha al final.',
+    'Línea de tiempo cronológica. El despacho a cliente siempre figura al final de la cadena.',
     margin,
     y,
   )

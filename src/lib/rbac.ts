@@ -476,7 +476,8 @@ export function puedeOperarLiquidaciones(rol: string | null | undefined): boolea
 
 export function rutaHomePorRol(rol: UserRole): string | null {
 
-  if (rol === 'administrativo_finanzas') return '/control/compras'
+  // OC/tesorería desacoplado: antes '/control/compras'
+  if (rol === 'administrativo_finanzas') return '/control'
 
   if (rol === 'administrativo_liquidaciones') return '/control/liquidaciones'
 
@@ -500,22 +501,25 @@ export function rolPuedeAccederRuta(rol: UserRole, pathname: string): boolean {
 
   if (pathname === '/control' || pathname.startsWith('/control/')) {
 
-    if (pathname === '/control/compras' || pathname.startsWith('/control/compras/')) {
-
-      return esRolFinanzasLectura(rol)
-
-    }
-
-    if (pathname === '/control/tesoreria' || pathname.startsWith('/control/tesoreria/')) {
-
-      return esRolFinanzasLectura(rol)
-
-    }
-
-    if (pathname === '/control/proveedores' || pathname.startsWith('/control/proveedores/')) {
-
-      return esRolFinanzasLectura(rol)
-
+    // Circuito OC / proveedores / tesorería — desacoplado por ahora
+    // if (pathname === '/control/compras' || pathname.startsWith('/control/compras/')) {
+    //   return esRolFinanzasLectura(rol)
+    // }
+    // if (pathname === '/control/tesoreria' || pathname.startsWith('/control/tesoreria/')) {
+    //   return esRolFinanzasLectura(rol)
+    // }
+    // if (pathname === '/control/proveedores' || pathname.startsWith('/control/proveedores/')) {
+    //   return esRolFinanzasLectura(rol)
+    // }
+    if (
+      pathname === '/control/compras' ||
+      pathname.startsWith('/control/compras/') ||
+      pathname === '/control/tesoreria' ||
+      pathname.startsWith('/control/tesoreria/') ||
+      pathname === '/control/proveedores' ||
+      pathname.startsWith('/control/proveedores/')
+    ) {
+      return false
     }
 
     if (pathname === '/control/liquidaciones' || pathname.startsWith('/control/liquidaciones/')) {

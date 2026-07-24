@@ -15,7 +15,7 @@ import { DepositoInsumosPage } from './views/deposito/DepositoInsumosPage'
 import { DepositoInventarioPage } from './views/deposito/DepositoInventarioPage'
 import { DepositoMovimientosPage } from './views/deposito/DepositoMovimientosPage'
 import { DepositoTrazabilidadPage } from './views/deposito/DepositoTrazabilidadPage'
-import { DepositoOrdenesCompraPage } from './views/deposito/DepositoOrdenesCompraPage'
+// import { DepositoOrdenesCompraPage } from './views/deposito/DepositoOrdenesCompraPage' // OC desacoplado
 import { DepositoNuevoIngresoPage } from './views/deposito/DepositoNuevoIngresoPage'
 import { AdminMenuPage } from './views/admin/AdminMenuPage'
 import { AdminDespachoPage } from './views/admin/AdminDespachoPage'
@@ -48,17 +48,18 @@ import { ConfiguracionHoteleriaPage } from './views/hoteleria/ConfiguracionHotel
 import { PernoctesPage } from './views/hoteleria/PernoctesPage'
 import { ReporteLimpiezaPage } from './views/hoteleria/ReporteLimpiezaPage'
 import { DashboardFacturacionPage } from './views/control/DashboardFacturacionPage'
-import { TesoreriaDashboardPage } from './views/control/TesoreriaDashboardPage'
-import { ComprasAprobacionPage } from './views/control/ComprasAprobacionPage'
-import { OcDetallePage } from './views/control/OcDetallePage'
-import { ProveedoresPage } from './views/control/ProveedoresPage'
-import { ProveedorDetallePage } from './views/control/ProveedorDetallePage'
+// Circuito OC / proveedores / tesorería — desacoplado por ahora
+// import { TesoreriaDashboardPage } from './views/control/TesoreriaDashboardPage'
+// import { ComprasAprobacionPage } from './views/control/ComprasAprobacionPage'
+// import { OcDetallePage } from './views/control/OcDetallePage'
+// import { ProveedoresPage } from './views/control/ProveedoresPage'
+// import { ProveedorDetallePage } from './views/control/ProveedorDetallePage'
 import { LiquidacionesPage } from './views/control/LiquidacionesPage'
 import { SolicitudMercaderiaDetallePage } from './views/SolicitudMercaderiaDetallePage'
 import {
   ROLES_CONTROL,
   ROLES_DEPOSITO,
-  ROLES_FINANZAS_LECTURA,
+  // ROLES_FINANZAS_LECTURA, // OC/tesorería desacoplado
   ROLES_LIQUIDACIONES_LECTURA,
   ROLES_NUTRICION,
   ROLES_PANEL_CONTROL,
@@ -147,6 +148,7 @@ export default function App() {
             </ProtectedRoute>
           }
         />
+        {/* Circuito OC / proveedores / tesorería — desacoplado por ahora
         <Route
           path="tesoreria"
           element={
@@ -187,6 +189,7 @@ export default function App() {
             </ProtectedRoute>
           }
         />
+        */}
         <Route
           path="liquidaciones"
           element={
@@ -241,7 +244,7 @@ export default function App() {
           element={<Navigate to="/deposito/movimientos" replace />}
         />
         <Route path="dashboard" element={<DepositoDashboardPage />} />
-        <Route path="ordenes-compra" element={<DepositoOrdenesCompraPage />} />
+        {/* <Route path="ordenes-compra" element={<DepositoOrdenesCompraPage />} /> */}
         <Route path="insumos" element={<DepositoInsumosPage />} />
         <Route path="configuracion" element={<DepositoConfiguracionPage />} />
         <Route path="movimientos" element={<DepositoMovimientosPage />} />

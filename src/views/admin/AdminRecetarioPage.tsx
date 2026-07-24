@@ -23,6 +23,10 @@ import {
   type RecetaTecnica,
   type UnidadReceta,
 } from '../../lib/recetario'
+import {
+  normalizarCodigoCorto,
+  siguienteCodigoCortoDisponible,
+} from '../../lib/produccionLotes'
 
 type FilaIngredienteDraft = {
   key: string
@@ -97,6 +101,7 @@ export function AdminRecetarioPage() {
   const [editingId, setEditingId] = useState<string | null>(null)
 
   const [nombre, setNombre] = useState('')
+  const [codigoCorto, setCodigoCorto] = useState('')
   const [categoria, setCategoria] = useState<CategoriaReceta>('Principal')
   const [aceptaGuarnicion, setAceptaGuarnicion] = useState(true)
   const [dietas, setDietas] = useState<DietaReceta[]>([])
@@ -176,6 +181,7 @@ export function AdminRecetarioPage() {
 
   function resetFormulario() {
     setNombre('')
+    setCodigoCorto(siguienteCodigoCortoDisponible(recetas.map((r) => r.codigoCorto)))
     setCategoria('Principal')
     setAceptaGuarnicion(true)
     setDietas([])
@@ -187,6 +193,10 @@ export function AdminRecetarioPage() {
 
   function abrirEdicionDesdeReceta(receta: RecetaTecnica) {
     setNombre(receta.nombre)
+    setCodigoCorto(
+      receta.codigoCorto ||
+        siguienteCodigoCortoDisponible(recetas.map((r) => r.codigoCorto)),
+    )
     setCategoria(receta.categoria)
     setAceptaGuarnicion(
       receta.categoria === 'Principal' ? receta.aceptaGuarnicion : false,
@@ -203,6 +213,7 @@ export function AdminRecetarioPage() {
   function abrirNuevaRecetaDesdeMenu(nombrePlato: string, categoriaMenu: 'principal' | 'guarnicion') {
     resetFormulario()
     setNombre(nombrePlato)
+    setCodigoCorto(siguienteCodigoCortoDisponible(recetas.map((r) => r.codigoCorto)))
     setCategoria(categoriaMenu === 'guarnicion' ? 'Guarnición' : 'Principal')
     setAceptaGuarnicion(categoriaMenu !== 'guarnicion')
     setRendimientoPorciones('1')
@@ -314,6 +325,9 @@ export function AdminRecetarioPage() {
 
     const payload = {
       nombre,
+      codigoCorto:
+        normalizarCodigoCorto(codigoCorto) ||
+        siguienteCodigoCortoDisponible(recetas.map((r) => r.codigoCorto)),
       categoria,
       aceptaGuarnicion,
       dietas,
@@ -388,6 +402,7 @@ export function AdminRecetarioPage() {
               <table className="w-full min-w-[720px] border-collapse text-left text-sm">
                 <thead className="sticky top-0 z-10 shadow-sm">
                   <tr className="border-b border-gray-200 bg-gray-50 text-xs uppercase tracking-wide text-[#8997A6]">
+                    <th className="px-4 py-3">Cód.</th>
                     <th className="px-4 py-3">Nombre</th>
                     <th className="px-4 py-3">Categoría</th>
                     <th className="px-4 py-3">Rendimiento</th>
@@ -401,7 +416,7 @@ export function AdminRecetarioPage() {
                   {cargando ? (
                     <tr>
                       <td
-                        colSpan={7}
+                        colSpan={8}
                         className="px-4 py-16 text-center text-[#8997A6]"
                       >
                         Cargando recetario...
@@ -410,7 +425,7 @@ export function AdminRecetarioPage() {
                   ) : recetas.length === 0 ? (
                     <tr>
                       <td
-                        colSpan={7}
+                        colSpan={8}
                         className="px-4 py-16 text-center text-[#8997A6]"
                       >
                         Todavía no hay recetas registradas. Creá una con
@@ -427,6 +442,9 @@ export function AdminRecetarioPage() {
                           : null
                       return (
                       <tr key={receta.id} className="hover:bg-neutral-50/80">
+                        <td className="px-4 py-3 font-mono text-xs font-semibold text-[#CD1818]">
+                          {receta.codigoCorto || '—'}
+                        </td>
                         <td className="px-4 py-3 font-medium text-[#171717]">
                           {receta.nombre}
                         </td>
@@ -737,6 +755,23 @@ export function AdminRecetarioPage() {
                     className={inputBaseClass}
                     placeholder="Ej. Pastel de papas"
                     required
+                  />
+                </label>
+
+                <label className="block">
+                  <span className="text-xs font-medium text-[#8997A6]">
+                    Código corto (01–99)
+                  </span>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={2}
+                    value={codigoCorto}
+                    onChange={(e) =>
+                      setCodigoCorto(e.target.value.replace(/\D/g, '').slice(0, 2))
+                    }
+                    className={inputBaseClass}
+                    placeholder="01"
                   />
                 </label>
 

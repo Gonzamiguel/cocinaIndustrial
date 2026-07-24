@@ -12,6 +12,7 @@ import {
   type Unsubscribe,
 } from 'firebase/firestore'
 import { getDb } from './firebase'
+import { normalizarCodigoBarras } from './codigoBarrasInsumo'
 import { sanitizarPresentacionesInsumo } from './presentacionesInsumo'
 import type { PresentacionInsumo } from '../types/insumo'
 
@@ -36,6 +37,8 @@ export interface Insumo {
   costoPorUnidadBase: number
   /** Empaques alternativos (caja, pack, bidón) con factor a unidad base. */
   presentaciones?: PresentacionInsumo[]
+  /** EAN/GTIN del envase (pistola 1D en depósito). */
+  codigoBarras?: string
   creadoEn: Date | null
   actualizadoEn: Date | null
 }
@@ -50,6 +53,7 @@ export interface CrearInsumoInput {
   contenidoNeto: number
   costoEnvase: number
   presentaciones?: PresentacionInsumo[]
+  codigoBarras?: string
 }
 
 function clampNonNegative(n: number): number {
@@ -113,6 +117,12 @@ function mapInsumoDoc(id: string, data: Record<string, unknown>): Insumo {
     presentaciones.push({ id, nombre, factorMultiplicador: factor })
   }
 
+  const codigoBarrasRaw = data.codigoBarras
+  const codigoBarras =
+    typeof codigoBarrasRaw === 'string' && codigoBarrasRaw.trim()
+      ? normalizarCodigoBarras(codigoBarrasRaw)
+      : undefined
+
   return {
     id,
     nombreGenerico:
@@ -133,6 +143,7 @@ function mapInsumoDoc(id: string, data: Record<string, unknown>): Insumo {
     costoEnvase,
     costoPorUnidadBase,
     ...(presentaciones.length > 0 ? { presentaciones } : {}),
+    ...(codigoBarras ? { codigoBarras } : {}),
     creadoEn,
     actualizadoEn,
   }
@@ -149,6 +160,7 @@ function buildInsumoPayload(input: CrearInsumoInput): {
   costoEnvase: number
   costoPorUnidadBase: number
   presentaciones: PresentacionInsumo[]
+  codigoBarras: string
 } {
   const nombreGenerico = input.nombreGenerico.trim()
   const marca = input.marca.trim()
@@ -179,6 +191,9 @@ function buildInsumoPayload(input: CrearInsumoInput): {
 
   const costoPorUnidadBase = computeCostoPorUnidadBase(costoEnvase, contenidoNeto)
   const presentaciones = sanitizarPresentacionesInsumo(input.presentaciones)
+  const codigoBarras = input.codigoBarras?.trim()
+    ? normalizarCodigoBarras(input.codigoBarras)
+    : ''
 
   return {
     nombreGenerico,
@@ -191,6 +206,7 @@ function buildInsumoPayload(input: CrearInsumoInput): {
     costoEnvase: clampNonNegative(costoEnvase),
     costoPorUnidadBase: clampNonNegative(costoPorUnidadBase),
     presentaciones,
+    codigoBarras,
   }
 }
 

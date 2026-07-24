@@ -1,11 +1,17 @@
 import { Loader2 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
+import { ModoPistolaBarra } from '../../components/deposito/ModoPistolaBarra'
 import { InsumoSearchSelect } from '../../components/insumos/InsumoSearchSelect'
 import { PresentacionCantidadFields } from '../../components/insumos/PresentacionCantidadFields'
 import { DepositoSolicitudesMercaderiaPanel } from '../../components/deposito/DepositoSolicitudesMercaderiaPanel'
 import { useToast } from '../../context/ToastContext'
+import { buscarInsumoPorCodigoEscaneado } from '../../lib/codigoBarrasInsumo'
 import type { EgresoPrefillDesdeSolicitud } from '../../lib/depositoEgresoPrefill'
+import {
+  useInventarioScanner,
+  type EscaneoInventario,
+} from '../../hooks/useInventarioScanner'
 import {
   exportarMovimientoInventarioPdf,
   exportarMovimientosInventarioExcel,
@@ -392,6 +398,7 @@ export function DepositoMovimientosPage() {
   const [patente, setPatente] = useState('')
   const [precinto, setPrecinto] = useState('')
   const [filas, setFilas] = useState<FilaDraft[]>(() => [nuevaFila()])
+  const [modoPistola, setModoPistola] = useState(false)
   const [remitoReciente, setRemitoReciente] =
     useState<MovimientoEgresoInventario | null>(null)
 
@@ -540,6 +547,120 @@ export function DepositoMovimientosPage() {
     return map
   }, [movimientosCentrales, filas, tipoMovimiento])
 
+  const enfocarCantidadFila = useCallback((filaKey: string) => {
+    queueMicrotask(() => {
+      const el = cantidadInputRefs.current[filaKey]
+      el?.focus()
+      el?.select()
+    })
+  }, [])
+
+  const aplicarEscaneoInsumo = useCallback(
+    (ins: Insumo, loteQr?: string) => {
+      let filaKeyUsada = ''
+
+      setFilas((prev) => {
+        let targetIdx = prev.findIndex(
+          (f) => f.insumoId === ins.id && !f.cantidad.trim(),
+        )
+        if (targetIdx < 0) {
+          targetIdx = prev.findIndex((f) => !f.insumoId?.trim())
+        }
+
+        const armarFila = (f: FilaDraft): FilaDraft => {
+          const base: Partial<FilaDraft> = {
+            insumoId: ins.id,
+            nombreSnapshot: formatLabelInsumo(ins),
+            presentacionEmpaqueId: PRESENTACION_BASE_ID,
+          }
+
+          if (tipoMovimiento === 'EGRESO') {
+            const lotes = lotesDisponiblesParaEgreso(movimientosCentrales, ins.id)
+            if (lotes.length === 0) {
+              return {
+                ...f,
+                ...base,
+                lote: '',
+                fechaVencimiento: '',
+                egresoLoteDefinido: false,
+              }
+            }
+
+            let bucket = lotes[0]
+            if (loteQr?.trim()) {
+              const key = normalizarLoteKey(loteQr)
+              bucket = lotes.find((l) => l.loteKey === key) ?? bucket
+            }
+
+            return {
+              ...f,
+              ...base,
+              lote: bucket.lotePersistido,
+              fechaVencimiento: bucket.fechaVencimiento ?? '',
+              egresoLoteDefinido: true,
+            }
+          }
+
+          return { ...f, ...base }
+        }
+
+        if (targetIdx >= 0) {
+          filaKeyUsada = prev[targetIdx].key
+          return prev.map((f, i) => (i === targetIdx ? armarFila(f) : f))
+        }
+
+        const nueva = armarFila(nuevaFila())
+        filaKeyUsada = nueva.key
+        return [...prev, nueva]
+      })
+
+      if (tipoMovimiento === 'EGRESO') {
+        const lotes = lotesDisponiblesParaEgreso(movimientosCentrales, ins.id)
+        if (lotes.length === 0) {
+          showToast(`Sin stock en central para «${formatLabelInsumo(ins)}».`, 'error')
+          return
+        }
+      }
+
+      if (filaKeyUsada) enfocarCantidadFila(filaKeyUsada)
+      showToast(`${formatLabelInsumo(ins)} — listo para cargar cantidad`, 'success')
+    },
+    [tipoMovimiento, movimientosCentrales, showToast, enfocarCantidadFila],
+  )
+
+  const handleEscaneoInventario = useCallback(
+    (result: EscaneoInventario) => {
+      if (result.tipo === 'qr_insumo') {
+        const ins = insumosById.get(result.insumoId)
+        if (!ins) {
+          showToast('El QR apunta a un insumo que ya no está en el catálogo.', 'error')
+          return
+        }
+        aplicarEscaneoInsumo(ins, result.lote)
+        return
+      }
+
+      if (result.tipo === 'codigo_barras_insumo') {
+        const ins = buscarInsumoPorCodigoEscaneado(insumos, result.codigo)
+        if (!ins) {
+          showToast(
+            `Código ${result.codigo} no registrado. Cargalo en Catálogo de insumos.`,
+            'error',
+          )
+          return
+        }
+        aplicarEscaneoInsumo(ins)
+      }
+    },
+    [insumos, insumosById, aplicarEscaneoInsumo, showToast],
+  )
+
+  useInventarioScanner({
+    enabled: isCreating && modoPistola && !isSubmitting,
+    aceptarViandas: false,
+    onScan: handleEscaneoInventario,
+  })
+
   const requiereTransporte = useMemo(
     () =>
       tipoMovimiento === 'EGRESO' && requiereDatosTransporte(destino),
@@ -621,6 +742,7 @@ export function DepositoMovimientosPage() {
     setPatente('')
     setPrecinto('')
     setFilas([nuevaFila()])
+    setModoPistola(false)
     setEgresoSolicitudId(null)
     setEgresoDestinoBloqueado(false)
     setEgresoUbicacionDestinoExplicita(undefined)
@@ -1488,6 +1610,19 @@ export function DepositoMovimientosPage() {
                   </>
                 )}
               </p>
+
+              <div className="mb-5">
+                <ModoPistolaBarra
+                  activo={modoPistola}
+                  onToggle={() => setModoPistola((v) => !v)}
+                  disabled={isSubmitting}
+                  hint={
+                    tipoMovimiento === 'EGRESO'
+                      ? 'Escaneá el EAN del envase: carga el insumo y el lote FEFO. Completá la cantidad.'
+                      : 'Escaneá el EAN del envase para cargar el insumo en una fila.'
+                  }
+                />
+              </div>
 
               <div
                 className={`mb-3 hidden rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 md:grid md:text-[11px] md:font-semibold md:uppercase md:tracking-[0.16em] md:text-[#8997A6] ${itemGridClass}`}

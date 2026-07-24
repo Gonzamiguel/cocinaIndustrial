@@ -12,7 +12,7 @@ import {
   Receipt,
   Settings,
   Users,
-  Wallet,
+  // Wallet, // tesorería desacoplada
 } from 'lucide-react'
 import type { SVGProps } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
@@ -20,11 +20,11 @@ import { CampamentoModoToggle } from '../campamento/CampamentoModoToggle'
 import { useAuth } from '../../context/AuthContext'
 import { useCampamentoModo } from '../../hooks/useCampamentoModo'
 import {
-  esRolFinanzasLectura,
   esRolLiquidacionesEscritura,
   esRolLiquidacionesLectura,
   esRolLogisticaCampamentoEscritura,
   esRolPanelControl,
+  // esRolFinanzasLectura, // OC/tesorería desacoplado
 } from '../../lib/rbac'
 import { ConnectionStatus } from '../layout/ConnectionStatus'
 
@@ -64,11 +64,13 @@ const navItemsComensales: NavItem[] = [
   { to: '/control/facturacion', label: 'Facturación', Icon: FileSpreadsheet, end: false },
 ]
 
+/* Circuito OC / proveedores / tesorería — desacoplado por ahora
 const navItemsComprasPagos: NavItem[] = [
   { to: '/control/compras', label: 'Compras (OC)', Icon: ClipboardList, end: false },
   { to: '/control/proveedores', label: 'Proveedores', Icon: Building2, end: false },
   { to: '/control/tesoreria', label: 'Tesorería', Icon: Wallet, end: false },
 ]
+*/
 
 const navItemsLiquidaciones: NavItem[] = [
   { to: '/control/liquidaciones', label: 'Liquidaciones', Icon: Receipt, end: false },
@@ -120,7 +122,7 @@ export function ControlSidebar() {
   const navigate = useNavigate()
   const { modo, cambiarModo } = useCampamentoModo()
   const muestraOperaciones = esRolPanelControl(rol)
-  const muestraComprasPagos = esRolFinanzasLectura(rol)
+  // const muestraComprasPagos = esRolFinanzasLectura(rol) // OC/tesorería desacoplado
   const muestraLiquidaciones = esRolLiquidacionesLectura(rol)
   const esCampamentoDual = esRolLogisticaCampamentoEscritura(rol) && muestraOperaciones
 
@@ -130,7 +132,7 @@ export function ControlSidebar() {
   }
 
   const esSoloLiquidaciones =
-    esRolLiquidacionesEscritura(rol) && !muestraComprasPagos && !muestraOperaciones && !esCampamentoDual
+    esRolLiquidacionesEscritura(rol) && !muestraOperaciones && !esCampamentoDual
 
   const tituloModo = esSoloLiquidaciones
     ? 'Liquidaciones contratistas'
@@ -183,9 +185,9 @@ export function ControlSidebar() {
         {!esCampamentoDual && esRolLogisticaCampamentoEscritura(rol) ? (
           <NavSection title="Logística campamento" items={navItemsLogistica} />
         ) : null}
-        {muestraComprasPagos ? (
+        {/* {muestraComprasPagos ? (
           <NavSection title="Compras y pagos" items={navItemsComprasPagos} />
-        ) : null}
+        ) : null} */}
         {muestraLiquidaciones ? (
           <NavSection title="Liquidaciones" items={navItemsLiquidaciones} />
         ) : null}

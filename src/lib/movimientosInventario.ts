@@ -1911,6 +1911,9 @@ export interface ProduccionCocinaRegistro {
   fechaVencimiento: string
   codigoTrazabilidad: string
   menuItemId: string | null
+  /** Guarnición asociada a la vianda (solo modalidad V-). */
+  nombreGuarnicion?: string
+  guarnicionMenuItemId?: string | null
   itemsDetalle: ProduccionInsumoDetalle[]
   costoTeorico: number
   costoReal: number
@@ -1954,6 +1957,13 @@ function mapProduccionCocinaDoc(
   const menuItemIdRaw = data.menuItemId
   const menuItemId =
     typeof menuItemIdRaw === 'string' && menuItemIdRaw.trim() ? menuItemIdRaw.trim() : null
+  const nombreGuarnicion =
+    typeof data.nombreGuarnicion === 'string' ? data.nombreGuarnicion.trim() : ''
+  const guarnicionMenuItemIdRaw = data.guarnicionMenuItemId
+  const guarnicionMenuItemId =
+    typeof guarnicionMenuItemIdRaw === 'string' && guarnicionMenuItemIdRaw.trim()
+      ? guarnicionMenuItemIdRaw.trim()
+      : null
 
   const itemsDetalle: ProduccionInsumoDetalle[] = []
   if (Array.isArray(data.itemsDetalle)) {
@@ -1993,6 +2003,8 @@ function mapProduccionCocinaDoc(
     fechaVencimiento,
     codigoTrazabilidad,
     menuItemId,
+    ...(nombreGuarnicion ? { nombreGuarnicion } : {}),
+    ...(guarnicionMenuItemId ? { guarnicionMenuItemId } : {}),
     itemsDetalle,
     costoTeorico: Number.isFinite(costoTeorico) ? costoTeorico : 0,
     costoReal: Number.isFinite(costoReal) ? costoReal : 0,
@@ -2055,6 +2067,10 @@ export async function registrarProduccionCocina(input: {
   fechaVencimientoProducto: string
   codigoTrazabilidad: string
   menuItemId?: string | null
+  /** Menú de la guarnición cuando la vianda es principal + guarnición. */
+  guarnicionMenuItemId?: string | null
+  /** Nombre de guarnición para etiqueta de vianda. */
+  nombreGuarnicion?: string | null
   itemsDetalle?: ProduccionInsumoDetalle[]
   /** Ítems de egreso con lote y cantidades reales (unidad base del insumo). */
   itemsEgreso: ItemMovimientoInventario[]
@@ -2085,9 +2101,25 @@ export async function registrarProduccionCocina(input: {
 
   const codigoTrazabilidad = input.codigoTrazabilidad.trim()
   if (!codigoTrazabilidad) throw new Error('Código de trazabilidad inválido.')
+  const codigoUpper = codigoTrazabilidad.toUpperCase()
+  if (!codigoUpper.startsWith('V-') && !codigoUpper.startsWith('G-')) {
+    throw new Error(
+      'El código de trazabilidad debe usar el formato V-… (vianda) o G-… (granel).',
+    )
+  }
 
   const menuItemId = input.menuItemId?.trim() || null
+  const guarnicionMenuItemId = input.guarnicionMenuItemId?.trim() || null
+  const nombreGuarnicion = input.nombreGuarnicion?.trim() || ''
   const itemsDetalle = input.itemsDetalle ?? []
+
+  if (
+    menuItemId &&
+    guarnicionMenuItemId &&
+    menuItemId === guarnicionMenuItemId
+  ) {
+    throw new Error('El plato principal y la guarnición deben ser ítems distintos.')
+  }
 
   const payloadProduccionDoc = {
     loteProducto: loteProd,
@@ -2095,6 +2127,8 @@ export async function registrarProduccionCocina(input: {
     codigoTrazabilidad,
     menuItemId,
     itemsDetalle,
+    ...(nombreGuarnicion ? { nombreGuarnicion } : {}),
+    ...(guarnicionMenuItemId ? { guarnicionMenuItemId } : {}),
   }
 
   const baseEgreso = normalizarItems(input.itemsEgreso, 'EGRESO')
@@ -2260,6 +2294,7 @@ export async function registrarProduccionCocina(input: {
             cantidad: nPorciones,
             produccionId: prodRef.id,
             codigoTrazabilidad,
+            ...(nombreGuarnicion ? { nombreGuarnicion } : {}),
           },
         )
         batchProd.update(menuRef, {
@@ -2268,6 +2303,9 @@ export async function registrarProduccionCocina(input: {
         })
       }
     }
+
+    // Combo vianda: el stock queda en el principal; la guarnición va en el nombre del lote.
+    // (No se duplica stock en la guarnición: la vianda es un solo plato.)
 
     await batchProd.commit()
     return {
@@ -2344,6 +2382,7 @@ export async function registrarProduccionCocina(input: {
           cantidad: nPorciones,
           produccionId: prodRef.id,
           codigoTrazabilidad,
+          ...(nombreGuarnicion ? { nombreGuarnicion } : {}),
         },
       )
     }

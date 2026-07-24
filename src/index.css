@@ -36,7 +36,8 @@ body {
     display: none !important;
   }
 
-  body.is-printing #qr-etiquetas-portal-root {
+  body.is-printing #qr-etiquetas-portal-root,
+  body.is-printing #qr-etiquetas-produccion-portal {
     position: static !important;
     inset: auto !important;
     display: block !important;
@@ -49,7 +50,8 @@ body {
     background: transparent !important;
   }
 
-  body.is-printing #qr-etiquetas-portal-root .qr-etiquetas-dialog {
+  body.is-printing #qr-etiquetas-portal-root .qr-etiquetas-dialog,
+  body.is-printing #qr-etiquetas-produccion-portal .qr-etiquetas-dialog {
     position: static !important;
     max-height: none !important;
     height: auto !important;

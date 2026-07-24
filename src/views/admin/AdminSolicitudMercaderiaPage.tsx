@@ -16,8 +16,15 @@ import {
   type PrioridadSolicitud,
   type SolicitudMercaderia,
 } from '../../lib/solicitudesMercaderia'
+import {
+  escalarIngredientesReceta,
+  itemsSolicitudDesdeRecetaEscalada,
+} from '../../lib/requisicionDesdeReceta'
+import { subscribeRecetario, type RecetaTecnica } from '../../lib/recetario'
 import { useAuth } from '../../context/AuthContext'
 import { useToast } from '../../context/ToastContext'
+
+type ModoRequisicion = 'libre' | 'planificada'
 
 type FilaDraft = {
   key: string
@@ -255,6 +262,10 @@ export function AdminSolicitudMercaderiaPage({
   const [lista, setLista] = useState<SolicitudMercaderia[]>([])
   const [enviando, setEnviando] = useState(false)
   const [isCreating, setIsCreating] = useState(false)
+  const [modoRequisicion, setModoRequisicion] = useState<ModoRequisicion>('libre')
+  const [recetas, setRecetas] = useState<RecetaTecnica[]>([])
+  const [recetaPlanId, setRecetaPlanId] = useState('')
+  const [porcionesPlanStr, setPorcionesPlanStr] = useState('100')
 
   const [fechaEntrega, setFechaEntrega] = useState('')
   const [prioridad, setPrioridad] = useState<PrioridadSolicitud>('Normal')
@@ -268,6 +279,10 @@ export function AdminSolicitudMercaderiaPage({
 
   useEffect(() => {
     return subscribeInsumos(setInsumos)
+  }, [])
+
+  useEffect(() => {
+    return subscribeRecetario(setRecetas)
   }, [])
 
   const insumosGenericos = useMemo(() => {
@@ -291,9 +306,43 @@ export function AdminSolicitudMercaderiaPage({
     )
   }, [insumos])
 
+  const insumoPorId = useMemo(() => {
+    const m = new Map<string, Insumo>()
+    for (const i of insumos) m.set(i.id, i)
+    return m
+  }, [insumos])
+
+  const recetaPlanSeleccionada = useMemo(
+    () => recetas.find((r) => r.id === recetaPlanId) ?? null,
+    [recetas, recetaPlanId],
+  )
+
+  const previewPlanificada = useMemo(() => {
+    if (!recetaPlanSeleccionada) return []
+    const n = Number(porcionesPlanStr)
+    if (!Number.isFinite(n) || n <= 0) return []
+    return escalarIngredientesReceta(recetaPlanSeleccionada, n, insumoPorId)
+  }, [recetaPlanSeleccionada, porcionesPlanStr, insumoPorId])
+
+  const recetasOrdenadas = useMemo(
+    () =>
+      [...recetas].sort((a, b) =>
+        a.nombre.localeCompare(b.nombre, 'es', { sensitivity: 'base' }),
+      ),
+    [recetas],
+  )
+
+  function abrirNuevaSolicitud() {
+    setModoRequisicion('libre')
+    setRecetaPlanId('')
+    setPorcionesPlanStr('100')
+    setFilas([nuevaFila()])
+    setIsCreating(true)
+  }
+
   useEffect(() => {
     if (variant !== 'embedded' || !nuevaSolicitudRef) return
-    nuevaSolicitudRef.current = () => setIsCreating(true)
+    nuevaSolicitudRef.current = () => abrirNuevaSolicitud()
     return () => {
       nuevaSolicitudRef.current = null
     }
@@ -347,40 +396,63 @@ export function AdminSolicitudMercaderiaPage({
 
   async function handleEnviar(e: React.FormEvent) {
     e.preventDefault()
-    const items: ItemSolicitudMercaderia[] = []
-    for (const f of filas) {
-      const cant = Number(f.cantidad)
 
-      const prod = f.producto.trim()
-      if (!prod || !Number.isFinite(cant) || cant <= 0) continue
+    if (!fechaEntrega.trim()) {
+      showToast('Indicá la fecha de entrega esperada.', 'error')
+      return
+    }
 
-      const um = f.unidadMedida.trim()
-      if (!um) {
+    let items: ItemSolicitudMercaderia[] = []
+
+    if (modoRequisicion === 'planificada') {
+      if (!recetaPlanSeleccionada) {
+        showToast('Seleccioná un plato del recetario.', 'error')
+        return
+      }
+      const porciones = Number(porcionesPlanStr)
+      if (!Number.isFinite(porciones) || porciones <= 0) {
+        showToast('Indicá la cantidad de porciones a elaborar.', 'error')
+        return
+      }
+      if (previewPlanificada.length === 0) {
         showToast(
-          'En cada insumo con producto y cantidad, seleccioná o confirmá la unidad de medida.',
+          'La receta no tiene ingredientes escalables. Revisá la ficha técnica.',
           'error',
         )
         return
       }
+      items = itemsSolicitudDesdeRecetaEscalada(previewPlanificada)
+    } else {
+      for (const f of filas) {
+        const cant = Number(f.cantidad)
 
-      const repId = f.insumoRepresentativoId.trim()
-      items.push({
-        producto: prod,
-        cantidad: cant,
-        unidadMedida: um,
-        presentacion: f.presentacion.trim(),
-        observacion: f.observacion.trim(),
-        ...(repId ? { insumoId: repId } : {}),
-      })
-    }
+        const prod = f.producto.trim()
+        if (!prod || !Number.isFinite(cant) || cant <= 0) continue
 
-    if (items.length === 0) {
-      showToast('Agregá al menos un insumo con producto y cantidad válidos.', 'error')
-      return
-    }
-    if (!fechaEntrega.trim()) {
-      showToast('Indicá la fecha de entrega esperada.', 'error')
-      return
+        const um = f.unidadMedida.trim()
+        if (!um) {
+          showToast(
+            'En cada insumo con producto y cantidad, seleccioná o confirmá la unidad de medida.',
+            'error',
+          )
+          return
+        }
+
+        const repId = f.insumoRepresentativoId.trim()
+        items.push({
+          producto: prod,
+          cantidad: cant,
+          unidadMedida: um,
+          presentacion: f.presentacion.trim(),
+          observacion: f.observacion.trim(),
+          ...(repId ? { insumoId: repId } : {}),
+        })
+      }
+
+      if (items.length === 0) {
+        showToast('Agregá al menos un insumo con producto y cantidad válidos.', 'error')
+        return
+      }
     }
 
     setEnviando(true)
@@ -391,10 +463,17 @@ export function AdminSolicitudMercaderiaPage({
         items,
         ubicacionSolicitanteId: ubicacionId,
       })
-      showToast('Solicitud enviada al depósito.')
+      showToast(
+        modoRequisicion === 'planificada'
+          ? 'Requisición planificada enviada al depósito.'
+          : 'Solicitud enviada al depósito.',
+      )
       setFilas([nuevaFila()])
       setFechaEntrega('')
       setPrioridad('Normal')
+      setRecetaPlanId('')
+      setPorcionesPlanStr('100')
+      setModoRequisicion('libre')
       setIsCreating(false)
     } catch (err) {
       showToast(
@@ -422,7 +501,7 @@ export function AdminSolicitudMercaderiaPage({
           <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
             <button
               type="button"
-              onClick={() => setIsCreating(true)}
+              onClick={() => abrirNuevaSolicitud()}
               className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-lg bg-[#CD1818] px-4 text-sm font-semibold text-white shadow-sm transition hover:brightness-105 active:brightness-95"
             >
               <span className="text-lg leading-none">+</span>
@@ -439,7 +518,7 @@ export function AdminSolicitudMercaderiaPage({
               </div>
               <button
                 type="button"
-                onClick={() => setIsCreating(true)}
+                onClick={() => abrirNuevaSolicitud()}
                 className="inline-flex min-h-12 shrink-0 items-center justify-center gap-2 rounded-xl bg-[#CD1818] px-6 text-base font-semibold text-white shadow-sm transition hover:brightness-105 active:brightness-95"
               >
                 <span className="text-xl leading-none">+</span>
@@ -696,6 +775,43 @@ export function AdminSolicitudMercaderiaPage({
             <div
               className={
                 embedded
+                  ? 'flex flex-wrap gap-2 rounded-lg border border-neutral-200 bg-white p-2'
+                  : 'flex flex-wrap gap-2 rounded-xl border border-gray-200 bg-white p-2 shadow-sm'
+              }
+              role="tablist"
+              aria-label="Modalidad de requisición"
+            >
+              <button
+                type="button"
+                role="tab"
+                aria-selected={modoRequisicion === 'libre'}
+                onClick={() => setModoRequisicion('libre')}
+                className={`min-h-10 flex-1 rounded-lg px-4 text-sm font-semibold transition sm:flex-none ${
+                  modoRequisicion === 'libre'
+                    ? 'bg-[#CD1818] text-white shadow-sm'
+                    : 'text-[#171717] hover:bg-neutral-50'
+                }`}
+              >
+                Requisición libre
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={modoRequisicion === 'planificada'}
+                onClick={() => setModoRequisicion('planificada')}
+                className={`min-h-10 flex-1 rounded-lg px-4 text-sm font-semibold transition sm:flex-none ${
+                  modoRequisicion === 'planificada'
+                    ? 'bg-[#CD1818] text-white shadow-sm'
+                    : 'text-[#171717] hover:bg-neutral-50'
+                }`}
+              >
+                Planificada por producción
+              </button>
+            </div>
+
+            <div
+              className={
+                embedded
                   ? 'grid gap-4 rounded-lg border border-neutral-200 bg-white p-4 sm:grid-cols-2'
                   : 'grid gap-5 rounded-xl border border-gray-200 bg-white p-6 shadow-sm sm:grid-cols-2 sm:p-7'
               }
@@ -732,6 +848,113 @@ export function AdminSolicitudMercaderiaPage({
               </label>
             </div>
 
+            {modoRequisicion === 'planificada' ? (
+              <div
+                className={
+                  embedded
+                    ? 'rounded-lg border border-neutral-200 bg-white p-4'
+                    : 'rounded-xl border border-gray-200 bg-white p-6 shadow-sm sm:p-7'
+                }
+              >
+                <p
+                  className={
+                    embedded
+                      ? 'mb-3 text-xs font-semibold uppercase tracking-wide text-[#CD1818]'
+                      : 'mb-5 text-sm font-semibold text-[#CD1818]'
+                  }
+                >
+                  Producción planificada
+                </p>
+                <p className="mb-4 text-sm text-[#8997A6]">
+                  Elegí un plato del recetario y las porciones objetivo. El sistema
+                  calcula los insumos teóricos y arma la requisición al depósito.
+                </p>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <label className="block text-left sm:col-span-2">
+                    <span className="text-xs font-medium text-[#8997A6]">
+                      Plato / receta
+                    </span>
+                    <select
+                      value={recetaPlanId}
+                      onChange={(e) => setRecetaPlanId(e.target.value)}
+                      className="mt-2.5 w-full min-h-12 rounded-xl border border-gray-200 bg-white px-4 text-base text-[#171717] shadow-sm outline-none transition focus:border-[#CD1818]/30 focus:ring-2 focus:ring-[#CD1818]/10"
+                      required
+                    >
+                      <option value="">Seleccionar…</option>
+                      {recetasOrdenadas.map((r) => (
+                        <option key={r.id} value={r.id}>
+                          {r.nombre}
+                          {r.rendimientoPorciones > 0
+                            ? ` (rend. ${r.rendimientoPorciones} porc.)`
+                            : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="block text-left">
+                    <span className="text-xs font-medium text-[#8997A6]">
+                      Porciones a elaborar
+                    </span>
+                    <input
+                      type="number"
+                      min={1}
+                      step={1}
+                      value={porcionesPlanStr}
+                      onChange={(e) => setPorcionesPlanStr(e.target.value)}
+                      className="mt-2.5 w-full min-h-12 rounded-xl border border-gray-200 bg-white px-4 text-base text-[#171717] shadow-sm outline-none transition focus:border-[#CD1818]/30 focus:ring-2 focus:ring-[#CD1818]/10"
+                      required
+                    />
+                  </label>
+                </div>
+
+                <div className="mt-6 overflow-x-auto rounded-xl border border-neutral-200">
+                  <table className="w-full min-w-[480px] border-collapse text-left text-sm">
+                    <thead>
+                      <tr className="border-b border-neutral-200 bg-neutral-50 text-xs uppercase tracking-wide text-[#8997A6]">
+                        <th className="px-3 py-2.5">Insumo teórico</th>
+                        <th className="px-3 py-2.5 text-right">Cantidad</th>
+                        <th className="px-3 py-2.5">Unidad</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-neutral-100">
+                      {previewPlanificada.length === 0 ? (
+                        <tr>
+                          <td
+                            colSpan={3}
+                            className="px-3 py-6 text-center text-[#8997A6]"
+                          >
+                            {recetaPlanSeleccionada
+                              ? 'Sin ingredientes escalables para esas porciones.'
+                              : 'Seleccioná una receta para ver el listado.'}
+                          </td>
+                        </tr>
+                      ) : (
+                        previewPlanificada.map((row, idx) => (
+                          <tr key={`${row.insumoId ?? row.producto}-${idx}`}>
+                            <td className="px-3 py-2.5 text-[#171717]">
+                              {row.producto}
+                              {!row.insumoId ? (
+                                <span className="ml-2 text-[10px] font-semibold uppercase text-amber-700">
+                                  Sin catálogo
+                                </span>
+                              ) : null}
+                            </td>
+                            <td className="px-3 py-2.5 text-right font-semibold tabular-nums">
+                              {row.cantidad.toLocaleString('es-AR', {
+                                maximumFractionDigits: 4,
+                              })}
+                            </td>
+                            <td className="px-3 py-2.5 text-[#8997A6]">
+                              {row.unidadMedida}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ) : (
             <div
               className={
                 embedded
@@ -937,6 +1160,7 @@ export function AdminSolicitudMercaderiaPage({
                 </button>
               </div>
             </div>
+            )}
           </div>
         </div>
 
@@ -947,7 +1171,11 @@ export function AdminSolicitudMercaderiaPage({
               disabled={enviando}
               className="inline-flex min-h-12 shrink-0 items-center rounded-xl bg-[#CD1818] px-7 py-3 text-sm font-semibold text-white shadow-sm transition hover:brightness-105 disabled:opacity-45"
             >
-              {enviando ? 'Enviando…' : 'Enviar solicitud al depósito'}
+              {enviando
+                ? 'Enviando…'
+                : modoRequisicion === 'planificada'
+                  ? 'Generar requisición al depósito'
+                  : 'Enviar solicitud al depósito'}
             </button>
           </div>
         </div>

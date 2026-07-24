@@ -18,6 +18,7 @@ import {
   type PresentacionInsumo,
   type UnidadBaseInsumo,
 } from '../../lib/insumos'
+import { conflictoCodigoBarrasInsumo } from '../../lib/codigoBarrasInsumo'
 import { nuevaPresentacionInsumo } from '../../lib/presentacionesInsumo'
 
 const inputClass =
@@ -78,6 +79,7 @@ export function DepositoInsumosPage() {
   const [unidadBase, setUnidadBase] = useState<UnidadBaseInsumo>('Kg')
   const [contenidoNeto, setContenidoNeto] = useState('')
   const [costoEnvase, setCostoEnvase] = useState('')
+  const [codigoBarras, setCodigoBarras] = useState('')
   const [presentacionesEmpaque, setPresentacionesEmpaque] = useState<PresentacionInsumo[]>(
     [],
   )
@@ -123,6 +125,7 @@ export function DepositoInsumosPage() {
     setUnidadBase('Kg')
     setContenidoNeto('')
     setCostoEnvase('')
+    setCodigoBarras('')
     setPresentacionesEmpaque([])
   }
 
@@ -136,6 +139,7 @@ export function DepositoInsumosPage() {
     setUnidadBase(row.unidadBase)
     setContenidoNeto(String(row.contenidoNeto))
     setCostoEnvase(String(row.costoEnvase))
+    setCodigoBarras(row.codigoBarras ?? '')
     setPresentacionesEmpaque(row.presentaciones ? [...row.presentaciones] : [])
   }
 
@@ -152,6 +156,11 @@ export function DepositoInsumosPage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
+    const conflicto = conflictoCodigoBarrasInsumo(items, codigoBarras, editandoId)
+    if (conflicto) {
+      showToast(`Ese código de barras ya está asignado a «${conflicto}».`, 'error')
+      return
+    }
     const payload: CrearInsumoInput = {
       nombreGenerico,
       marca,
@@ -162,6 +171,7 @@ export function DepositoInsumosPage() {
       contenidoNeto: Number(contenidoNeto),
       costoEnvase: Number(costoEnvase),
       presentaciones: presentacionesEmpaque,
+      codigoBarras: codigoBarras.trim() || undefined,
     }
     setGuardando(true)
     try {
@@ -427,6 +437,10 @@ export function DepositoInsumosPage() {
                     label="Presentación"
                     value={insumoEnDetalle.presentacion || '—'}
                   />
+                  <DetalleCampo
+                    label="Código de barras (EAN)"
+                    value={insumoEnDetalle.codigoBarras || '—'}
+                  />
                 </div>
 
                 <div className="grid grid-cols-2 gap-3 rounded-xl bg-neutral-50 p-4 sm:grid-cols-4">
@@ -614,6 +628,23 @@ export function DepositoInsumosPage() {
                     className={inputClass}
                     placeholder="Ej. Lata 500g"
                   />
+                </label>
+                <label className="block md:col-span-2 lg:col-span-3">
+                  <span className="text-xs font-medium text-[#8997A6]">
+                    Código de barras (EAN del envase)
+                  </span>
+                  <input
+                    value={codigoBarras}
+                    onChange={(e) => setCodigoBarras(e.target.value)}
+                    className={`${inputClass} font-mono`}
+                    placeholder="Escaneá con la pistola o tipeá el EAN"
+                    inputMode="numeric"
+                    autoComplete="off"
+                  />
+                  <p className="mt-1.5 text-xs text-[#8997A6]">
+                    Usado en ingresos y egresos con modo pistola. Podés escanear directo en este
+                    campo al crear o editar el producto.
+                  </p>
                 </label>
               </div>
 

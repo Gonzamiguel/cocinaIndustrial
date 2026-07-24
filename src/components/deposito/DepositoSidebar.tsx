@@ -55,6 +55,7 @@ function IconTrace(props: IconProps) {
   )
 }
 
+/* IconOrdenCompra — menú "Solicitud a compras" desacoplado
 function IconOrdenCompra(props: IconProps) {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" {...props}>
@@ -63,6 +64,7 @@ function IconOrdenCompra(props: IconProps) {
     </svg>
   )
 }
+*/
 
 function IconSettings(props: IconProps) {
   return (
@@ -157,6 +159,7 @@ export function DepositoSidebar() {
           </span>
         </NavLink>
 
+        {/* Circuito OC / solicitud a compras — desacoplado por ahora
         <NavLink to="/deposito/ordenes-compra" className={linkClass}>
           <span className="flex min-w-0 items-center gap-3">
             <span
@@ -170,6 +173,7 @@ export function DepositoSidebar() {
             </span>
           </span>
         </NavLink>
+        */}
 
         <NavLink to="/deposito/inventario" className={linkClass}>
           <span className="flex min-w-0 items-center gap-3">

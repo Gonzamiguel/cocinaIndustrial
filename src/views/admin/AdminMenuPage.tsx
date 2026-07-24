@@ -1,6 +1,11 @@
 import { Fragment, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Factory, UtensilsCrossed } from 'lucide-react'
+import { Eye, Factory, UtensilsCrossed } from 'lucide-react'
+import {
+  ModalEtiquetaProduccionCocina,
+  etiquetaDataDesdeMenuLote,
+  type EtiquetaProduccionData,
+} from '../../components/cocina/ModalEtiquetaProduccionCocina'
 import {
   deleteMenuItem,
   stockDisponibleParaPedidos,
@@ -88,38 +93,63 @@ function StockInventarioCelda({ item }: { item: MenuItem }) {
   const fisico = item.stock
   const comprometido = item.stockComprometido ?? 0
   const disponible = stockDisponibleParaPedidos(item)
+  const lotesCombo = (item.stockLotes ?? []).filter(
+    (l) => l.nombreGuarnicion?.trim() || l.nombrePrincipalAsociado?.trim(),
+  )
 
   return (
-    <div className="flex flex-wrap items-center gap-1.5">
-      <span
-        className="inline-flex items-baseline gap-1 rounded-md bg-gray-50 px-2 py-1 text-xs tabular-nums ring-1 ring-gray-200"
-        title="Unidades en cocina (lotes o stock manual)"
-      >
-        <span className="text-[10px] font-semibold uppercase tracking-wide text-[#8997A6]">
-          Fís.
-        </span>
-        <span className="font-semibold text-[#171717]">{fisico}</span>
-      </span>
-      {comprometido > 0 ? (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex flex-wrap items-center gap-1.5">
         <span
-          className="inline-flex items-baseline gap-1 rounded-md bg-amber-50 px-2 py-1 text-xs tabular-nums ring-1 ring-amber-200/80"
-          title="Reservado por pedidos activos sin despachar"
+          className="inline-flex items-baseline gap-1 rounded-md bg-gray-50 px-2 py-1 text-xs tabular-nums ring-1 ring-gray-200"
+          title="Unidades en cocina (lotes o stock manual)"
         >
-          <span className="text-[10px] font-semibold uppercase tracking-wide text-amber-800/80">
-            Comp.
+          <span className="text-[10px] font-semibold uppercase tracking-wide text-[#8997A6]">
+            Fís.
           </span>
-          <span className="font-semibold text-amber-950">{comprometido}</span>
+          <span className="font-semibold text-[#171717]">{fisico}</span>
         </span>
+        {comprometido > 0 ? (
+          <span
+            className="inline-flex items-baseline gap-1 rounded-md bg-amber-50 px-2 py-1 text-xs tabular-nums ring-1 ring-amber-200/80"
+            title="Reservado por pedidos activos sin despachar"
+          >
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-amber-800/80">
+              Comp.
+            </span>
+            <span className="font-semibold text-amber-950">{comprometido}</span>
+          </span>
+        ) : null}
+        <span
+          className="inline-flex items-baseline gap-1 rounded-md bg-[#CD1818]/8 px-2 py-1 text-xs tabular-nums ring-1 ring-[#CD1818]/15"
+          title="Lo que pueden pedir todavía (formulario público)"
+        >
+          <span className="text-[10px] font-semibold uppercase tracking-wide text-[#CD1818]/80">
+            Disp.
+          </span>
+          <span className="font-bold text-[#CD1818]">{disponible}</span>
+        </span>
+      </div>
+      {lotesCombo.length > 0 ? (
+        <ul className="space-y-0.5 text-[10px] leading-snug text-[#8997A6]">
+          {lotesCombo.slice(0, 3).map((l) => {
+            const label =
+              item.categoria === 'principal' && l.nombreGuarnicion?.trim()
+                ? `${item.nombre} + ${l.nombreGuarnicion.trim()}`
+                : item.categoria === 'guarnicion' && l.nombrePrincipalAsociado?.trim()
+                  ? `${l.nombrePrincipalAsociado.trim()} + ${item.nombre}`
+                  : item.nombre
+            return (
+              <li key={`${l.lote}-${l.produccionId}`}>
+                {l.cantidad} u. · {label}
+              </li>
+            )
+          })}
+          {lotesCombo.length > 3 ? (
+            <li>+{lotesCombo.length - 3} lote(s) más…</li>
+          ) : null}
+        </ul>
       ) : null}
-      <span
-        className="inline-flex items-baseline gap-1 rounded-md bg-[#CD1818]/8 px-2 py-1 text-xs tabular-nums ring-1 ring-[#CD1818]/15"
-        title="Lo que pueden pedir todavía (formulario público)"
-      >
-        <span className="text-[10px] font-semibold uppercase tracking-wide text-[#CD1818]/80">
-          Disp.
-        </span>
-        <span className="font-bold text-[#CD1818]">{disponible}</span>
-      </span>
     </div>
   )
 }
@@ -145,6 +175,7 @@ export function AdminMenuPage() {
     guarnicion: 1,
   })
   const [expandidos, setExpandidos] = useState<Record<string, boolean>>({})
+  const [etiquetaModal, setEtiquetaModal] = useState<EtiquetaProduccionData | null>(null)
 
   useEffect(() => {
     return subscribeMenu(setItems)
@@ -608,9 +639,11 @@ export function AdminMenuPage() {
                                       <table className="w-full min-w-[560px] border-collapse text-left text-sm">
                                         <thead>
                                           <tr className="border-b border-gray-200 bg-gray-50 text-xs uppercase tracking-wide text-[#8997A6]">
-                                            <th className="px-4 py-3">Lote producción</th>
+                                            <th className="px-4 py-3">Producción</th>
+                                            <th className="px-4 py-3">Lote</th>
                                             <th className="px-4 py-3">Vencimiento</th>
                                             <th className="px-4 py-3 text-right">Cantidad</th>
+                                            <th className="px-4 py-3 text-center">Etiqueta</th>
                                             <th className="px-4 py-3 text-right">Trazabilidad</th>
                                           </tr>
                                         </thead>
@@ -619,10 +652,21 @@ export function AdminMenuPage() {
                                             const estado = obtenerEstadoVencimiento(
                                               loteRow.fechaVencimiento,
                                             )
+                                            const tituloLote =
+                                              it.categoria === 'principal' &&
+                                              loteRow.nombreGuarnicion?.trim()
+                                                ? `${it.nombre} + ${loteRow.nombreGuarnicion.trim()}`
+                                                : it.categoria === 'guarnicion' &&
+                                                    loteRow.nombrePrincipalAsociado?.trim()
+                                                  ? `${loteRow.nombrePrincipalAsociado.trim()} + ${it.nombre}`
+                                                  : it.nombre
                                             return (
                                               <tr
                                                 key={`${loteRow.lote}-${loteRow.fechaVencimiento}-${loteRow.produccionId}`}
                                               >
+                                                <td className="px-4 py-3 text-sm font-semibold text-[#171717]">
+                                                  {tituloLote}
+                                                </td>
                                                 <td className="px-4 py-3 font-mono text-xs font-medium text-[#171717]">
                                                   {loteRow.lote}
                                                 </td>
@@ -635,6 +679,26 @@ export function AdminMenuPage() {
                                                 </td>
                                                 <td className="px-4 py-3 text-right font-semibold tabular-nums">
                                                   {loteRow.cantidad}
+                                                </td>
+                                                <td className="px-4 py-3 text-center">
+                                                  {loteRow.produccionId ||
+                                                  loteRow.codigoTrazabilidad?.trim() ? (
+                                                    <button
+                                                      type="button"
+                                                      onClick={() =>
+                                                        setEtiquetaModal(
+                                                          etiquetaDataDesdeMenuLote(it, loteRow),
+                                                        )
+                                                      }
+                                                      className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-[#8997A6] transition hover:bg-gray-100 hover:text-[#CD1818]"
+                                                      title="Ver etiqueta de producción"
+                                                      aria-label={`Ver etiqueta del lote ${loteRow.lote}`}
+                                                    >
+                                                      <Eye className="h-4 w-4" />
+                                                    </button>
+                                                  ) : (
+                                                    '—'
+                                                  )}
                                                 </td>
                                                 <td className="px-4 py-3 text-right">
                                                   {loteRow.produccionId ? (
@@ -711,11 +775,17 @@ export function AdminMenuPage() {
           <div className="flex min-h-0 flex-1 flex-col pb-4">
             <AdminProduccionCocinaTab
               className="flex min-h-0 flex-1 flex-col"
+              menuItemsProp={items}
               onAfterSuccess={() => setMenuTab('stock')}
             />
           </div>
         )}
       </div>
+      <ModalEtiquetaProduccionCocina
+        open={etiquetaModal != null}
+        onClose={() => setEtiquetaModal(null)}
+        data={etiquetaModal}
+      />
     </div>
   )
 }

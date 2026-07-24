@@ -27,6 +27,10 @@ export type MenuStockLote = {
   produccionId: string
   codigoTrazabilidad: string
   registradoEn: string
+  /** Nombre de la guarnición asociada (lote del plato principal en combo). */
+  nombreGuarnicion?: string
+  /** Nombre del plato principal asociado (lote de la guarnición en combo). */
+  nombrePrincipalAsociado?: string
 }
 
 export interface MenuItem {
@@ -40,6 +44,8 @@ export interface MenuItem {
   aceptaGuarnicion: boolean
   /** Si viene del recetario, enlaza la ficha técnica con el ítem del menú cliente. */
   recetaId?: string
+  /** Código corto numérico (01–99) para lotes V-/G-. */
+  codigoCorto?: string
   /** Trazabilidad por lote de producción (platos terminados). */
   stockLotes?: MenuStockLote[]
 }
@@ -284,6 +290,12 @@ function mapStockLotes(raw: unknown): MenuStockLote[] {
       typeof o.codigoTrazabilidad === 'string' ? o.codigoTrazabilidad.trim() : ''
     const registradoEn =
       typeof o.registradoEn === 'string' ? o.registradoEn.trim() : ''
+    const nombreGuarnicion =
+      typeof o.nombreGuarnicion === 'string' ? o.nombreGuarnicion.trim() : ''
+    const nombrePrincipalAsociado =
+      typeof o.nombrePrincipalAsociado === 'string'
+        ? o.nombrePrincipalAsociado.trim()
+        : ''
     if (!lote || !Number.isFinite(cantidad) || cantidad <= 0) continue
     out.push({
       lote,
@@ -292,6 +304,8 @@ function mapStockLotes(raw: unknown): MenuStockLote[] {
       produccionId,
       codigoTrazabilidad,
       registradoEn,
+      ...(nombreGuarnicion ? { nombreGuarnicion } : {}),
+      ...(nombrePrincipalAsociado ? { nombrePrincipalAsociado } : {}),
     })
   }
   return out
@@ -325,8 +339,19 @@ export function stockDisponibleParaPedidos(item: MenuItem | undefined): number {
   return Math.max(0, item.stock - (item.stockComprometido ?? 0))
 }
 
+function normalizarCategoriaMenu(raw: unknown): CategoriaMenu {
+  if (typeof raw !== 'string') return 'principal'
+  const s = raw
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+  if (s === 'guarnicion' || s.startsWith('guarn')) return 'guarnicion'
+  return 'principal'
+}
+
 function mapDoc(id: string, data: Record<string, unknown>): MenuItem {
-  const categoria = data.categoria === 'guarnicion' ? 'guarnicion' : 'principal'
+  const categoria = normalizarCategoriaMenu(data.categoria)
   const stockLotes = mapStockLotes(data.stockLotes)
   const stock = stockFisicoDesdeData(data)
   const stockComprometido = stockComprometidoDesdeData(data)
@@ -343,6 +368,13 @@ function mapDoc(id: string, data: Record<string, unknown>): MenuItem {
     typeof recetaIdRaw === 'string' && recetaIdRaw.trim().length > 0
       ? recetaIdRaw.trim()
       : undefined
+  const codigoRaw =
+    typeof data.codigoCorto === 'string' ? data.codigoCorto.trim() : ''
+  const codigoDigits = codigoRaw.replace(/\D/g, '')
+  const codigoCorto =
+    codigoDigits.length > 0
+      ? String(Math.min(99, Number(codigoDigits) || 0)).padStart(2, '0')
+      : undefined
   return {
     id,
     nombre,
@@ -351,6 +383,7 @@ function mapDoc(id: string, data: Record<string, unknown>): MenuItem {
     stockComprometido,
     aceptaGuarnicion,
     recetaId,
+    ...(codigoCorto ? { codigoCorto } : {}),
     stockLotes,
   }
 }
@@ -361,6 +394,8 @@ export type InputStockMenuProduccion = {
   cantidad: number
   produccionId: string
   codigoTrazabilidad: string
+  nombreGuarnicion?: string
+  nombrePrincipalAsociado?: string
 }
 
 /** Fusiona un lote de producción en el documento menú (para transacciones). */
@@ -381,6 +416,8 @@ export function aplicarStockMenuProduccionEnData(
   const fechaVencimiento = input.fechaVencimiento.trim()
   const produccionId = input.produccionId.trim()
   const codigoTrazabilidad = input.codigoTrazabilidad.trim()
+  const nombreGuarnicion = input.nombreGuarnicion?.trim() ?? ''
+  const nombrePrincipalAsociado = input.nombrePrincipalAsociado?.trim() ?? ''
   const registradoEn = new Date().toISOString()
 
   const lotes = mapStockLotes(data.stockLotes)
@@ -396,6 +433,16 @@ export function aplicarStockMenuProduccionEnData(
       ...lotes[idx],
       cantidad: lotes[idx].cantidad + cantidad,
       codigoTrazabilidad: codigoTrazabilidad || lotes[idx].codigoTrazabilidad,
+      ...(nombreGuarnicion
+        ? { nombreGuarnicion }
+        : lotes[idx].nombreGuarnicion
+          ? { nombreGuarnicion: lotes[idx].nombreGuarnicion }
+          : {}),
+      ...(nombrePrincipalAsociado
+        ? { nombrePrincipalAsociado }
+        : lotes[idx].nombrePrincipalAsociado
+          ? { nombrePrincipalAsociado: lotes[idx].nombrePrincipalAsociado }
+          : {}),
     }
   } else {
     lotes.push({
@@ -405,6 +452,8 @@ export function aplicarStockMenuProduccionEnData(
       produccionId,
       codigoTrazabilidad,
       registradoEn,
+      ...(nombreGuarnicion ? { nombreGuarnicion } : {}),
+      ...(nombrePrincipalAsociado ? { nombrePrincipalAsociado } : {}),
     })
   }
 
@@ -461,6 +510,7 @@ export function descontarStockMenuLotesEnData(
 /**
  * Crea o actualiza un documento en `menu` vinculado a una receta del recetario.
  * Así las fichas «Principal» / «Guarnición» aparecen en gestión de menú con stock inicial 0.
+ * @returns id del documento de menú
  */
 export async function upsertMenuItemLinkedToReceta(
   recetaId: string,
@@ -468,14 +518,23 @@ export async function upsertMenuItemLinkedToReceta(
     nombre: string
     categoria: CategoriaMenu
     aceptaGuarnicion: boolean
+    codigoCorto?: string
   },
-): Promise<void> {
+): Promise<string> {
   const rid = recetaId.trim()
   if (!rid) throw new Error('Identificador de receta inválido')
 
   const db = getDb()
   const nombre = input.nombre.trim()
   if (!nombre) throw new Error('El nombre es obligatorio')
+
+  const codigoDigits = String(input.codigoCorto ?? '')
+    .trim()
+    .replace(/\D/g, '')
+  const codigoCorto =
+    codigoDigits.length > 0
+      ? String(Math.min(99, Number(codigoDigits) || 0)).padStart(2, '0')
+      : ''
 
   const q = query(
     collection(db, MENU_COLLECTION),
@@ -485,16 +544,17 @@ export async function upsertMenuItemLinkedToReceta(
   const snap = await getDocs(q)
 
   if (snap.empty) {
-    await addDoc(collection(db, MENU_COLLECTION), {
+    const created = await addDoc(collection(db, MENU_COLLECTION), {
       nombre,
       categoria: input.categoria,
       stock: 0,
       recetaId: rid,
+      ...(codigoCorto ? { codigoCorto } : {}),
       ...(input.categoria === 'principal'
         ? { aceptaGuarnicion: input.aceptaGuarnicion }
         : {}),
     })
-    return
+    return created.id
   }
 
   const existing = snap.docs[0]
@@ -502,12 +562,30 @@ export async function upsertMenuItemLinkedToReceta(
     nombre,
     categoria: input.categoria,
   }
+  if (codigoCorto) payload.codigoCorto = codigoCorto
   if (input.categoria === 'principal') {
     payload.aceptaGuarnicion = input.aceptaGuarnicion
   } else {
     payload.aceptaGuarnicion = false
   }
   await updateDoc(doc(db, MENU_COLLECTION, existing.id), payload)
+  return existing.id
+}
+
+/** Asegura ítem de menú para una receta y devuelve su id (para cargar stock de producción). */
+export async function ensureMenuItemIdForReceta(input: {
+  recetaId: string
+  nombre: string
+  categoria: CategoriaMenu
+  aceptaGuarnicion?: boolean
+  codigoCorto?: string
+}): Promise<string> {
+  return upsertMenuItemLinkedToReceta(input.recetaId, {
+    nombre: input.nombre,
+    categoria: input.categoria,
+    aceptaGuarnicion: input.aceptaGuarnicion ?? input.categoria === 'principal',
+    codigoCorto: input.codigoCorto,
+  })
 }
 
 /** Suscripción en tiempo real a todo el menú (ordenado por nombre). */

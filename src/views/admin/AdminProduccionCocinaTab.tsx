@@ -12,13 +12,19 @@ import {
   subscribeInsumos,
   type Insumo,
 } from '../../lib/insumos'
-import { subscribeMenu, type MenuItem } from '../../lib/menu'
+import { ensureMenuItemIdForReceta, subscribeMenu, type MenuItem } from '../../lib/menu'
 import {
   costoTeoricoProduccionPorciones,
   subscribeRecetario,
   type RecetaTecnica,
 } from '../../lib/recetario'
-import { generarCodigoTrazabilidad } from '../../lib/qrProduccion'
+import { generarCodigoTrazabilidadProduccion } from '../../lib/qrProduccion'
+import {
+  DIAS_VENCIMIENTO_PRODUCCION,
+  fechaVencimientoDesdeElaboracion,
+  resolverCodigoCorto,
+  type ModalidadProduccion,
+} from '../../lib/produccionLotes'
 import {
   lotesDisponiblesParaEgreso,
   opcionesHistorialAmplio,
@@ -66,23 +72,8 @@ function toInputDate(d: Date): string {
   return `${y}-${m}-${day}`
 }
 
-function defaultFechaVencimiento(): string {
-  const d = new Date()
-  d.setDate(d.getDate() + 2)
-  return toInputDate(d)
-}
-
-function sugerirLoteProduccion(receta: RecetaTecnica): string {
-  const slug = receta.nombre
-    .replace(/[^\w\s]/g, '')
-    .trim()
-    .split(/\s+/)
-    .slice(0, 2)
-    .join('')
-    .slice(0, 8)
-    .toUpperCase()
-  const hoy = toInputDate(new Date()).replace(/-/g, '')
-  return `P-${hoy}-${slug || 'LOTE'}`
+function hoyInputDate(): string {
+  return toInputDate(new Date())
 }
 
 function construirFilasDesdeReceta(
@@ -133,26 +124,70 @@ function construirFilasDesdeReceta(
   return filas.sort((a, b) => a.nombre.localeCompare(b.nombre, 'es', { sensitivity: 'base' }))
 }
 
+/** Une fichas técnicas (principal + guarnición) sumando insumos repetidos. */
+function construirFilasDesdeRecetas(
+  lista: RecetaTecnica[],
+  porciones: number,
+  movimientos: MovimientoInventario[],
+  ub: string,
+  insumoPorId: Map<string, Insumo>,
+): FilaProd[] {
+  const byInsumo = new Map<string, FilaProd>()
+  const sinId: FilaProd[] = []
+
+  for (const receta of lista) {
+    for (const f of construirFilasDesdeReceta(
+      receta,
+      porciones,
+      movimientos,
+      ub,
+      insumoPorId,
+    )) {
+      if (!f.insumoId) {
+        sinId.push(f)
+        continue
+      }
+      const prev = byInsumo.get(f.insumoId)
+      if (prev) {
+        prev.cantidadTeorica =
+          Math.round((prev.cantidadTeorica + f.cantidadTeorica) * 10000) / 10000
+      } else {
+        byInsumo.set(f.insumoId, f)
+      }
+    }
+  }
+
+  return [...byInsumo.values(), ...sinId].sort((a, b) =>
+    a.nombre.localeCompare(b.nombre, 'es', { sensitivity: 'base' }),
+  )
+}
+
 type AdminProduccionCocinaTabProps = {
   className?: string
   onAfterSuccess?: () => void
+  /** Si viene del padre (stock), evita un 2.º subscribe y usa los mismos datos. */
+  menuItemsProp?: MenuItem[]
 }
 
 export function AdminProduccionCocinaTab({
   className,
   onAfterSuccess,
+  menuItemsProp,
 }: AdminProduccionCocinaTabProps) {
   const { ubicacionId } = useAuth()
   const { showToast } = useToast()
   const [insumos, setInsumos] = useState<Insumo[]>([])
   const [recetas, setRecetas] = useState<RecetaTecnica[]>([])
-  const [menuItems, setMenuItems] = useState<MenuItem[]>([])
+  const [menuItemsLocal, setMenuItemsLocal] = useState<MenuItem[]>([])
   const [movimientos, setMovimientos] = useState<MovimientoInventario[]>([])
-  const [recetaId, setRecetaId] = useState('')
   const [porcionesStr, setPorcionesStr] = useState('1')
-  const [loteProduccion, setLoteProduccion] = useState('')
-  const [fechaVencimiento, setFechaVencimiento] = useState(defaultFechaVencimiento)
-  const [menuItemId, setMenuItemId] = useState<string | null>(null)
+  const [modalidad, setModalidad] = useState<ModalidadProduccion>('vianda')
+  const [fechaElaboracion, setFechaElaboracion] = useState(hoyInputDate)
+  const [pesoKgStr, setPesoKgStr] = useState('')
+  /** Receta principal (master recetario). Granel: alimento. */
+  const [principalRecetaId, setPrincipalRecetaId] = useState<string | null>(null)
+  /** Receta guarnición (master recetario). */
+  const [guarnicionRecetaId, setGuarnicionRecetaId] = useState<string | null>(null)
   const [filas, setFilas] = useState<FilaProd[]>([])
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [confirmProduccionOpen, setConfirmProduccionOpen] = useState(false)
@@ -162,9 +197,19 @@ export function AdminProduccionCocinaTab({
 
   const ub = ubicacionId?.trim().toUpperCase() ?? ''
 
+  const fechaVencimiento = useMemo(
+    () => fechaVencimientoDesdeElaboracion(fechaElaboracion) || '',
+    [fechaElaboracion],
+  )
+
+  const menuItems = menuItemsProp ?? menuItemsLocal
+
   useEffect(() => subscribeInsumos(setInsumos), [])
   useEffect(() => subscribeRecetario(setRecetas), [])
-  useEffect(() => subscribeMenu(setMenuItems), [])
+  useEffect(() => {
+    if (menuItemsProp) return
+    return subscribeMenu(setMenuItemsLocal)
+  }, [menuItemsProp])
 
   useEffect(() => {
     if (!ub) {
@@ -184,57 +229,178 @@ export function AdminProduccionCocinaTab({
     return m
   }, [insumos])
 
-  const menuItemSeleccionado = useMemo(
-    () => (menuItemId ? menuItems.find((m) => m.id === menuItemId) ?? null : null),
-    [menuItemId, menuItems],
+  const principalReceta = useMemo(
+    () =>
+      principalRecetaId
+        ? recetas.find((r) => r.id === principalRecetaId) ?? null
+        : null,
+    [principalRecetaId, recetas],
   )
 
-  const menuOpciones = useMemo(() => {
-    const sorted = [...menuItems].sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'))
-    if (!recetaId) return sorted
-    const vinculados = sorted.filter((m) => m.recetaId === recetaId)
-    return vinculados.length > 0 ? vinculados : sorted
-  }, [menuItems, recetaId])
-
-  const recetaSeleccionada = useMemo(
-    () => recetas.find((r) => r.id === recetaId) ?? null,
-    [recetas, recetaId],
+  const guarnicionReceta = useMemo(
+    () =>
+      guarnicionRecetaId
+        ? recetas.find((r) => r.id === guarnicionRecetaId) ?? null
+        : null,
+    [guarnicionRecetaId, recetas],
   )
+
+  const menuItemPorReceta = useCallback(
+    (recetaId: string | null | undefined) => {
+      const rid = recetaId?.trim()
+      if (!rid) return null
+      return menuItems.find((m) => m.recetaId === rid) ?? null
+    },
+    [menuItems],
+  )
+
+  /** Stock: menú vinculado a la receta principal, o a la guarnición si va sola. */
+  const menuDestinoStock =
+    menuItemPorReceta(principalReceta?.id) ??
+    menuItemPorReceta(guarnicionReceta?.id)
+
+  const menuGuarnicionStock = menuItemPorReceta(guarnicionReceta?.id)
+
+  const esComboVianda =
+    modalidad === 'vianda' && Boolean(principalReceta) && Boolean(guarnicionReceta)
+
+  const nombrePlatoProducido = useMemo(() => {
+    if (esComboVianda && principalReceta && guarnicionReceta) {
+      return `${principalReceta.nombre} + ${guarnicionReceta.nombre}`
+    }
+    return principalReceta?.nombre ?? guarnicionReceta?.nombre ?? ''
+  }, [esComboVianda, principalReceta, guarnicionReceta])
+
+  const principalOpciones = useMemo(
+    () =>
+      recetas
+        .filter((r) => r.categoria === 'Principal')
+        .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es')),
+    [recetas],
+  )
+
+  const guarnicionOpciones = useMemo(
+    () =>
+      recetas
+        .filter((r) => r.categoria === 'Guarnición')
+        .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es')),
+    [recetas],
+  )
+
+  const granelOpciones = useMemo(
+    () => [...recetas].sort((a, b) => a.nombre.localeCompare(b.nombre, 'es')),
+    [recetas],
+  )
+
+  /** Fichas técnicas elegidas (el master es el recetario). */
+  const recetasVinculadas = useMemo(() => {
+    const out: RecetaTecnica[] = []
+    if (modalidad === 'granel') {
+      if (principalReceta) out.push(principalReceta)
+    } else {
+      if (principalReceta) out.push(principalReceta)
+      if (guarnicionReceta) out.push(guarnicionReceta)
+    }
+    return out
+  }, [modalidad, principalReceta, guarnicionReceta])
+
+  const recetaPrincipalRef = principalReceta ?? guarnicionReceta
+
+  const codigosCortosUsados = useMemo(() => {
+    const list: string[] = []
+    for (const r of recetas) if (r.codigoCorto) list.push(r.codigoCorto)
+    for (const m of menuItems) if (m.codigoCorto) list.push(m.codigoCorto)
+    return list
+  }, [recetas, menuItems])
+
+  const codigoPlatoResuelto = useMemo(() => {
+    const recetaCodigo = principalReceta ?? guarnicionReceta
+    if (!recetaCodigo) return ''
+    return resolverCodigoCorto({
+      codigoMenu: menuItemPorReceta(recetaCodigo.id)?.codigoCorto,
+      codigoReceta: recetaCodigo.codigoCorto,
+      usados: codigosCortosUsados,
+    })
+  }, [principalReceta, guarnicionReceta, menuItemPorReceta, codigosCortosUsados])
+
+  const codigoGuarnicionResuelto = useMemo(() => {
+    if (!principalReceta || !guarnicionReceta) return null
+    return resolverCodigoCorto({
+      codigoMenu: menuItemPorReceta(guarnicionReceta.id)?.codigoCorto,
+      codigoReceta: guarnicionReceta.codigoCorto,
+      usados: codigosCortosUsados,
+    })
+  }, [principalReceta, guarnicionReceta, menuItemPorReceta, codigosCortosUsados])
+
+  const codigoTrazabilidadPreview = useMemo(() => {
+    if (!codigoPlatoResuelto || !/^\d{4}-\d{2}-\d{2}$/.test(fechaElaboracion)) {
+      return ''
+    }
+    const vto = fechaVencimientoDesdeElaboracion(fechaElaboracion)
+    if (!vto) return ''
+    if (modalidad === 'granel') {
+      const peso = Number(String(pesoKgStr).replace(',', '.'))
+      if (!Number.isFinite(peso) || peso <= 0) return ''
+      return generarCodigoTrazabilidadProduccion({
+        modalidad: 'granel',
+        codigoPlato: codigoPlatoResuelto,
+        pesoKg: peso,
+        fechaElaboracion,
+        fechaVencimiento: vto,
+      })
+    }
+    if (!principalReceta && !guarnicionReceta) return ''
+    return generarCodigoTrazabilidadProduccion({
+      modalidad: 'vianda',
+      codigoPlato: codigoPlatoResuelto,
+      codigoGuarnicion: codigoGuarnicionResuelto,
+      fechaElaboracion,
+      fechaVencimiento: vto,
+    })
+  }, [
+    codigoPlatoResuelto,
+    codigoGuarnicionResuelto,
+    fechaElaboracion,
+    modalidad,
+    pesoKgStr,
+    principalReceta,
+    guarnicionReceta,
+  ])
 
   const porciones = Number(porcionesStr.replace(',', '.'))
 
-  useEffect(() => {
-    if (!recetaSeleccionada) {
-      setMenuItemId(null)
-      return
-    }
-    const vinculados = menuItems.filter((m) => m.recetaId === recetaSeleccionada.id)
-    if (vinculados.length === 1) {
-      setMenuItemId(vinculados[0].id)
-    } else if (vinculados.length === 0) {
-      setMenuItemId(null)
-    }
-    setLoteProduccion((prev) => prev.trim() || sugerirLoteProduccion(recetaSeleccionada))
-  }, [recetaSeleccionada, menuItems])
-
   const recalcularFilas = useCallback(() => {
-    if (!recetaSeleccionada || !ub || !Number.isFinite(porciones) || porciones <= 0) {
+    if (
+      recetasVinculadas.length === 0 ||
+      !ub ||
+      !Number.isFinite(porciones) ||
+      porciones <= 0
+    ) {
       setFilas([])
       return
     }
     setFilas(
-      construirFilasDesdeReceta(recetaSeleccionada, porciones, movimientos, ub, insumoPorId),
+      construirFilasDesdeRecetas(
+        recetasVinculadas,
+        porciones,
+        movimientos,
+        ub,
+        insumoPorId,
+      ),
     )
-  }, [recetaSeleccionada, porciones, movimientos, ub, insumoPorId])
+  }, [recetasVinculadas, porciones, movimientos, ub, insumoPorId])
 
   useEffect(() => {
     recalcularFilas()
   }, [recalcularFilas])
 
   const costoTeorico = useMemo(() => {
-    if (!recetaSeleccionada || !Number.isFinite(porciones) || porciones <= 0) return 0
-    return costoTeoricoProduccionPorciones(insumos, recetaSeleccionada, porciones)
-  }, [insumos, recetaSeleccionada, porciones])
+    if (!Number.isFinite(porciones) || porciones <= 0) return 0
+    return recetasVinculadas.reduce(
+      (acc, r) => acc + costoTeoricoProduccionPorciones(insumos, r, porciones),
+      0,
+    )
+  }, [insumos, recetasVinculadas, porciones])
 
   const insumosOrdenados = useMemo(
     () =>
@@ -262,27 +428,71 @@ export function AdminProduccionCocinaTab({
       showToast('No hay ubicación de cocina asignada.', 'error')
       return
     }
-    if (!recetaSeleccionada) {
-      showToast('Seleccioná una receta.', 'error')
-      return
-    }
     if (!Number.isFinite(porciones) || porciones <= 0) {
       showToast('Indicá una cantidad de porciones válida.', 'error')
       return
     }
-    if (!menuItemSeleccionado) {
-      showToast('Seleccioná la vianda del menú que produjiste (ej. Carne a la pizza).', 'error')
+    if (!principalReceta && !guarnicionReceta) {
+      showToast(
+        modalidad === 'vianda'
+          ? 'Elegí plato principal, guarnición, o ambos desde el recetario.'
+          : 'Seleccioná el alimento del recetario.',
+        'error',
+      )
       return
     }
-    const lote = loteProduccion.trim()
-    if (!lote) {
-      showToast('Indicá el lote de producción.', 'error')
+    if (!codigoPlatoResuelto) {
+      showToast('No se pudo resolver el código corto del plato (01–99).', 'error')
+      return
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(fechaElaboracion.trim())) {
+      showToast('Indicá la fecha de elaboración (AAAA-MM-DD).', 'error')
       return
     }
     if (!/^\d{4}-\d{2}-\d{2}$/.test(fechaVencimiento.trim())) {
-      showToast('Indicá la fecha de vencimiento (AAAA-MM-DD).', 'error')
+      showToast('No se pudo calcular el vencimiento (+60 días).', 'error')
       return
     }
+    const pesoKg =
+      modalidad === 'granel' ? Number(String(pesoKgStr).replace(',', '.')) : undefined
+    if (modalidad === 'granel' && (!Number.isFinite(pesoKg) || (pesoKg ?? 0) <= 0)) {
+      showToast('Indicá el peso en kg de la tanda a granel.', 'error')
+      return
+    }
+
+    // Stock siempre sobre la receta “base” (principal si hay combo; guarnición si va sola).
+    // No existe ni se exige un ítem de menú “principal + guarnición”: el combo es flexible.
+    const recetaParaStock = principalReceta ?? guarnicionReceta
+    if (!recetaParaStock) return
+
+    let menuItemIdStock = menuDestinoStock?.id ?? ''
+    if (!menuItemIdStock) {
+      try {
+        menuItemIdStock = await ensureMenuItemIdForReceta({
+          recetaId: recetaParaStock.id,
+          nombre: recetaParaStock.nombre,
+          categoria:
+            recetaParaStock.categoria === 'Guarnición' ? 'guarnicion' : 'principal',
+          aceptaGuarnicion: recetaParaStock.aceptaGuarnicion,
+          codigoCorto: recetaParaStock.codigoCorto,
+        })
+      } catch (err) {
+        showToast(
+          err instanceof Error
+            ? err.message
+            : 'No se pudo preparar el ítem de stock para esa receta.',
+          'error',
+        )
+        return
+      }
+    }
+
+    let guarnicionMenuItemIdStock: string | null = null
+    if (esComboVianda && guarnicionReceta) {
+      guarnicionMenuItemIdStock = menuGuarnicionStock?.id ?? null
+      // Solo metadata; el stock del combo NO se duplica en la guarnición.
+    }
+
     const items: ItemMovimientoInventario[] = []
     const itemsDetalle: ProduccionInsumoDetalle[] = []
 
@@ -356,23 +566,41 @@ export function AdminProduccionCocinaTab({
       return
     }
 
-    const codigoTrazabilidad = generarCodigoTrazabilidad(
-      recetaSeleccionada.id,
-      lote,
-      fechaVencimiento.trim(),
-    )
+    const codigoTrazabilidad = generarCodigoTrazabilidadProduccion({
+      modalidad,
+      codigoPlato: codigoPlatoResuelto,
+      codigoGuarnicion:
+        modalidad === 'vianda' && esComboVianda ? codigoGuarnicionResuelto : null,
+      pesoKg,
+      fechaElaboracion: fechaElaboracion.trim(),
+      fechaVencimiento: fechaVencimiento.trim(),
+    })
+
+    if (
+      !codigoTrazabilidad.startsWith('V-') &&
+      !codigoTrazabilidad.startsWith('G-')
+    ) {
+      showToast('Error interno: el código de lote debe ser V- o G-.', 'error')
+      return
+    }
 
     setPayloadPendiente({
       ubicacionId: ub,
       fecha: new Date(),
-      recetaId: recetaSeleccionada.id,
-      recetaNombre: recetaSeleccionada.nombre,
+      recetaId: recetaParaStock.id,
+      recetaNombre:
+        recetasVinculadas.length > 0
+          ? recetasVinculadas.map((r) => r.nombre).join(' + ')
+          : nombrePlatoProducido,
       cantidadPorciones: porciones,
-      nombreProductoSnapshot: menuItemSeleccionado.nombre,
-      loteProductoTerminado: lote,
+      nombreProductoSnapshot: nombrePlatoProducido,
+      loteProductoTerminado: codigoTrazabilidad,
       fechaVencimientoProducto: fechaVencimiento.trim(),
       codigoTrazabilidad,
-      menuItemId: menuItemSeleccionado.id,
+      menuItemId: menuItemIdStock,
+      guarnicionMenuItemId: guarnicionMenuItemIdStock,
+      nombreGuarnicion:
+        esComboVianda && guarnicionReceta ? guarnicionReceta.nombre : '',
       itemsDetalle,
       itemsEgreso: items,
       costoTeoricoTotal: costoTeorico,
@@ -389,11 +617,16 @@ export function AdminProduccionCocinaTab({
         'Producción registrada: stock del menú actualizado con lote y vencimiento.',
         'success',
       )
-      setEtiquetaCopias(Math.max(1, Math.floor(payloadPendiente.cantidadPorciones) || 1))
+      // Una sola etiqueta: el mismo código/QR se pega en cada vianda del lote.
+      setEtiquetaCopias(1)
       setEtiquetaModal({
-        nombrePlato: payloadPendiente.nombreProductoSnapshot,
+        nombrePlato: esComboVianda
+          ? (principalReceta?.nombre ?? payloadPendiente.nombreProductoSnapshot)
+          : payloadPendiente.nombreProductoSnapshot,
+        nombreGuarnicion: payloadPendiente.nombreGuarnicion ?? '',
         recetaNombre: payloadPendiente.recetaNombre,
         lote: payloadPendiente.loteProductoTerminado,
+        fechaElaboracion: fechaElaboracion.trim(),
         fechaVencimiento: payloadPendiente.fechaVencimientoProducto,
         codigoTrazabilidad: payloadPendiente.codigoTrazabilidad,
         recetaId: payloadPendiente.recetaId,
@@ -402,9 +635,11 @@ export function AdminProduccionCocinaTab({
       })
       setPorcionesStr('1')
       setFilas([])
-      setRecetaId('')
-      setLoteProduccion('')
-      setFechaVencimiento(defaultFechaVencimiento())
+      setFechaElaboracion(hoyInputDate())
+      setPesoKgStr('')
+      setPrincipalRecetaId(null)
+      setGuarnicionRecetaId(null)
+      setModalidad('vianda')
       setPayloadPendiente(null)
       setConfirmProduccionOpen(false)
       onAfterSuccess?.()
@@ -440,7 +675,7 @@ export function AdminProduccionCocinaTab({
         title="Confirmar producción en cocina"
         description={
           payloadPendiente
-            ? `¿Registrar ${payloadPendiente.cantidadPorciones.toLocaleString('es-AR')} porciones de «${payloadPendiente.recetaNombre}»? Lote ${payloadPendiente.loteProductoTerminado} · Vto ${payloadPendiente.fechaVencimientoProducto}. Se actualizará el stock del menú con trazabilidad.`
+            ? `¿Registrar ${payloadPendiente.cantidadPorciones.toLocaleString('es-AR')} viandas/porciones de «${payloadPendiente.nombreProductoSnapshot}»? Lote ${payloadPendiente.loteProductoTerminado} · Vto ${payloadPendiente.fechaVencimientoProducto}. El stock se carga como ese plato.`
             : ''
         }
         confirmLabel="Sí, registrar producción"
@@ -467,44 +702,145 @@ export function AdminProduccionCocinaTab({
               Registro de lo que cocinó
             </p>
             <p className="mt-1 text-xs leading-relaxed text-[#8997A6]">
-              Elegí la receta de referencia (nutrición), cuántas viandas salieron, lote y vencimiento.
-              Abajo cargá <strong className="font-semibold text-[#171717]">lo que realmente usó cocina</strong>{' '}
-              (ej. 20 kg carne, 3 kg papa). Se compara automáticamente con la ficha técnica.
+              Elegí modalidad (vianda <code className="text-[10px]">V-</code> o granel{' '}
+              <code className="text-[10px]">G-</code>), el plato y/o la guarnición desde el{' '}
+              <strong className="font-semibold text-[#171717]">recetario</strong>, porciones y fecha.
+              Los insumos salen de la ficha técnica. El vencimiento se calcula solo (+
+              {DIAS_VENCIMIENTO_PRODUCCION} días). Abajo cargá{' '}
+              <strong className="font-semibold text-[#171717]">lo que realmente usó cocina</strong> y
+              el lote de materia prima (FEFO).
             </p>
             <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-              <label className="block text-sm font-medium text-[#171717] sm:col-span-2 xl:col-span-1">
-                Receta de referencia (nutrición)
-                <select
-                  value={recetaId}
-                  onChange={(e) => setRecetaId(e.target.value)}
-                  className={selectClassComanda}
-                >
-                  <option value="">— Elegir —</option>
-                  {recetas.map((r) => (
-                    <option key={r.id} value={r.id}>
-                      {r.nombre}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="block text-sm font-medium text-[#171717] sm:col-span-2">
-                Vianda producida (menú del día) *
-                <select
-                  value={menuItemId ?? ''}
-                  onChange={(e) => setMenuItemId(e.target.value || null)}
-                  className={selectClassComanda}
-                >
-                  <option value="">— Qué plato / guarnición salió —</option>
-                  {menuOpciones.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.nombre}
-                      {m.categoria === 'guarnicion' ? ' (Guarnición)' : ''}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <div className="sm:col-span-2 xl:col-span-3">
+                <span className="text-sm font-medium text-[#171717]">Modalidad de lote</span>
+                <div className="mt-2 flex flex-wrap gap-2" role="group" aria-label="Modalidad">
+                  <button
+                    type="button"
+                    onClick={() => setModalidad('vianda')}
+                    className={`min-h-10 rounded-lg px-4 text-sm font-semibold transition ${
+                      modalidad === 'vianda'
+                        ? 'bg-[#CD1818] text-white'
+                        : 'border border-neutral-200 bg-white text-[#171717] hover:bg-neutral-50'
+                    }`}
+                  >
+                    Vianda (V-)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setModalidad('granel')}
+                    className={`min-h-10 rounded-lg px-4 text-sm font-semibold transition ${
+                      modalidad === 'granel'
+                        ? 'bg-[#CD1818] text-white'
+                        : 'border border-neutral-200 bg-white text-[#171717] hover:bg-neutral-50'
+                    }`}
+                  >
+                    A granel (G-)
+                  </button>
+                </div>
+              </div>
+              {modalidad === 'vianda' ? (
+                <>
+                  <label className="block text-sm font-medium text-[#171717] sm:col-span-2">
+                    Plato principal (recetario)
+                    <select
+                      value={principalRecetaId ?? ''}
+                      onChange={(e) => setPrincipalRecetaId(e.target.value || null)}
+                      className={selectClassComanda}
+                    >
+                      <option value="">— Sin plato principal —</option>
+                      {principalOpciones.map((r) => (
+                        <option key={r.id} value={r.id}>
+                          {r.codigoCorto ? `#${r.codigoCorto} · ` : ''}
+                          {r.nombre}
+                        </option>
+                      ))}
+                    </select>
+                    {recetas.length === 0 ? (
+                      <span className="mt-1 block text-[11px] text-amber-700">
+                        No hay recetas cargadas. Creálas en el recetario / nutrición.
+                      </span>
+                    ) : principalOpciones.length === 0 ? (
+                      <span className="mt-1 block text-[11px] text-amber-700">
+                        No hay recetas de categoría Principal en el master.
+                      </span>
+                    ) : (
+                      <span className="mt-1 block text-[11px] text-[#8997A6]">
+                        {principalOpciones.length} receta(s) principal(es)
+                      </span>
+                    )}
+                  </label>
+                  <label className="block text-sm font-medium text-[#171717] sm:col-span-2">
+                    Guarnición (recetario)
+                    <select
+                      value={guarnicionRecetaId ?? ''}
+                      onChange={(e) => setGuarnicionRecetaId(e.target.value || null)}
+                      className={selectClassComanda}
+                    >
+                      <option value="">— Sin guarnición —</option>
+                      {guarnicionOpciones.map((r) => (
+                        <option key={r.id} value={r.id}>
+                          {r.codigoCorto ? `#${r.codigoCorto} · ` : ''}
+                          {r.nombre}
+                        </option>
+                      ))}
+                    </select>
+                    {recetas.length > 0 && guarnicionOpciones.length === 0 ? (
+                      <span className="mt-1 block text-[11px] text-amber-700">
+                        No hay recetas de categoría Guarnición en el master.
+                      </span>
+                    ) : guarnicionOpciones.length > 0 ? (
+                      <span className="mt-1 block text-[11px] text-[#8997A6]">
+                        {guarnicionOpciones.length} guarnición(es)
+                      </span>
+                    ) : null}
+                  </label>
+                  <p className="sm:col-span-2 text-xs text-[#8997A6]">
+                    Elegí uno o ambos. El combo es flexible: la misma milanesa puede ir con
+                    distintas guarniciones. En stock queda bajo el plato principal como{' '}
+                    <strong className="font-semibold text-[#171717]">
+                      {nombrePlatoProducido || 'Principal + Guarnición'}
+                    </strong>
+                    ; no hace falta una receta/menú por cada combinación.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <label className="block text-sm font-medium text-[#171717] sm:col-span-2">
+                    Alimento (recetario) *
+                    <select
+                      value={principalRecetaId ?? ''}
+                      onChange={(e) => {
+                        setPrincipalRecetaId(e.target.value || null)
+                        setGuarnicionRecetaId(null)
+                      }}
+                      className={selectClassComanda}
+                    >
+                      <option value="">— Qué alimento salió —</option>
+                      {granelOpciones.map((r) => (
+                        <option key={r.id} value={r.id}>
+                          {r.codigoCorto ? `#${r.codigoCorto} · ` : ''}
+                          {r.nombre}
+                          {r.categoria === 'Guarnición' ? ' (Guarnición)' : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="block text-sm font-medium text-[#171717]">
+                    Peso tanda (kg) *
+                    <input
+                      type="number"
+                      min={0.01}
+                      step="any"
+                      value={pesoKgStr}
+                      onChange={(e) => setPesoKgStr(e.target.value)}
+                      className={inputClassComanda}
+                      placeholder="Ej. 12.5"
+                    />
+                  </label>
+                </>
+              )}
               <label className="block text-sm font-medium text-[#171717]">
-                Viandas producidas *
+                {modalidad === 'granel' ? 'Porciones / unidades *' : 'Viandas producidas *'}
                 <input
                   type="number"
                   min={0.01}
@@ -516,28 +852,59 @@ export function AdminProduccionCocinaTab({
                 />
               </label>
               <label className="block text-sm font-medium text-[#171717]">
-                Lote producción *
+                Fecha elaboración *
                 <input
-                  type="text"
-                  value={loteProduccion}
-                  onChange={(e) => setLoteProduccion(e.target.value.toUpperCase())}
-                  placeholder="Ej. P-20260524-CARNE"
+                  type="date"
+                  value={fechaElaboracion}
+                  onChange={(e) => setFechaElaboracion(e.target.value)}
                   className={inputClassComanda}
                 />
               </label>
               <label className="block text-sm font-medium text-[#171717]">
-                Fecha vencimiento *
+                Vencimiento (+{DIAS_VENCIMIENTO_PRODUCCION} días)
                 <input
                   type="date"
                   value={fechaVencimiento}
-                  onChange={(e) => setFechaVencimiento(e.target.value)}
-                  className={inputClassComanda}
+                  readOnly
+                  className={`${inputClassComanda} cursor-not-allowed bg-neutral-50 opacity-90`}
                 />
               </label>
+              <div className="sm:col-span-2 xl:col-span-3 rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2.5">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8997A6]">
+                  Código de lote (trazabilidad)
+                </p>
+                <p className="mt-1 font-mono text-sm font-semibold text-[#171717]">
+                  {codigoTrazabilidadPreview ||
+                    (modalidad === 'granel'
+                      ? 'Completá alimento, fechas y peso…'
+                      : 'Elegí principal y/o guarnición y la fecha…')}
+                </p>
+                {nombrePlatoProducido ? (
+                  <p className="mt-1 text-xs font-semibold text-[#171717]">
+                    Plato a stock: {nombrePlatoProducido}
+                  </p>
+                ) : null}
+                <p className="mt-0.5 text-[11px] text-[#8997A6]">
+                  Plato #{codigoPlatoResuelto || '—'}
+                  {modalidad === 'vianda'
+                    ? ` · Guarnición #${codigoGuarnicionResuelto || 'XX'}`
+                    : ''}
+                  {' · '}Se graba como lote y código de escaneo (V-/G-).
+                </p>
+              </div>
             </div>
           </div>
 
-          {recetaSeleccionada && filas.length === 0 ? (
+          {menuDestinoStock &&
+          recetasVinculadas.length === 0 &&
+          filas.length === 0 ? (
+            <p className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+              El plato/guarnición elegido no tiene ficha técnica vinculada. Podés agregar insumos
+              manualmente o vincular la receta desde el menú / recetario.
+            </p>
+          ) : null}
+
+          {recetasVinculadas.length > 0 && filas.length === 0 ? (
             <p className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
               La ficha técnica no tiene ingredientes. Pedí a nutrición que complete el recetario.
             </p>

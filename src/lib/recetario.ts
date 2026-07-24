@@ -2,6 +2,7 @@ import {
   addDoc,
   collection,
   doc,
+  getDocs,
   onSnapshot,
   orderBy,
   query,
@@ -13,6 +14,10 @@ import {
 import { getDb } from './firebase'
 import { costoFilaRecetaFromInsumo, type Insumo } from './insumos'
 import { upsertMenuItemLinkedToReceta, type CategoriaMenu } from './menu'
+import {
+  normalizarCodigoCorto,
+  siguienteCodigoCortoDisponible,
+} from './produccionLotes'
 
 export const COLLECTION_RECETARIO = 'recetario'
 
@@ -51,6 +56,8 @@ export interface IngredienteReceta {
 export interface RecetaTecnica {
   id: string
   nombre: string
+  /** Código corto numérico de 2 dígitos (ej. `01`) para lotes V-/G-. */
+  codigoCorto: string
   categoria: CategoriaReceta
   aceptaGuarnicion: boolean
   dietas: DietaReceta[]
@@ -63,6 +70,8 @@ export interface RecetaTecnica {
 
 export interface CrearRecetaInput {
   nombre: string
+  /** Opcional: si falta, se autogenera el próximo `01`…`99`. */
+  codigoCorto?: string
   categoria: CategoriaReceta
   aceptaGuarnicion: boolean
   dietas: DietaReceta[]
@@ -137,6 +146,9 @@ function mapRecetaDoc(id: string, data: Record<string, unknown>): RecetaTecnica 
   return {
     id,
     nombre: typeof data.nombre === 'string' ? data.nombre.trim() : 'Sin nombre',
+    codigoCorto: normalizarCodigoCorto(
+      typeof data.codigoCorto === 'string' ? data.codigoCorto : '',
+    ),
     categoria,
     aceptaGuarnicion: data.aceptaGuarnicion !== false,
     dietas,
@@ -175,8 +187,12 @@ export function subscribeRecetario(
 }
 
 /** Normaliza y valida el alta/edición de una receta; lanza si falta algo obligatorio. */
-function buildRecetaFirestorePayload(input: CrearRecetaInput): {
+function buildRecetaFirestorePayload(
+  input: CrearRecetaInput,
+  codigoCortoResuelto: string,
+): {
   nombre: string
+  codigoCorto: string
   categoria: CategoriaReceta
   aceptaGuarnicion: boolean
   dietas: DietaReceta[]
@@ -190,6 +206,10 @@ function buildRecetaFirestorePayload(input: CrearRecetaInput): {
     1,
     Math.floor(Number(input.rendimientoPorciones) || 0),
   )
+  const codigoCorto = normalizarCodigoCorto(codigoCortoResuelto)
+  if (!codigoCorto) {
+    throw new Error('Indicá un código corto numérico (01–99).')
+  }
 
   const ingredientes = input.ingredientes
     .map((item) => {
@@ -224,6 +244,7 @@ function buildRecetaFirestorePayload(input: CrearRecetaInput): {
 
   return {
     nombre,
+    codigoCorto,
     categoria: input.categoria,
     aceptaGuarnicion:
       input.categoria === 'Principal' ? input.aceptaGuarnicion : false,
@@ -238,8 +259,27 @@ function categoriaMenuDesdeReceta(categoria: CategoriaReceta): CategoriaMenu {
   return categoria === 'Guarnición' ? 'guarnicion' : 'principal'
 }
 
+async function listarCodigosCortosRecetario(
+  excludeId?: string,
+): Promise<string[]> {
+  const db = getDb()
+  const snap = await getDocs(collection(db, COLLECTION_RECETARIO))
+  const out: string[] = []
+  snap.forEach((d) => {
+    if (excludeId && d.id === excludeId) return
+    const raw = d.data().codigoCorto
+    const c = normalizarCodigoCorto(typeof raw === 'string' ? raw : '')
+    if (c) out.push(c)
+  })
+  return out
+}
+
 export async function crearReceta(input: CrearRecetaInput): Promise<void> {
-  const payload = buildRecetaFirestorePayload(input)
+  const usados = await listarCodigosCortosRecetario()
+  const codigo =
+    normalizarCodigoCorto(input.codigoCorto) ||
+    siguienteCodigoCortoDisponible(usados)
+  const payload = buildRecetaFirestorePayload(input, codigo)
   const db = getDb()
   const ref = await addDoc(collection(db, COLLECTION_RECETARIO), {
     ...payload,
@@ -250,6 +290,7 @@ export async function crearReceta(input: CrearRecetaInput): Promise<void> {
     nombre: payload.nombre,
     categoria: categoriaMenuDesdeReceta(payload.categoria),
     aceptaGuarnicion: payload.aceptaGuarnicion,
+    codigoCorto: payload.codigoCorto,
   })
 }
 
@@ -257,7 +298,11 @@ export async function actualizarReceta(
   id: string,
   input: CrearRecetaInput,
 ): Promise<void> {
-  const payload = buildRecetaFirestorePayload(input)
+  const usados = await listarCodigosCortosRecetario(id)
+  const codigo =
+    normalizarCodigoCorto(input.codigoCorto) ||
+    siguienteCodigoCortoDisponible(usados)
+  const payload = buildRecetaFirestorePayload(input, codigo)
   const db = getDb()
   await updateDoc(doc(db, COLLECTION_RECETARIO, id), {
     ...payload,
@@ -267,6 +312,7 @@ export async function actualizarReceta(
     nombre: payload.nombre,
     categoria: categoriaMenuDesdeReceta(payload.categoria),
     aceptaGuarnicion: payload.aceptaGuarnicion,
+    codigoCorto: payload.codigoCorto,
   })
 }
 

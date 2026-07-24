@@ -1,7 +1,12 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { useLocation } from 'react-router-dom'
+import { ModoPistolaBarra } from '../../components/deposito/ModoPistolaBarra'
 import { ModalDespachoRemitoDetalle } from '../../components/cocina/ModalDespachoRemitoDetalle'
 import { useToast } from '../../context/ToastContext'
+import {
+  useInventarioScanner,
+  type EscaneoInventario,
+} from '../../hooks/useInventarioScanner'
 import { exportarRemitoDespachoPdf } from '../../lib/despachoRemitoPdf'
 import {
   loteKeyMenu,
@@ -34,6 +39,10 @@ import {
   obtenerEstadoVencimiento,
 } from '../../lib/vencimientoLote'
 import { selectClassComanda, inputClassComanda } from '../campamento/comandasFormShared'
+import {
+  buscarLoteViandaPorCodigoTrazabilidad,
+  buscarLoteViandaPorPayloadQr,
+} from '../../lib/viandaEscaneo'
 
 type FilaDespacho = {
   key: string
@@ -99,10 +108,28 @@ export function AdminDespachoPage() {
   const [fechaDespacho, setFechaDespacho] = useState(toInputDate(new Date()))
   const [observaciones, setObservaciones] = useState('')
   const [filas, setFilas] = useState<FilaDespacho[]>([nuevaFila()])
+  const [modoPistola, setModoPistola] = useState(false)
   const [marcarPedidosDespachados, setMarcarPedidosDespachados] = useState(true)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [remitoDetalle, setRemitoDetalle] = useState<DespachoViandaRegistro | null>(null)
   const [vistaFormulario, setVistaFormulario] = useState(false)
+  const loteQtyInputRefs = useRef<Record<string, HTMLInputElement | null>>({})
+
+  const registerLoteQtyRef = useCallback((filaKey: string, loteKey: string) => {
+    return (el: HTMLInputElement | null) => {
+      const k = `${filaKey}::${loteKey}`
+      if (el) loteQtyInputRefs.current[k] = el
+      else delete loteQtyInputRefs.current[k]
+    }
+  }, [])
+
+  const enfocarLoteDespacho = useCallback((filaKey: string, loteKey: string) => {
+    queueMicrotask(() => {
+      const el = loteQtyInputRefs.current[`${filaKey}::${loteKey}`]
+      el?.focus()
+      el?.select()
+    })
+  }, [])
 
   useEffect(() => subscribeMenu(setMenuItems), [])
   useEffect(() => subscribePedidos(setPedidos), [])
@@ -257,6 +284,68 @@ export function AdminDespachoPage() {
     setFilas((prev) => prev.map((f) => (f.key === key ? { ...f, ...patch } : f)))
   }
 
+  const aplicarEscaneoVianda = useCallback(
+    (menuItemId: string, loteKey: string, etiqueta: string) => {
+      let filaKeyUsada = ''
+
+      setFilas((prev) => {
+        let filaIdx = prev.findIndex((f) => f.menuItemId === menuItemId)
+        if (filaIdx < 0) {
+          filaIdx = prev.findIndex((f) => !f.menuItemId.trim())
+        }
+
+        if (filaIdx >= 0) {
+          filaKeyUsada = prev[filaIdx].key
+          return prev.map((f, i) => (i === filaIdx ? { ...f, menuItemId } : f))
+        }
+
+        const nueva = { ...nuevaFila(), menuItemId }
+        filaKeyUsada = nueva.key
+        return [...prev, nueva]
+      })
+
+      if (filaKeyUsada) enfocarLoteDespacho(filaKeyUsada, loteKey)
+      showToast(`${etiqueta} — ingresá la cantidad a despachar`, 'success')
+    },
+    [showToast, enfocarLoteDespacho],
+  )
+
+  const handleEscaneoVianda = useCallback(
+    (result: EscaneoInventario) => {
+      let encontrado = null
+      if (result.tipo === 'vianda_qr') {
+        encontrado = buscarLoteViandaPorPayloadQr(menuItems, result.payload)
+      } else if (result.tipo === 'vianda_codigo') {
+        encontrado = buscarLoteViandaPorCodigoTrazabilidad(
+          menuItems,
+          result.codigoTrazabilidad,
+        )
+      } else {
+        showToast('Escaneá la etiqueta de producción (código V-/G-… o QR).', 'error')
+        return
+      }
+
+      if (!encontrado) {
+        showToast('Lote no encontrado en stock o sin unidades disponibles.', 'error')
+        return
+      }
+
+      const { menuItem, lote, loteKey } = encontrado
+      aplicarEscaneoVianda(
+        menuItem.id,
+        loteKey,
+        `${menuItem.nombre} · lote ${lote.lote}`,
+      )
+    },
+    [menuItems, aplicarEscaneoVianda, showToast],
+  )
+
+  useInventarioScanner({
+    enabled: vistaFormulario && modoPistola && !isSubmitting,
+    aceptarInsumos: false,
+    onScan: handleEscaneoVianda,
+  })
+
   function aplicarFifoFila(key: string) {
     const f = filas.find((x) => x.key === key)
     if (!f?.menuItemId) return
@@ -386,6 +475,7 @@ export function AdminDespachoPage() {
         'success',
       )
       setFilas([nuevaFila()])
+      setModoPistola(false)
       setObservaciones('')
       setPedidoIdsVinculados([])
       setFechaConsumoPedidos('')
@@ -632,9 +722,16 @@ export function AdminDespachoPage() {
                   Detalle del remito — viandas y lotes
                 </p>
                 <p className="mt-0.5 text-xs text-[#8997A6]">
-                  Los lotes se ordenan por vencimiento (FIFO). Usá «Sugerir FIFO» para completar
-                  automáticamente.
+                  Escaneá la etiqueta de producción (Code128) o asigná lotes manualmente.
                 </p>
+              </div>
+              <div className="border-b border-neutral-100 px-4 py-3">
+                <ModoPistolaBarra
+                  activo={modoPistola}
+                  onToggle={() => setModoPistola((v) => !v)}
+                  disabled={isSubmitting}
+                  hint="Escaneá la etiqueta para identificar plato y lote; después ingresá la cantidad a mano."
+                />
               </div>
               <div className="space-y-4 p-4">
                 {filas.map((f) => {
@@ -746,19 +843,27 @@ export function AdminDespachoPage() {
                                     </td>
                                     <td className="px-3 py-2 text-right">
                                       <input
+                                        ref={registerLoteQtyRef(f.key, lk)}
                                         type="number"
                                         min={0}
                                         max={l.cantidad}
                                         step={1}
                                         value={f.lotesQty[lk] ?? ''}
-                                        onChange={(e) =>
+                                        onChange={(e) => {
+                                          const nextLotesQty = {
+                                            ...f.lotesQty,
+                                            [lk]: e.target.value,
+                                          }
+                                          const total = Object.values(nextLotesQty).reduce(
+                                            (acc, v) =>
+                                              acc + Math.max(0, Math.floor(Number(v) || 0)),
+                                            0,
+                                          )
                                           actualizarFila(f.key, {
-                                            lotesQty: {
-                                              ...f.lotesQty,
-                                              [lk]: e.target.value,
-                                            },
+                                            lotesQty: nextLotesQty,
+                                            cantidadStr: total > 0 ? String(total) : f.cantidadStr,
                                           })
-                                        }
+                                        }}
                                         className={`ml-auto w-20 rounded-lg border px-2 py-1 text-right text-sm ${
                                           alerta
                                             ? 'border-amber-300 bg-amber-50/50'
