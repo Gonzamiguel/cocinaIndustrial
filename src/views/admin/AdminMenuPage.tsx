@@ -1,11 +1,12 @@
 import { Fragment, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Eye, Factory, UtensilsCrossed } from 'lucide-react'
+import { Eye, Factory, Tag, UtensilsCrossed } from 'lucide-react'
 import {
   ModalEtiquetaProduccionCocina,
   etiquetaDataDesdeMenuLote,
   type EtiquetaProduccionData,
 } from '../../components/cocina/ModalEtiquetaProduccionCocina'
+import { PanelReimpresionEtiquetas } from '../../components/cocina/PanelReimpresionEtiquetas'
 import {
   deleteMenuItem,
   stockDisponibleParaPedidos,
@@ -157,7 +158,7 @@ function StockInventarioCelda({ item }: { item: MenuItem }) {
 export function AdminMenuPage() {
   const navigate = useNavigate()
   const itemsPorPagina = 8
-  const [menuTab, setMenuTab] = useState<'stock' | 'produccion'>('stock')
+  const [menuTab, setMenuTab] = useState<'stock' | 'produccion' | 'etiquetas'>('stock')
   const [items, setItems] = useState<MenuItem[]>([])
   const [filtroActivo, setFiltroActivo] = useState<CategoriaMenu>('principal')
   const [busyId, setBusyId] = useState<string | null>(null)
@@ -176,6 +177,7 @@ export function AdminMenuPage() {
   })
   const [expandidos, setExpandidos] = useState<Record<string, boolean>>({})
   const [etiquetaModal, setEtiquetaModal] = useState<EtiquetaProduccionData | null>(null)
+  const [etiquetaCopias, setEtiquetaCopias] = useState(1)
 
   useEffect(() => {
     return subscribeMenu(setItems)
@@ -335,6 +337,18 @@ export function AdminMenuPage() {
           >
             <Factory className="h-4 w-4 shrink-0" aria-hidden />
             Registrar producción
+          </button>
+          <button
+            type="button"
+            onClick={() => setMenuTab('etiquetas')}
+            className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold transition sm:px-4 ${
+              menuTab === 'etiquetas'
+                ? 'bg-[#CD1818] text-white shadow-sm'
+                : 'border border-neutral-200 bg-white text-[#171717] hover:bg-neutral-50'
+            }`}
+          >
+            <Tag className="h-4 w-4 shrink-0" aria-hidden />
+            Etiquetas
           </button>
         </nav>
       </header>
@@ -771,6 +785,15 @@ export function AdminMenuPage() {
             </div>
           )}
         </div>
+        ) : menuTab === 'etiquetas' ? (
+          <div className="flex min-h-0 flex-1 flex-col pb-4">
+            <PanelReimpresionEtiquetas
+              onAbrir={(data, copias) => {
+                setEtiquetaCopias(Math.max(1, copias))
+                setEtiquetaModal(data)
+              }}
+            />
+          </div>
         ) : (
           <div className="flex min-h-0 flex-1 flex-col pb-4">
             <AdminProduccionCocinaTab
@@ -785,6 +808,7 @@ export function AdminMenuPage() {
         open={etiquetaModal != null}
         onClose={() => setEtiquetaModal(null)}
         data={etiquetaModal}
+        copias={etiquetaCopias}
       />
     </div>
   )

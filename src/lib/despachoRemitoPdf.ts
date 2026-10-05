@@ -1,6 +1,8 @@
 import { jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import type { DespachoViandaRegistro } from './despachosViandas'
+import { labelTipoDespacho } from './despachosViandas'
+import { codigoLoteViandaParaRemito } from './produccionLotes'
 import { formatFechaVencimiento } from './vencimientoLote'
 
 function pad(n: number): string {
@@ -20,18 +22,18 @@ function formatFechaDespacho(d: Date | null): string {
   })
 }
 
-/**
- * Remito imprimible con detalle de viandas, lotes y vencimientos + espacio para firmas.
- */
-export function exportarRemitoDespachoPdf(remito: DespachoViandaRegistro): void {
-  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
+function encabezadoRemito(
+  doc: jsPDF,
+  remito: DespachoViandaRegistro,
+  titulo: string,
+): { y: number; margin: number; pageW: number } {
   const margin = 14
   const pageW = doc.internal.pageSize.getWidth()
   let y = 16
 
   doc.setFontSize(17)
   doc.setTextColor(205, 24, 24)
-  doc.text('Remito de despacho — Viandas', margin, y)
+  doc.text(titulo, margin, y)
 
   y += 9
   doc.setFontSize(10)
@@ -43,7 +45,9 @@ export function exportarRemitoDespachoPdf(remito: DespachoViandaRegistro): void 
   y += 7
   doc.setFontSize(9)
   doc.setTextColor(80, 90, 100)
-  doc.text(`Empresa: ${remito.empresa}`, margin, y)
+  doc.text(`Tipo: ${labelTipoDespacho(remito.tipoDespacho)}`, margin, y)
+  y += 5
+  doc.text(`Destinatario: ${remito.destinatario || remito.empresa}`, margin, y)
   y += 5
   doc.text(`Fecha despacho: ${formatFechaDespacho(remito.fecha)}`, margin, y)
   y += 5
@@ -52,46 +56,18 @@ export function exportarRemitoDespachoPdf(remito: DespachoViandaRegistro): void 
     y += 5
   }
 
-  y += 3
-  const body: string[][] = []
-  for (const it of remito.items) {
-    for (let i = 0; i < it.lotes.length; i++) {
-      const l = it.lotes[i]
-      body.push([
-        i === 0 ? it.nombrePlato : '',
-        i === 0 ? String(it.cantidadTotal) : '',
-        l.lote || '—',
-        formatFechaVencimiento(l.fechaVencimiento),
-        String(l.cantidad),
-        l.codigoTrazabilidad ? l.codigoTrazabilidad.slice(0, 28) : '—',
-      ])
-    }
-  }
+  return { y: y + 3, margin, pageW }
+}
 
-  autoTable(doc, {
-    startY: y,
-    head: [['Vianda', 'Total', 'Lote producción', 'Vencimiento', 'Cant.', 'Cód. trazabilidad']],
-    body,
-    styles: { fontSize: 8, cellPadding: 2, overflow: 'linebreak' },
-    headStyles: {
-      fillColor: [205, 24, 24],
-      textColor: [255, 255, 255],
-      fontStyle: 'bold',
-    },
-    columnStyles: {
-      0: { cellWidth: 42 },
-      1: { cellWidth: 14, halign: 'center' },
-      2: { cellWidth: 38 },
-      3: { cellWidth: 24 },
-      4: { cellWidth: 14, halign: 'right' },
-      5: { cellWidth: 38 },
-    },
-    alternateRowStyles: { fillColor: [249, 250, 251] },
-    margin: { left: margin, right: margin },
-  })
-
-  let yAfter =
-    (doc as jsPDF & { lastAutoTable?: { finalY?: number } }).lastAutoTable?.finalY ?? y + 40
+function pieFirmasYObservaciones(
+  doc: jsPDF,
+  remito: DespachoViandaRegistro,
+  yStart: number,
+  margin: number,
+  pageW: number,
+  etiquetaRecibe: string,
+): void {
+  let yAfter = yStart
 
   if (remito.observaciones.trim()) {
     yAfter += 8
@@ -114,11 +90,122 @@ export function exportarRemitoDespachoPdf(remito: DespachoViandaRegistro): void 
   doc.setFontSize(8)
   doc.setTextColor(100, 116, 139)
   doc.text('Entrega (cocina / logística)', margin, yAfter + 23)
-  doc.text('Recibe conforme (empresa)', margin + firmaW + 10, yAfter + 23)
+  doc.text(etiquetaRecibe, margin + firmaW + 10, yAfter + 23)
+}
 
+function guardarPdf(doc: jsPDF, remito: DespachoViandaRegistro, sufijo: string): void {
   const slug = safeFilenamePart(remito.numeroRemito || remito.id)
   const d = new Date()
   doc.save(
-    `Remito_despacho_${slug}_${pad(d.getDate())}-${pad(d.getMonth() + 1)}-${d.getFullYear()}.pdf`,
+    `Remito_${sufijo}_${slug}_${pad(d.getDate())}-${pad(d.getMonth() + 1)}-${d.getFullYear()}.pdf`,
   )
+}
+
+function lastTableY(doc: jsPDF, fallback: number): number {
+  return (doc as jsPDF & { lastAutoTable?: { finalY?: number } }).lastAutoTable?.finalY ?? fallback
+}
+
+/** Remito formal para el cliente: menús y cantidades, sin códigos de lote. */
+export function exportarRemitoFormalClientePdf(remito: DespachoViandaRegistro): void {
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
+  const { y, margin, pageW } = encabezadoRemito(
+    doc,
+    remito,
+    'Remito de despacho — Viandas',
+  )
+
+  const body = remito.items.map((it) => [it.nombrePlato, String(it.cantidadTotal)])
+
+  autoTable(doc, {
+    startY: y,
+    head: [['Menú / vianda', 'Cantidad entregada']],
+    body,
+    styles: { fontSize: 10, cellPadding: 3, overflow: 'linebreak' },
+    headStyles: {
+      fillColor: [205, 24, 24],
+      textColor: [255, 255, 255],
+      fontStyle: 'bold',
+    },
+    columnStyles: {
+      0: { cellWidth: 140 },
+      1: { cellWidth: 32, halign: 'right' },
+    },
+    alternateRowStyles: { fillColor: [249, 250, 251] },
+    margin: { left: margin, right: margin },
+  })
+
+  pieFirmasYObservaciones(
+    doc,
+    remito,
+    lastTableY(doc, y + 40),
+    margin,
+    pageW,
+    'Recibe conforme (empresa)',
+  )
+  guardarPdf(doc, remito, 'formal')
+}
+
+/** Remito operativo interno: códigos de lote V- exactos que subieron al transporte. */
+export function exportarRemitoOperativoInternoPdf(remito: DespachoViandaRegistro): void {
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
+  const { y, margin, pageW } = encabezadoRemito(
+    doc,
+    remito,
+    'Remito operativo interno — Lotes V-',
+  )
+
+  const body: string[][] = []
+  for (const it of remito.items) {
+    for (let i = 0; i < it.lotes.length; i++) {
+      const l = it.lotes[i]
+      const codigoV = codigoLoteViandaParaRemito({
+        lote: l.lote,
+        codigoTrazabilidad: l.codigoTrazabilidad,
+      })
+      body.push([
+        i === 0 ? it.nombrePlato : '',
+        i === 0 ? String(it.cantidadTotal) : '',
+        codigoV,
+        formatFechaVencimiento(l.fechaVencimiento),
+        String(l.cantidad),
+      ])
+    }
+  }
+
+  autoTable(doc, {
+    startY: y,
+    head: [['Vianda', 'Total', 'Lote V- (transporte)', 'Vencimiento', 'Cant.']],
+    body,
+    styles: { fontSize: 8, cellPadding: 2, overflow: 'linebreak', font: 'courier' },
+    headStyles: {
+      fillColor: [23, 23, 23],
+      textColor: [255, 255, 255],
+      fontStyle: 'bold',
+      font: 'helvetica',
+    },
+    columnStyles: {
+      0: { cellWidth: 42, font: 'helvetica' },
+      1: { cellWidth: 16, halign: 'center', font: 'helvetica' },
+      2: { cellWidth: 70, font: 'courier', fontSize: 7 },
+      3: { cellWidth: 28, font: 'helvetica' },
+      4: { cellWidth: 16, halign: 'right', font: 'helvetica' },
+    },
+    alternateRowStyles: { fillColor: [249, 250, 251] },
+    margin: { left: margin, right: margin },
+  })
+
+  pieFirmasYObservaciones(
+    doc,
+    remito,
+    lastTableY(doc, y + 40),
+    margin,
+    pageW,
+    'Control interno / auditoría',
+  )
+  guardarPdf(doc, remito, 'operativo_V')
+}
+
+/** @deprecated Preferir exportarRemitoFormalClientePdf. Alias de compatibilidad. */
+export function exportarRemitoDespachoPdf(remito: DespachoViandaRegistro): void {
+  exportarRemitoFormalClientePdf(remito)
 }

@@ -284,7 +284,8 @@ export function AdminPlanificacionEmpresaPage() {
           </h1>
           <p className="mt-1 max-w-2xl text-sm text-[#8997A6]">
             Creá la empresa cliente (con CUIT) en el padrón compartido, armá las opciones de menú
-            por día y compartí el formulario para que cada empleado elija. Los pedidos ingresan en{' '}
+            de lunes a domingo y compartí el formulario para que cada empleado elija almuerzo y/o
+            cena. Los pedidos ingresan en{' '}
             <Link to="/admin/pedidos" className="font-medium text-[#CD1818] hover:underline">
               Pedidos del día
             </Link>
@@ -395,8 +396,8 @@ export function AdminPlanificacionEmpresaPage() {
                     Opciones de menú por día
                   </h2>
                   <p className="mt-1 text-xs text-[#8997A6]">
-                    Elegí un día, buscá platos y guarniciones para agregar. Repetí en cada día y
-                    publicá el formulario.
+                    Semana lunes a domingo. El mismo menú del día se ofrece en almuerzo y cena.
+                    Publicá el formulario cuando esté listo.
                   </p>
                 </div>
                 <PlanificacionMenuPorDiaPanel

@@ -79,4 +79,45 @@ body {
     break-inside: avoid;
     page-break-inside: avoid;
   }
+
+  body.is-printing-zebra-100x20 #qr-etiquetas-produccion-portal,
+  body.is-printing-zebra-100x25 #qr-etiquetas-produccion-portal {
+    position: static !important;
+    inset: auto !important;
+    display: block !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    width: 100% !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    background: transparent !important;
+  }
+
+  body.is-printing-zebra-100x20 #qr-etiquetas-produccion-portal [role='dialog'],
+  body.is-printing-zebra-100x25 #qr-etiquetas-produccion-portal [role='dialog'] {
+    position: static !important;
+    max-height: none !important;
+    height: auto !important;
+    width: 100mm !important;
+    overflow: visible !important;
+    border: none !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+    margin: 0 !important;
+  }
+
+  body.is-printing-zebra-100x20 .qr-etiqueta-zebra,
+  body.is-printing-zebra-100x25 .qr-etiqueta-zebra {
+    width: 100mm !important;
+    min-width: 100mm !important;
+    max-width: 100mm !important;
+    height: 25mm !important;
+    break-after: page;
+    page-break-after: always;
+    break-inside: avoid;
+    page-break-inside: avoid;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
 }

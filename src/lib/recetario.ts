@@ -147,7 +147,11 @@ function mapRecetaDoc(id: string, data: Record<string, unknown>): RecetaTecnica 
     id,
     nombre: typeof data.nombre === 'string' ? data.nombre.trim() : 'Sin nombre',
     codigoCorto: normalizarCodigoCorto(
-      typeof data.codigoCorto === 'string' ? data.codigoCorto : '',
+      typeof data.codigoCorto === 'string'
+        ? data.codigoCorto
+        : typeof data.codigo === 'string'
+          ? data.codigo
+          : '',
     ),
     categoria,
     aceptaGuarnicion: data.aceptaGuarnicion !== false,
@@ -387,4 +391,19 @@ export function costoTeoricoProduccionPorciones(
   const filas = buildFilasAuditoriaCostoRecetas(insumos, [receta])
   const costoLote = filas[0]?.costoTeorico ?? 0
   return costoLote * (n / rend)
+}
+
+export function cantidadIngredienteParaPorciones(
+  ingrediente: IngredienteReceta,
+  porcionesObjetivo: number,
+  rendimientoPorciones: number,
+): number {
+  const p = Number(porcionesObjetivo)
+  if (!Number.isFinite(p) || p <= 0) return 0
+  const rend = Math.max(1, Math.floor(rendimientoPorciones) || 1)
+  const teorico =
+    ingrediente.cantidadBruta *
+    (1 + Math.max(0, ingrediente.porcentajeMerma) / 100) *
+    (p / rend)
+  return Math.round(teorico * 10000) / 10000
 }

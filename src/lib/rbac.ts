@@ -16,8 +16,6 @@ import type { UserRole } from '../context/AuthContext'
 
 export const ROLES_CONTROL = [
 
-  'administrativo_campamento',
-
   'administrativo_finanzas',
 
   'administrativo_liquidaciones',
@@ -37,8 +35,6 @@ export type RolControl = (typeof ROLES_CONTROL)[number]
 /** Panel operativo: comensales, hotelería, padrón (sin finanzas puras). */
 
 export const ROLES_PANEL_CONTROL = [
-
-  'administrativo_campamento',
 
   'gerencia',
 
@@ -198,8 +194,6 @@ export function esRolControl(rol: string | null | undefined): rol is RolControl 
 
   return (
 
-    rol === 'administrativo_campamento' ||
-
     rol === 'administrativo_finanzas' ||
 
     rol === 'administrativo_liquidaciones' ||
@@ -216,15 +210,7 @@ export function esRolControl(rol: string | null | undefined): rol is RolControl 
 
 export function esRolPanelControl(rol: string | null | undefined): rol is RolPanelControl {
 
-  return (
-
-    rol === 'administrativo_campamento' ||
-
-    rol === 'gerencia' ||
-
-    rol === 'analista'
-
-  )
+  return rol === 'gerencia' || rol === 'analista'
 
 }
 
@@ -482,6 +468,8 @@ export function rutaHomePorRol(rol: UserRole): string | null {
   if (rol === 'administrativo_liquidaciones') return '/control/liquidaciones'
 
   if (esRolTerminal(rol)) return '/terminal'
+
+  if (esRolLogisticaCampamentoEscritura(rol)) return '/campamento/recepcion'
 
   if (esRolControl(rol)) return '/control'
 

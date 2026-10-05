@@ -5,7 +5,8 @@ import { formatFechaVencimiento, obtenerEstadoVencimiento } from '../../lib/venc
 type Props = {
   remito: DespachoViandaRegistro | null
   onClose: () => void
-  onDescargarPdf: (remito: DespachoViandaRegistro) => void
+  onDescargarPdfFormal: (remito: DespachoViandaRegistro) => void
+  onDescargarPdfOperativo: (remito: DespachoViandaRegistro) => void
 }
 
 function formatFechaHora(d: Date | null): string {
@@ -19,7 +20,12 @@ function formatFechaHora(d: Date | null): string {
   })
 }
 
-export function ModalDespachoRemitoDetalle({ remito, onClose, onDescargarPdf }: Props) {
+export function ModalDespachoRemitoDetalle({
+  remito,
+  onClose,
+  onDescargarPdfFormal,
+  onDescargarPdfOperativo,
+}: Props) {
   if (!remito) return null
 
   const totalViandas = remito.items.reduce((acc, it) => acc + it.cantidadTotal, 0)
@@ -122,10 +128,17 @@ export function ModalDespachoRemitoDetalle({ remito, onClose, onDescargarPdf }: 
           </button>
           <button
             type="button"
-            onClick={() => onDescargarPdf(remito)}
+            onClick={() => onDescargarPdfOperativo(remito)}
+            className="rounded-xl border border-gray-200 px-4 py-2.5 text-sm font-semibold text-[#171717] hover:bg-gray-50"
+          >
+            Remito operativo (lotes V-)
+          </button>
+          <button
+            type="button"
+            onClick={() => onDescargarPdfFormal(remito)}
             className="rounded-xl bg-[#CD1818] px-4 py-2.5 text-sm font-semibold text-white hover:brightness-105"
           >
-            Descargar PDF
+            Remito formal (cliente)
           </button>
         </div>
       </div>

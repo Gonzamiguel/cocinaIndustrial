@@ -10,6 +10,7 @@ import {
 } from '../../lib/menu'
 import {
   empresaLabelPedido,
+  etiquetaConsumoPedido,
   FILTRO_DIA_TODOS,
   FILTRO_EMPRESA_TODAS,
   filtrarPedidosAdmin,
@@ -234,7 +235,7 @@ export function AdminPedidosPage() {
     ]
     const rows = fuente.map((p) => [
       formatHora(p.fecha),
-      p.fechaConsumo ?? '—',
+      etiquetaConsumoPedido(p),
       empresaLabelPedido(p),
       p.nombreCliente,
       p.platoPrincipal,
@@ -508,7 +509,7 @@ export function AdminPedidosPage() {
                           {formatHora(p.fecha)}
                         </td>
                         <td className="max-w-[10rem] whitespace-normal px-5 py-4 text-sm text-[#8997A6]">
-                          {p.fechaConsumo ?? '—'}
+                          {etiquetaConsumoPedido(p)}
                         </td>
                         <td className="whitespace-nowrap px-5 py-4">
                           <span className="inline-flex max-w-[10rem] truncate rounded-full bg-[#CD1818]/8 px-3 py-1 text-xs font-semibold text-[#CD1818] ring-1 ring-[#CD1818]/15">

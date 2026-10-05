@@ -37,7 +37,11 @@ function escribirRecetaEnPdf(doc: jsPDF, receta: RecetaTecnica, yInicio: number)
   doc.setTextColor(100, 116, 139)
   doc.setFont('helvetica', 'normal')
   y = asegurarEspacio(doc, y, 18)
-  doc.text(`Categoría: ${receta.categoria}`, MARGIN, y)
+  doc.text(
+    `Categoría: ${receta.categoria}${receta.codigoCorto ? ` · Código ${receta.codigoCorto}` : ''}`,
+    MARGIN,
+    y,
+  )
   y += 5
   doc.text(`Rendimiento: ${receta.rendimientoPorciones} porciones`, MARGIN, y)
   y += 5

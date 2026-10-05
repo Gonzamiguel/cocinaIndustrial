@@ -20,6 +20,32 @@ import {
 
 export const COLLECTION_DESPACHOS_VIANDAS = 'despachos_viandas'
 
+export type TipoDespachoVianda = 'INTERNO' | 'CAMPAMENTO' | 'EMPRESA'
+export type ClaseItemDespacho = 'VIANDA' | 'GRANEL'
+
+export const TIPOS_DESPACHO_VIANDA: TipoDespachoVianda[] = [
+  'INTERNO',
+  'CAMPAMENTO',
+  'EMPRESA',
+]
+
+export function labelTipoDespacho(t: TipoDespachoVianda): string {
+  switch (t) {
+    case 'INTERNO':
+      return 'Interno (LYG / sector)'
+    case 'CAMPAMENTO':
+      return 'Campamento'
+    default:
+      return 'Empresa'
+  }
+}
+
+export function destinatarioDefaultPorTipo(t: TipoDespachoVianda): string {
+  if (t === 'INTERNO') return 'Depósito LYG'
+  if (t === 'CAMPAMENTO') return 'Campamento Casposo'
+  return ''
+}
+
 export type DespachoViandaItemLote = {
   lote: string
   fechaVencimiento: string
@@ -32,13 +58,16 @@ export type DespachoViandaItem = {
   menuItemId: string
   nombrePlato: string
   cantidadTotal: number
+  clase?: ClaseItemDespacho
   lotes: DespachoViandaItemLote[]
 }
 
 export type DespachoViandaRegistro = {
   id: string
   fecha: Date | null
+  tipoDespacho: TipoDespachoVianda
   empresa: string
+  destinatario: string
   lugarEntrega: string
   numeroRemito: string
   pedidoIds: string[]
@@ -52,7 +81,19 @@ function mapDespachoDoc(id: string, data: Record<string, unknown>): DespachoVian
   let fecha: Date | null = null
   if (fechaRaw instanceof Timestamp) fecha = fechaRaw.toDate()
 
-  const empresa = typeof data.empresa === 'string' ? data.empresa.trim() : ''
+  const tipoRaw = data.tipoDespacho
+  const tipoDespacho: TipoDespachoVianda =
+    tipoRaw === 'INTERNO' || tipoRaw === 'CAMPAMENTO' || tipoRaw === 'EMPRESA'
+      ? tipoRaw
+      : 'EMPRESA'
+
+  const destinatario =
+    typeof data.destinatario === 'string' && data.destinatario.trim()
+      ? data.destinatario.trim()
+      : typeof data.empresa === 'string'
+        ? data.empresa.trim()
+        : ''
+  const empresa = destinatario
   if (!empresa) return null
 
   const lugarEntrega =
@@ -101,7 +142,11 @@ function mapDespachoDoc(id: string, data: Record<string, unknown>): DespachoVian
         }
       }
       if (!menuItemId || lotes.length === 0) continue
-      items.push({ menuItemId, nombrePlato, cantidadTotal, lotes })
+      const clase: ClaseItemDespacho =
+        o.clase === 'GRANEL' || lotes.some((l) => l.lote.toUpperCase().startsWith('G-'))
+          ? 'GRANEL'
+          : 'VIANDA'
+      items.push({ menuItemId, nombrePlato, cantidadTotal, clase, lotes })
     }
   }
 
@@ -110,7 +155,9 @@ function mapDespachoDoc(id: string, data: Record<string, unknown>): DespachoVian
   return {
     id,
     fecha,
+    tipoDespacho,
     empresa,
+    destinatario,
     lugarEntrega,
     numeroRemito,
     pedidoIds,
@@ -208,7 +255,9 @@ function sugerirNumeroRemito(): string {
 
 export async function registrarDespachoViandas(input: {
   fecha: Date
+  tipoDespacho?: TipoDespachoVianda
   empresa: string
+  destinatario?: string
   lugarEntrega?: string
   pedidoIds?: string[]
   fechaConsumoPedidos?: string
@@ -217,8 +266,12 @@ export async function registrarDespachoViandas(input: {
   observaciones?: string
 }): Promise<{ id: string; numeroRemito: string }> {
   const db = getDb()
-  const empresa = input.empresa.trim()
-  if (!empresa) throw new Error('Indicá la empresa destinataria.')
+  const tipoDespacho = input.tipoDespacho ?? 'EMPRESA'
+  const empresa =
+    input.destinatario?.trim() ||
+    input.empresa.trim() ||
+    destinatarioDefaultPorTipo(tipoDespacho)
+  if (!empresa) throw new Error('Indicá el destinatario del despacho.')
 
   const items = input.items
     .map((it) => ({
@@ -294,7 +347,9 @@ export async function registrarDespachoViandas(input: {
 
     t.set(despachoRef, {
       fecha: fechaTs,
+      tipoDespacho,
       empresa,
+      destinatario: empresa,
       lugarEntrega,
       numeroRemito,
       pedidoIds,
@@ -303,6 +358,11 @@ export async function registrarDespachoViandas(input: {
         menuItemId: it.menuItemId,
         nombrePlato: it.nombrePlato,
         cantidadTotal: it.cantidadTotal,
+        clase:
+          it.clase ??
+          (it.lotes.some((l) => l.lote.toUpperCase().startsWith('G-'))
+            ? 'GRANEL'
+            : 'VIANDA'),
         lotes: it.lotes.map((l) => ({
           lote: l.lote,
           fechaVencimiento: l.fechaVencimiento,

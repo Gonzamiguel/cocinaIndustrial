@@ -1,5 +1,13 @@
 export type EstadoPlanificacionMenuEmpresa = 'BORRADOR' | 'PUBLICADA' | 'CERRADA'
 
+export type ServicioPedidoEmpresa = 'ALMUERZO' | 'CENA'
+
+export const SERVICIOS_PEDIDO_EMPRESA: ServicioPedidoEmpresa[] = ['ALMUERZO', 'CENA']
+
+export function labelServicioPedidoEmpresa(s: ServicioPedidoEmpresa): string {
+  return s === 'CENA' ? 'Cena' : 'Almuerzo'
+}
+
 export interface PlanificacionOpcionMenu {
   menuId: string
   nombre: string

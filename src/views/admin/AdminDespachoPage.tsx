@@ -7,7 +7,7 @@ import {
   useInventarioScanner,
   type EscaneoInventario,
 } from '../../hooks/useInventarioScanner'
-import { exportarRemitoDespachoPdf } from '../../lib/despachoRemitoPdf'
+import { exportarRemitoDespachoPdf, exportarRemitoOperativoInternoPdf } from '../../lib/despachoRemitoPdf'
 import {
   loteKeyMenu,
   ordenarLotesFifo,
@@ -498,7 +498,11 @@ export function AdminDespachoPage() {
       <ModalDespachoRemitoDetalle
         remito={remitoDetalle}
         onClose={() => setRemitoDetalle(null)}
-        onDescargarPdf={descargarPdf}
+        onDescargarPdfFormal={descargarPdf}
+        onDescargarPdfOperativo={(r) => {
+          exportarRemitoOperativoInternoPdf(r)
+          showToast('PDF operativo generado.', 'success')
+        }}
       />
 
       <header className="shrink-0 border-b border-neutral-200 bg-white px-4 py-4 sm:px-6 lg:px-8">

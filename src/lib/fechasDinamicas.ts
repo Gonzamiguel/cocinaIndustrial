@@ -104,6 +104,40 @@ export function parseYmdLocal(ymd: string): Date {
   return new Date(y, m - 1, day, 12, 0, 0, 0)
 }
 
+/** Lunes a domingo desde el lunes indicado. */
+export function getSemanaCompletaDesde(lunes: Date): DiaConsumo[] {
+  const inicio = crearFechaLocalSegura(lunes)
+  const resultado: DiaConsumo[] = []
+  for (let i = 0; i < 7; i++) {
+    const fecha = new Date(inicio)
+    fecha.setDate(inicio.getDate() + i)
+    resultado.push({
+      fecha,
+      fechaConsumo: formatFechaConsumoLabel(fecha),
+    })
+  }
+  return resultado
+}
+
+export function getProximaSemanaCompleta(ahora: Date = new Date()): {
+  lunes: Date
+  lunesYmd: string
+  domingoYmd: string
+  dias: DiaConsumo[]
+} {
+  const lunesActual = getLunesSemana(ahora)
+  const lunes = new Date(lunesActual)
+  lunes.setDate(lunesActual.getDate() + 7)
+  const dias = getSemanaCompletaDesde(lunes)
+  const domingo = dias[dias.length - 1]?.fecha ?? lunes
+  return {
+    lunes,
+    lunesYmd: formatYmdLocal(lunes),
+    domingoYmd: formatYmdLocal(domingo),
+    dias,
+  }
+}
+
 /** Lunes a viernes desde el lunes indicado. */
 export function getSemanaLaborableDesde(lunes: Date): DiaConsumo[] {
   const inicio = crearFechaLocalSegura(lunes)
@@ -146,11 +180,11 @@ export function desplazarSemanaLaborable(lunesYmd: string, deltaSemanas: number)
 } {
   const lunes = parseYmdLocal(lunesYmd)
   lunes.setDate(lunes.getDate() + deltaSemanas * 7)
-  const dias = getSemanaLaborableDesde(lunes)
-  const viernes = dias[dias.length - 1]?.fecha ?? lunes
+  const dias = getSemanaCompletaDesde(lunes)
+  const fin = dias[dias.length - 1]?.fecha ?? lunes
   return {
     lunesYmd: formatYmdLocal(lunes),
-    viernesYmd: formatYmdLocal(viernes),
+    viernesYmd: formatYmdLocal(fin),
     dias,
   }
 }

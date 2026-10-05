@@ -151,3 +151,18 @@ export function slugCodigoAlimento(nombre: string, maxLen = 4): string {
   if (!raw) return 'XXXX'.slice(0, Math.max(1, maxLen))
   return raw.slice(0, Math.max(1, maxLen))
 }
+
+export function codigoLoteViandaParaRemito(input: {
+  lote?: string | null
+  codigoTrazabilidad?: string | null
+}): string {
+  const lote = input.lote?.trim() ?? ''
+  const traz = input.codigoTrazabilidad?.trim() ?? ''
+  if (pareceCodigoLoteProduccion(lote) && lote.toUpperCase().startsWith(PREFIJO_LOTE_VIANDA)) {
+    return lote.toUpperCase()
+  }
+  if (pareceCodigoLoteProduccion(traz) && traz.toUpperCase().startsWith(PREFIJO_LOTE_VIANDA)) {
+    return traz.toUpperCase()
+  }
+  return lote || traz || '—'
+}

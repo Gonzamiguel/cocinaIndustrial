@@ -8,9 +8,14 @@ import {
   Download,
   Factory,
   PackageCheck,
+  Printer,
   Search,
   Truck,
 } from 'lucide-react'
+import {
+  ModalEtiquetaProduccionCocina,
+  etiquetaDataDesdeProduccion,
+} from '../../components/cocina/ModalEtiquetaProduccionCocina'
 import { useToast } from '../../context/ToastContext'
 import {
   filtrarDespachosPorProduccionId,
@@ -151,6 +156,8 @@ export function AdminTrazabilidadViandaPage() {
   const [busqueda, setBusqueda] = useState('')
   const [seleccionada, setSeleccionada] = useState<ProduccionCocinaRegistro | null>(null)
   const [cargandoId, setCargandoId] = useState(false)
+  const [etiquetaOpen, setEtiquetaOpen] = useState(false)
+  const [etiquetaCopias, setEtiquetaCopias] = useState(1)
 
   const paramProduccionId = searchParams.get('produccionId')?.trim() ?? ''
   const paramLote = searchParams.get('lote')?.trim() ?? ''
@@ -296,6 +303,19 @@ export function AdminTrazabilidadViandaPage() {
                   </p>
                   <button
                     type="button"
+                    onClick={() => {
+                      setEtiquetaCopias(
+                        Math.max(1, Math.floor(seleccionada.cantidadPorciones) || 1),
+                      )
+                      setEtiquetaOpen(true)
+                    }}
+                    className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-[#CD1818]/25 bg-[#CD1818]/5 px-3 text-xs font-semibold text-[#CD1818] hover:bg-[#CD1818]/10"
+                  >
+                    <Printer className="h-3.5 w-3.5" aria-hidden />
+                    Reimprimir etiqueta
+                  </button>
+                  <button
+                    type="button"
                     onClick={handleDescargarPdf}
                     className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-[#CD1818]/25 bg-white px-3 text-xs font-semibold text-[#CD1818] hover:bg-[#CD1818]/5"
                   >
@@ -345,6 +365,12 @@ export function AdminTrazabilidadViandaPage() {
           </>
         )}
       </div>
+      <ModalEtiquetaProduccionCocina
+        open={etiquetaOpen && seleccionada !== null}
+        onClose={() => setEtiquetaOpen(false)}
+        data={seleccionada ? etiquetaDataDesdeProduccion(seleccionada) : null}
+        copias={etiquetaCopias}
+      />
     </div>
   )
 }

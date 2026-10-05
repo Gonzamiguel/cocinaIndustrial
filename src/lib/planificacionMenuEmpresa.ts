@@ -17,8 +17,8 @@ import { getDb } from './firebase'
 import {
   formatFechaConsumoLabel,
   formatYmdLocal,
-  getProximaSemanaLaborable,
-  getSemanaLaborableDesde,
+  getProximaSemanaCompleta,
+  getSemanaCompletaDesde,
   parseYmdLocal,
   type DiaConsumo,
 } from './fechasDinamicas'
@@ -183,8 +183,8 @@ export function semanaLaborableDefault(): {
   viernesYmd: string
   dias: DiaConsumo[]
 } {
-  const { lunesYmd, viernesYmd, dias } = getProximaSemanaLaborable()
-  return { lunesYmd, viernesYmd, dias }
+  const { lunesYmd, domingoYmd, dias } = getProximaSemanaCompleta()
+  return { lunesYmd, viernesYmd: domingoYmd, dias }
 }
 
 export async function fetchPlanificacionMenuEmpresa(
@@ -341,13 +341,34 @@ export function diasConsumoDesdePlanificacion(plan: PlanificacionMenuEmpresa): D
   }))
 }
 
+export type SeleccionServicioMenu = {
+  principalId: string | null
+  guarnicionId: string | null
+}
+
+export type SeleccionDiaMenuEmpresa = {
+  ALMUERZO: SeleccionServicioMenu
+  CENA: SeleccionServicioMenu
+}
+
+export function seleccionServicioVacia(): SeleccionServicioMenu {
+  return { principalId: null, guarnicionId: null }
+}
+
+export function seleccionDiaMenuVacia(): SeleccionDiaMenuEmpresa {
+  return {
+    ALMUERZO: seleccionServicioVacia(),
+    CENA: seleccionServicioVacia(),
+  }
+}
+
 /** El empleado elige; no pre-cargamos platos. */
 export function seleccionInicialDesdePlanificacion(
   plan: PlanificacionMenuEmpresa,
-): Record<string, { principalId: string | null; guarnicionId: string | null }> {
-  const m: Record<string, { principalId: string | null; guarnicionId: string | null }> = {}
+): Record<string, SeleccionDiaMenuEmpresa> {
+  const m: Record<string, SeleccionDiaMenuEmpresa> = {}
   for (const d of plan.dias) {
-    m[d.fechaConsumo] = { principalId: null, guarnicionId: null }
+    m[d.fechaConsumo] = seleccionDiaMenuVacia()
   }
   return m
 }
@@ -372,6 +393,7 @@ export function validarLineasContraPlanificacion(
     fechaConsumo: string
     principalId: string | null
     guarnicionId: string | null
+    servicio?: 'ALMUERZO' | 'CENA'
   }[],
 ): string | null {
   for (const line of lineas) {
@@ -408,7 +430,7 @@ export function reconstruirDiasSiCambioSemana(
   diasActuales: PlanificacionDiaMenuEmpresa[],
 ): PlanificacionDiaMenuEmpresa[] {
   const lunes = parseYmdLocal(semanaInicioYmd)
-  const diasSemana = getSemanaLaborableDesde(lunes)
+  const diasSemana = getSemanaCompletaDesde(lunes)
   const porYmd = new Map(diasActuales.map((d) => [d.fechaYmd, d]))
   return buildDiasVaciosPlanificacion(diasSemana).map((vacío) => {
     const prev = porYmd.get(vacío.fechaYmd)

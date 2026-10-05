@@ -305,6 +305,7 @@ export function AdminProduccionCocinaTab({
   }, [modalidad, principalReceta, guarnicionReceta])
 
   const recetaPrincipalRef = principalReceta ?? guarnicionReceta
+  void recetaPrincipalRef
 
   const codigosCortosUsados = useMemo(() => {
     const list: string[] = []

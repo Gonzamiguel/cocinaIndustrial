@@ -1,541 +1,408 @@
-# Arquitectura de la aplicación — Roles, módulos e interacciones
+# Arquitectura de la aplicación — Roles, módulos y alcances
 
-Documento de referencia del sistema **Cocina Industrial**: roles, rutas activas, flujos entre áreas y estado del MVP.
+Documento de referencia del sistema **Cocina Industrial**: identidad, **9 roles**, rutas montadas, funciones por módulo, flujos entre áreas y brechas conocidas.
 
-**Fuentes:** `src/App.tsx`, `src/lib/rbac.ts`, `src/context/AuthContext.tsx`, `firestore.rules`, `docs/MODULO_A_COMPRAS.md`, `docs/MODULO_B_TESORERIA.md`, `docs/MODULO_C_FACTURACION.md`.
+**Fuentes de verdad:** `src/App.tsx`, `src/lib/rbac.ts`, `src/context/AuthContext.tsx`, `src/components/layouts/ControlSidebar.tsx`, `firestore.rules`.
 
-### Modelo de roles (Segregación de Funciones — SoD)
-
-El sistema usa **6 roles** definidos en `AuthContext`. Los roles legacy (`admin_campamento`, `hoteleria_casposo`, `jefe_campamento`, `terminal_comedor`) fueron **reemplazados** y deben migrarse en `usuarios/{uid}.rol`.
-
-| # | Rol | Ámbito principal |
-|---|-----|------------------|
-| 1 | `administrativo_campamento` | Operativo campamento + terminal (sin finanzas) |
-| 2 | `admin_deposito` | Depósito central |
-| 3 | `admin_cocina` | Cocina central |
-| 4 | `administrativo_finanzas` | Oficina: OC, tesorería, liquidaciones (sin aprobar OC) |
-| 5 | `gerencia` | Directivo: aprueba OC + lectura total |
-| 6 | `analista` | BI: lectura total, sin escritura |
-
-### Rutas activas en el MVP (montadas en `App.tsx`)
-
-| Prefijo | Roles | Estado |
-|---------|-------|--------|
-| `/control` | `administrativo_campamento`, `administrativo_finanzas`, `gerencia`, `analista` | **Activo** |
-| `/deposito` | `admin_deposito` | **Activo** |
-| `/terminal` | `administrativo_campamento` | **Activo** |
-| `/admin` | `admin_cocina` | **Activo** |
-| `/campamento` | `administrativo_campamento` | **Activo** (legacy) |
-| `/hoteleria` | `administrativo_campamento` | **Activo** (legacy) |
-| `/analista` | `gerencia`, `analista` | **Activo** (BI legacy) |
-| Vista pública pedidos | anónimo | Comentada (`ClientView`) |
-
-### Iteraciones recientes
-
-| Iter. | Entrega |
-|:-----:|---------|
-| 6–10 | Finanzas MVP: Tesorería, Compras, Liquidaciones backend + UI |
-| 11 | Reactivación rutas legacy + carrusel login |
-| **12** | **SoD: 6 roles, segregación comprador/aprobador/directivo/BI** |
+**Corte:** 1 sep 2026.
 
 ---
 
-## 1. Visión general
+## 1. Qué es el sistema
 
-La aplicación cubre **comedor + hotelería de campamento**, **depósito central**, **cocina** y **finanzas** con segregación de funciones:
+App web (React + Firebase Auth + Firestore) para un **comedor industrial** con:
 
-| Módulo | Área | Sentido del flujo |
-|--------|------|-------------------|
-| **A — Compras** | Cuentas por pagar (proveedores) | Depósito pide → **Finanzas** emite OC → **Gerencia** aprueba → Depósito recibe |
-| **B — Tesorería** | Pagos a proveedores | Factura OC → Orden de pago |
-| **C — Liquidaciones** | Cuentas por cobrar (contratistas) | Consumos operativos → Pre-factura mensual |
+- Quiosco de comedor (registros de acceso)
+- Hotelería de campamento (camas, padrón, pernoctes, limpieza)
+- Logística de campamento (stock Casposo, solicitudes, comandas)
+- Depósito central (insumos, lotes, traslados, requisiciones a compras)
+- Cocina central (menú, producción, pedidos de viandas, despacho, mercadería)
+- Nutrición (recetario técnico y costos)
+- Finanzas (compras/OC, proveedores, tesorería)
+- Liquidaciones a contratistas (cuentas por cobrar)
+- Analista / gerencia (reportes estructurados, no laboratorio SQL)
 
-```mermaid
-flowchart TB
-  subgraph auth [Identidad]
-    FA[Firebase Auth]
-    UP["usuarios/{uid}.rol + ubicacionId"]
-  end
+No hay ABM de usuarios en la UI: el rol vive en `usuarios/{uid}.rol` (Firestore), cargado a mano.
 
-  subgraph ui [UI activa]
-    CTRL["/control — Panel escritorio"]
-    DEP["/deposito — Depósito central"]
-    TERM["/terminal — Quiosco comedor"]
-    ADM["/admin — Cocina"]
-    CAMP["/campamento — Legacy campo"]
-    HOT["/hoteleria — Legacy hotel"]
-    ANA["/analista — BI legacy"]
-  end
+---
 
-  subgraph fin [Finanzas en /control]
-    COMP["Compras — OC"]
-    LIQ["Liquidaciones"]
-    TES["Tesorería"]
-  end
-
-  subgraph sod [Segregación]
-    FINW["administrativo_finanzas — escribe"]
-    GERR["gerencia — aprueba OC + lee"]
-    ANAR["analista — solo lee"]
-  end
-
-  subgraph data [Datos]
-    FS[(Firestore)]
-    RULES[firestore.rules]
-  end
-
-  FA --> UP
-  UP --> CTRL
-  UP --> DEP
-  UP --> TERM
-  UP --> ADM
-  CTRL --> COMP
-  CTRL --> LIQ
-  CTRL --> TES
-  FINW --> COMP
-  FINW --> LIQ
-  FINW --> TES
-  GERR --> COMP
-  CTRL --> FS
-  DEP --> FS
-  TERM --> FS
-  FS --> RULES
-```
-
-### Capas de autorización
+## 2. Capas de autorización
 
 | Capa | Qué controla |
 |------|----------------|
-| **Firebase Auth** | Identidad (email/contraseña) |
-| **`usuarios/{uid}`** | Rol obligatorio; sin rol válido → logout |
-| **`ProtectedRoute`** | Rutas por rol; sub-rutas operativas vs finanzas separadas en `/control` |
-| **`rutaHomePorRol()` / `rolPuedeAccederRuta()`** | Post-login y deep-links |
-| **`firestore.rules`** | Autorización real (SoD en backend) |
-| **Sidebar / botones UI** | Oculta secciones y acciones según rol |
+| **Firebase Auth** | Identidad email/contraseña. Pedidos públicos: sesión **anónima**. |
+| **`usuarios/{uid}`** | `rol` obligatorio + `ubicacionId` opcional. Sin rol válido → logout. |
+| **`ProtectedRoute`** | Sin sesión → `/login`. Rol no permitido → pantalla “Acceso denegado” (no redirige al home del rol). |
+| **`rutaHomePorRol()` / `rolPuedeAccederRuta()`** | Destino post-login y deep-links. |
+| **`firestore.rules`** | Autorización real (SoD). La UI puede mostrar botones que Firestore rechaza. |
+| **Sidebars** | Ocultan secciones según rol. |
 
-### Matriz SoD — Quién escribe qué
+**Ubicación default si el documento no trae `ubicacionId`:**
 
-| Acción | `administrativo_campamento` | `administrativo_finanzas` | `gerencia` | `analista` |
-|--------|:---------------------------:|:-------------------------:|:----------:|:----------:|
-| Padrón, camas, comedor | ✅ | — | 👁 | 👁 |
-| Crear / enviar OC | — | ✅ | 👁 | 👁 |
-| **Aprobar OC** | — | — | ✅ | — |
-| Facturas, OP, liquidaciones | — | ✅ | 👁 | 👁 |
-| Terminal comedor | ✅ | — | — | — |
-
-👁 = solo lectura en UI y reglas (salvo aprobación OC en gerencia).
-
----
-
-## 2. Roles del sistema
-
-Definidos en `src/context/AuthContext.tsx` (`UserRole`).
-
-| Rol | Home post-login | Escritura | Lectura |
-|-----|-----------------|-----------|---------|
-| `administrativo_campamento` | `/control` | Operativo + terminal | — |
-| `administrativo_finanzas` | `/control/compras` | Finanzas (sin aprobar OC) | Finanzas + operativo* |
-| `gerencia` | `/control` | Solo aprobar OC | Todo |
-| `analista` | `/control` | — | Todo |
-| `admin_deposito` | `/deposito` | Depósito + requisiciones | — |
-| `admin_cocina` | `/admin/pedidos` | Cocina | — |
-
-\* Firestore permite lectura operativa a finanzas para liquidaciones y contexto de OC.
-
-**Ubicación default (`ubicacionId`):**
-
-| Rol | Default si no viene en documento |
-|-----|----------------------------------|
+| Rol | Default |
+|-----|---------|
+| `administrativo_campamento`, `control_comedor` | `CASPOSO` |
+| `admin_cocina`, `nutricion` | `COCINA` |
 | `admin_deposito` | `CENTRAL` |
-| `administrativo_campamento` | `CASPOSO` |
-| `admin_cocina` | `COCINA` |
-| `gerencia`, `analista`, `administrativo_finanzas` | solo lo del documento |
+| Resto | solo lo del documento (puede ser `null`) |
 
-### Migración desde roles legacy
-
-| Rol anterior (Firestore) | Rol nuevo |
-|--------------------------|-----------|
-| `admin_campamento`, `hoteleria_casposo`, `jefe_campamento`, `terminal_comedor` | `administrativo_campamento` |
-| Usuario que hacía compras/tesorería en gerencia | `administrativo_finanzas` |
-| Directivo que solo supervisa/aprueba | `gerencia` |
-| `analista` | `analista` (sin cambio) |
-| `admin_deposito`, `admin_cocina` | sin cambio |
-
-### Constantes RBAC (`src/lib/rbac.ts`)
-
-| Constante | Roles |
-|-----------|-------|
-| `ROLES_CONTROL` | Los 4 roles con acceso a `/control` |
-| `ROLES_PANEL_CONTROL` | `administrativo_campamento`, `gerencia`, `analista` — ven menú **Operaciones** |
-| `ROLES_PANEL_CONTROL_ESCRITURA` | `administrativo_campamento` — único escritor operativo |
-| `ROLES_FINANZAS_ESCRITURA` | `administrativo_finanzas` |
-| `ROLES_FINANZAS_LECTURA` | `administrativo_finanzas`, `gerencia`, `analista` — ven menú **Finanzas** |
-| `ROLES_TERMINAL` | `administrativo_campamento` |
-| `ROLES_DEPOSITO` | `admin_deposito` |
-| `ROLES_VISION_GLOBAL_LECTURA` | `analista`, `gerencia`, `administrativo_finanzas` |
-
-**Helpers clave:** `puedeAprobarOc()`, `puedeOperarFinanzas()`, `esRolPanelControlEscritura()`, `rutaHomePorRol()`, `rolPuedeAccederRuta()`.
+**Ubicaciones de stock:** `CENTRAL` (depósito), `COCINA`, `CASPOSO`.
 
 ---
 
-## 3. Módulos activos (rutas montadas)
+## 3. Los 9 roles (de menor a mayor alcance)
 
-### 3.1 Panel `/control` — Operaciones
+Definidos en `AuthContext` (`UserRole`). Orden: silo más chico → visión más amplia.
 
-**Roles ruta (`ROLES_PANEL_CONTROL`):** `administrativo_campamento`, `gerencia`, `analista`
+| # | Rol | Home | Alcance en una frase |
+|---|-----|------|----------------------|
+| 1 | `control_comedor` | `/terminal` | Solo quiosco: registrar comidas. |
+| 2 | `nutricion` | `/nutricion` | Recetario, costos teóricos, desvío ficha vs cocina. No mueve stock ni pedidos. |
+| 3 | `admin_cocina` | `/admin/pedidos` | Menú, producción, pedidos, despacho, pedir mercadería al depósito. |
+| 4 | `admin_deposito` | `/deposito` | Catálogo, stock central, movimientos, requisiciones a compras, recepción OC. |
+| 5 | `administrativo_campamento` | `/campamento/recepcion` | Stock Casposo + hotelería (`/hoteleria`). **No entra a `/control`.** |
+| 6 | `administrativo_liquidaciones` | `/control/liquidaciones` | Solo emitir/anular liquidaciones a contratistas. |
+| 7 | `administrativo_finanzas` | `/control/compras` | OC, proveedores, tesorería. No aprueba OC en UI (ver §12). No opera campamento. |
+| 8 | `analista` | `/control` | Lectura: operaciones `/control`, finanzas, liquidaciones, `/campamento`, `/analista`. Sin escritura. |
+| 9 | `gerencia` | `/control` | Igual que analista en lectura + helper `puedeAprobarOc` (reglas Firestore; **la UI de compras hoy no cablea el botón**). |
 
-**Escritura:** solo `administrativo_campamento`. Gerencia y analista ven pantallas en modo consulta.
-
-| Ruta | Módulo |
-|------|--------|
-| `/control` | Dashboard Comensales |
-| `/control/hoteleria` | Dashboard Hotelería |
-| `/control/padron` | Padrón personas |
-| `/control/empresas` | Padrón empresas |
-| `/control/alojamiento` | Mapa de camas |
-| `/control/reporte-limpieza` | Auditoría limpieza |
-| `/control/facturacion` | Facturación operativa (export Excel) |
-| `/control/configuracion` | Config. hotelería |
-
-> `administrativo_finanzas` **no** accede a estas sub-rutas (bloqueado por `ProtectedRoute`).
-
-**Menú (`ControlSidebar`):** sección **Operaciones** visible solo para `ROLES_PANEL_CONTROL`.
+Roles legacy (`admin_campamento`, `hoteleria_casposo`, `jefe_campamento`, `terminal_comedor`) **no se parsean**: login rechazado hasta migrar `usuarios/{uid}.rol`.
 
 ---
 
-### 3.2 Panel `/control` — Finanzas (Módulos A + B + C)
+## 4. Constantes RBAC (`src/lib/rbac.ts`)
 
-**Roles ruta (`ROLES_FINANZAS_LECTURA`):** `administrativo_finanzas`, `gerencia`, `analista`
+| Constante | Roles | Efecto |
+|-----------|-------|--------|
+| `ROLES_TERMINAL` | `control_comedor` | `/terminal` |
+| `ROLES_NUTRICION` | `nutricion` | `/nutricion` |
+| `ROLES_DEPOSITO` | `admin_deposito` | `/deposito` |
+| `ROLES_LOGISTICA_CAMPAMENTO_ESCRITURA` | `administrativo_campamento` | Opera `/campamento` y `/hoteleria` |
+| `ROLES_LOGISTICA_CAMPAMENTO_LECTURA` | campamento, gerencia, analista | Entran a `/campamento` |
+| `ROLES_CONTROL` | finanzas, liquidaciones, gerencia, analista | Layout `/control` (campamento **ya no**) |
+| `ROLES_PANEL_CONTROL` | gerencia, analista | Subrutas operativas de `/control` (comensales, padrón, camas, facturación sábana) |
+| `ROLES_PANEL_CONTROL_ESCRITURA` | `administrativo_campamento` | Escritura Firestore de padrón/camas (vía `/hoteleria`, no `/control`) |
+| `ROLES_FINANZAS_ESCRITURA` | `administrativo_finanzas` | Crear OC, facturas, OP |
+| `ROLES_FINANZAS_LECTURA` | finanzas, gerencia, analista | `/control/compras`, proveedores, tesorería |
+| `ROLES_LIQUIDACIONES_ESCRITURA` | `administrativo_liquidaciones` | Emitir/anular liquidaciones |
+| `ROLES_LIQUIDACIONES_LECTURA` | liquidaciones, gerencia, analista | `/control/liquidaciones` |
+| `ROLES_VISION_GLOBAL_LECTURA` | analista, gerencia, finanzas, liquidaciones | Lectura transversal sin silo de ubicación |
 
-| Ruta | Módulo | `administrativo_finanzas` | `gerencia` | `analista` |
-|------|--------|:-------------------------:|:----------:|:----------:|
-| `/control/compras` | Bandeja comprador | Crear/enviar OC | Solo **Aprobar** OC | Lectura |
-| `/control/liquidaciones` | Liquidaciones contratistas | Emitir + anular | Lectura | Lectura |
-| `/control/tesoreria` | Facturas y OP | Escritura | Lectura | Lectura |
-
-**Detalle UI:**
-
-| Pantalla | Acciones por rol |
-|----------|------------------|
-| `ComprasAprobacionPage` | Finanzas: Nueva OC, Crear desde requisición, Enviar a aprobación · Gerencia: botón **Aprobar** · Analista: sin botones |
-| `LiquidacionesPage` | Finanzas: wizard emitir + anular · Gerencia/Analista: historial lectura |
-| `TesoreriaDashboardPage` | Finanzas: facturas, OP, anulaciones · Gerencia/Analista: consulta |
-
-**Backend Finanzas:**
-
-| Módulo | Funciones |
-|--------|-----------|
-| A — Compras | `crearOrdenCompra`, `enviarOrdenCompraAprobacion`, `aprobarOrdenCompra`, `registrarRecepcionOcEnIngreso` |
-| B — Tesorería | `registrarFacturaProveedor`, `registrarOrdenPago`, `anularOrdenPago`, `anularFacturaProveedor` |
-| C — Liquidaciones | `generarPreviewLiquidacion`, `emitirLiquidacion`, `anularLiquidacion` |
-
-**Menú:** sección **Finanzas** visible para `ROLES_FINANZAS_LECTURA`. Oculta para `administrativo_campamento`.
+**Helpers:** `rutaHomePorRol()`, `rolPuedeAccederRuta()`, `puedeOperarFinanzas()`, `puedeOperarLiquidaciones()`, `puedeAprobarOc()` (solo `gerencia`; **no usado en vistas**).
 
 ---
 
-### 3.3 Depósito `/deposito`
+## 5. Mapa de rutas
 
-**Rol:** `admin_deposito` — sin cambios respecto al modelo anterior.
+### 5.1 Públicas
+
+| Ruta | Quién | Qué hace | Qué no |
+|------|-------|----------|--------|
+| `/` | — | Redirige a `/login` | Landing |
+| `/login` | Público | Email/password → home del rol | Registro, recuperar clave, SSO, ABM usuarios |
+| `/pedido` | Anónimo | Pedido semanal genérico (7 días, stock, lugar de entrega) | Editar pedido ya enviado |
+| `/pedido/:token` | Anónimo (link empresa) | Pedido atado a planificación publicada | Editar después del envío |
+| `*` | — | Redirige a `/login` | — |
+
+Usuario interno logueado que abre `/pedido` es redirigido a su home.
+
+### 5.2 Prefijos por rol
+
+| Prefijo | Roles | Estado |
+|---------|-------|--------|
+| `/terminal` | `control_comedor` | Activo (quiosco fullscreen) |
+| `/nutricion` | `nutricion` | Activo |
+| `/admin` | `admin_cocina` | Activo |
+| `/deposito` | `admin_deposito` | Activo |
+| `/campamento` | campamento (escribe), gerencia/analista (leen) | Activo — **solo logística/stock** |
+| `/hoteleria` | `administrativo_campamento` | Activo — mapa, padrón, pernoctes, limpieza, config |
+| `/control` | finanzas, liquidaciones, gerencia, analista (subrutas filtradas) | Activo |
+| `/analista` | `gerencia`, `analista` | Activo — 4 reportes estructurados |
+
+**Aliases / redirecciones (no hay pantalla propia):** `/comedor` → `/terminal`; `/admin-cocina` → `/admin/pedidos`; `/admin/dashboard` y `/admin/recetario` → pedidos; `/deposito/solicitudes` y `/deposito/recepcion` → movimientos; `/campamento/comensales` → recepción; `/analista/costos` y `/resumen-mensual` → dashboard; `/analista/logistica` → movimientos; `/analista/produccion` → auditoría; `/control/menu` → `/control`.
+
+---
+
+## 6. Funciones por rol (detalle)
+
+### 6.1 `control_comedor` — alcance mínimo
+
+| | |
+|--|--|
+| **UI** | Solo `/terminal` (sin sidebar) |
+| **Hace** | Elegir servicio (desayuno, almuerzo+refrigerio, merienda, cena, cena nocturna, viandas). Registrar por QR o DNI/nombre sobre padrón (caché offline). Anti-duplicado día/servicio. Cola offline. Historial del dispositivo. Logout. |
+| **No hace** | Editar/borrar registros. Ver dashboards. Entrar a hotelería, depósito, cocina. |
+| **Firestore** | Create en `registros_comedor`. Lectura de `padron_personas`. |
+
+### 6.2 `nutricion`
+
+| Ruta | Función | Alcance |
+|------|---------|---------|
+| `/nutricion` | Dashboard KPIs recetas/costos | Consulta |
+| `/nutricion/recetario` | CRUD fichas técnicas (ingredientes, mermas, costos, dietas, procedimiento, PDF) | Escritura recetas |
+| `/nutricion/ingenieria-menu` | Rankings de pedidos históricos | Solo lectura analítica |
+| `/nutricion/planificacion` | Cruza menú × recetas → costo teórico vianda, PDF | No edita menú ni publica empresas |
+| `/nutricion/produccion-real` | Ficha teórica vs producción cocina (alerta desvío >5%) | No corrige producción |
+
+No opera stock, OC, comensales ni pedidos de clientes.
+
+### 6.3 `admin_cocina`
 
 | Ruta | Función |
 |------|---------|
-| `/deposito/ordenes-compra` | Requisiciones + recepción OC |
-| `/deposito/movimientos` | Movimientos manuales |
-| `/deposito/insumos`, `/inventario`, `/trazabilidad` | Catálogo y stock |
+| `/admin/pedidos` | Pedidos del día: filtros, cantidades, Excel, archivar turno, saltar a despacho |
+| `/admin/menu` | Ítems de menú (nombre, stock, vencimiento) + tab **producción** (lotes, QR, descuenta insumos, suma stock menú) |
+| `/admin/planificacion` | Menú semanal por empresa, publicar token `/pedido/:token`, PDF, alta empresa cliente |
+| `/admin/despacho` | Armar remito viandas (pedidos o manual), FIFO lotes, PDF |
+| `/admin/trazabilidad` | Timeline lote/QR: ingreso → traslado → recepción → producción → despacho |
+| `/admin/mercaderia` | Tabs: solicitar al depósito, remitos a recibir, stock local (heladera). Requiere `ubicacionId` |
+| `/admin/mercaderia/solicitud/:id` | Detalle solicitud, solo lectura |
 
----
+**Recetario no está en cocina:** `/admin/recetario` redirige a pedidos. Vive en nutrición.
 
-### 3.4 Terminal `/terminal`
-
-**Rol:** `administrativo_campamento`
-
-| Función | Detalle |
-|---------|---------|
-| Registro QR / DNI | `TerminalComensalesPage` |
-| Modo offline | Cola local + sync |
-| Firestore | Solo **create** en `registros_comedor` |
-
----
-
-### 3.5 Cocina `/admin`
-
-**Rol:** `admin_cocina` — sin cambios.
+### 6.4 `admin_deposito`
 
 | Ruta | Función |
 |------|---------|
-| `/admin/pedidos` | Home del rol |
-| `/admin/mercaderia` | Solicitudes a depósito |
-| `/admin/menu`, `/recetario`, `/dashboard` | Gestión cocina |
+| `/deposito/dashboard` | Capital inmovilizado, lotes por vencer (15 días), insumos sin rotación (>30 días) |
+| `/deposito/insumos` | CRUD catálogo: nombre, marca, rubro, unidad base (Kg/Lt/Un), empaques con **factor**, costos |
+| `/deposito/configuracion` | CRUD rubros/subrubros |
+| `/deposito/movimientos` | Historial; crear ingreso/egreso/ajuste/decomiso; aprobar solicitudes; PDF remito; Excel de **cabeceras** (no kilos por insumo) |
+| `/deposito/ingreso` | Ingreso contra OC o libre (lotes, vencimiento, comprobante). **No está en el sidebar** (se entra desde Movimientos) |
+| `/deposito/ordenes-compra` | Requisición interna a finanzas. No emite la OC ni recepciona acá |
+| `/deposito/inventario` | Stock actual por insumo/lote en CENTRAL, filtros, Excel |
+| `/deposito/trazabilidad` | Timeline de un lote (red multi-ubicación) |
+
+**Modelo de insumos:** el stock **siempre** se guarda en unidad base. Las “presentaciones de empaque” (caja 15 kg, factor 15) solo convierten al cargar en **Movimientos**. Inventario no cuenta “cajas cerradas vs abiertas”. Solicitudes de cocina/campamento piden en Kg/Lt/Un, no con el conversor.
+
+**Reportes del depósito:** operativos (qué hay ahora, qué vence). No hay “ingresos de carnes esta semana” ni “enviado a Casposo por insumo” como pantalla (eso es dato + Excel en analista).
+
+### 6.5 `administrativo_campamento`
+
+Dos silos. **Ya no hay toggle Comensales/Stock ni acceso a `/control`.**
+
+**Logística (`/campamento`) — menú actual:**
+
+| Ruta | Función |
+|------|---------|
+| `/campamento/recepcion` | Recibir traslados del depósito (remito). Home del rol |
+| `/campamento/solicitud-mercaderia` | Pedir insumos al depósito |
+| `/campamento/solicitud-mercaderia/:id` | Detalle, solo lectura |
+| `/campamento/inventario` | Stock local Casposo |
+| `/campamento/comandas` | Historial de consumo diario |
+| `/campamento/comandas/nueva` | Egreso FIFO del stock local |
+
+**Hotelería (`/hoteleria`) — no aparece en el sidebar de stock; se entra por URL `/hoteleria`:**
+
+| Ruta | Función |
+|------|---------|
+| `/hoteleria/mapa` | Check-in/out, traslados, limpieza, mantenimiento, masivos |
+| `/hoteleria/padron` | CRUD personas, Excel, credencial QR |
+| `/hoteleria/pernoctes` | Reporte noches (consulta; ajustes están en `/control/hoteleria`, que este rol **no ve**) |
+| `/hoteleria/reporte-limpieza` | Consulta + Excel |
+| `/hoteleria/configuracion` | Alta/baja de camas |
+
+**No ve:** dashboard comensales, sábana facturación, padrón empresas, dashboard hotelería, compras, tesorería, liquidaciones, depósito, cocina.
+
+**Escritura Firestore de padrón/camas:** sigue siendo este rol (`panelControlEscritura`).
+
+### 6.6 `administrativo_liquidaciones`
+
+| | |
+|--|--|
+| **UI** | Solo `/control/liquidaciones` |
+| **Hace** | Wizard: preview comedor + pernoctes, precios, IVA, emitir, anular. Historial. |
+| **No hace** | Compras, tesorería, padrón, camas, depósito. |
+
+### 6.7 `administrativo_finanzas`
+
+| Ruta | Función |
+|------|---------|
+| `/control/compras` | Requisiciones, OC, pendientes de facturar. **Crear OC** (hoy sale **APROBADA** directo). Facturar desde OC |
+| `/control/compras/:id` | Expediente OC (3 vías), PDF, adjuntos |
+| `/control/proveedores` | ABM proveedores (empresas con rol proveedor) |
+| `/control/proveedores/:id` | Legajo: OC, facturas, OP, documentos, lista de precios, PDF |
+| `/control/tesoreria` | CxP, vencimientos, facturas, órdenes de pago, adjuntos, anulaciones |
+
+**No hace:** aprobar OC (flujo de gerencia no está en UI), liquidaciones, operativo campamento, depósito.
+
+### 6.8 `analista`
+
+Lectura. Dos puertas:
+
+1. **`/control`** — mismas pantallas operativas y de finanzas/liquidaciones que gerencia, **sin escritura** (Firestore). En hotelería/padrón de `/control` la UI **aún muestra botones de escritura**; fallan en reglas.
+2. **`/analista`** — cuatro reportes **estructurados** (filtros fijos + Excel). No es SQL ni constructor de reportes.
+
+| Ruta | Pregunta que responde |
+|------|------------------------|
+| `/analista/dashboard` | Capital inmovilizado, costo alimentación, decomiso, gráfico egresos vs asistencias |
+| `/analista/liquidaciones` | Comidas + noches por empresa (consulta, no emite) |
+| `/analista/auditoria` | Día a día Casposo (movimientos vs comedor) o cocina (producciones) |
+| `/analista/movimientos` | Líneas de movimiento: insumo, kg/lt/un, rubro, destino. Lo más “libre”; totales en Excel |
+
+También puede entrar a `/campamento` (consulta).
+
+### 6.9 `gerencia`
+
+Igual que analista en lectura ( `/control` + `/analista` + `/campamento` ).
+
+En reglas: único que puede transicionar OC `PENDIENTE_APROBACION` → `APROBADA`. **En la UI actual las OC nuevas se emiten APROBADAS por finanzas**; `puedeAprobarOc` no se usa en vistas.
 
 ---
 
-### 3.6–3.8 Rutas legacy
+## 7. Panel `/control` — quién ve qué
 
-| Prefijo | Rol | Nota |
-|---------|-----|------|
-| `/campamento` | `administrativo_campamento` | Logística campo; operativa principal en `/control` |
-| `/hoteleria` | `administrativo_campamento` | Silo hotelería legacy |
-| `/analista` | `gerencia`, `analista` | BI; Finanzas ERP en `/control/*` |
+`ControlSidebar` arma el menú según rol (sin toggle).
 
----
+| Sección | Ítems | Quién la ve |
+|---------|-------|-------------|
+| Comensales y hotelería | Dashboard comensales, dashboard hotelería, padrón, empresas, mapa, limpieza, facturación sábana, config camas | `gerencia`, `analista` |
+| Stock y pedidos | Recepción, solicitud, inventario Casposo, comandas | `administrativo_campamento` (en layout campamento) |
+| Compras y pagos | OC, proveedores, tesorería | finanzas, gerencia, analista |
+| Liquidaciones | Liquidaciones | liquidaciones, gerencia, analista |
 
-## 4. Flujo inter-roles
+**Facturación `/control/facturacion`:** sábana Excel comedor + pernoctes por DNI. **No emite comprobantes fiscales.**
 
-### 4.1 Cadena Compras → Recepción → Tesorería (SoD)
+**Solape Control vs Hotelería** (mismo componente, dos URLs):
 
-```mermaid
-sequenceDiagram
-  participant DEP as admin_deposito
-  participant FIN as administrativo_finanzas
-  participant GER as gerencia
-  participant ANA as analista
-  participant FS as Firestore
-
-  DEP->>FS: 1. crearRequisicionCompraInterna
-  FIN->>FS: 2. crearOrdenCompra (BORRADOR)
-  FIN->>FS: 3. enviarOrdenCompraAprobacion (PENDIENTE)
-  GER->>FS: 4. aprobarOrdenCompra (APROBADA)
-  Note over ANA: Consulta en /control/compras
-  DEP->>FS: 5. registrarRecepcionOcEnIngreso
-  FIN->>FS: 6. registrarFacturaProveedor
-  FIN->>FS: 7. registrarOrdenPago
-  GER->>FS: Supervisa saldos (lectura)
-  ANA->>FS: Consulta tesorería (lectura)
-```
-
-| Paso | Quién | Acción |
-|:----:|-------|--------|
-| 1 | Depósito | Requisición interna |
-| 2–3 | **Administrativo finanzas** | Crear y enviar OC |
-| 4 | **Gerencia** | Aprobar OC (único rol) |
-| 5 | Depósito | Recepción física |
-| 6–7 | **Administrativo finanzas** | Factura y pago |
-| — | Gerencia / Analista | Supervisión lectura |
-
-**Estados OC:**
-
-```mermaid
-stateDiagram-v2
-  [*] --> BORRADOR: Finanzas crea
-  BORRADOR --> PENDIENTE_APROBACION: Finanzas envía
-  PENDIENTE_APROBACION --> APROBADA: Gerencia aprueba
-  APROBADA --> RECIBIDA_PARCIAL: Depósito recibe
-  RECIBIDA_PARCIAL --> COMPLETADA: Recepción total
-```
+| Pantalla | `/control` (gerencia/analista) | `/hoteleria` (campamento) |
+|----------|:-----------------------------:|:-------------------------:|
+| Mapa de camas | `/control/alojamiento` | `/hoteleria/mapa` |
+| Padrón personas | `/control/padron` | `/hoteleria/padron` |
+| Limpieza | sí | sí |
+| Config camas | sí | sí |
+| Dashboard hotelería | sí | no |
+| Padrón empresas | sí | no |
+| Dashboard comensales | sí | no |
+| Reporte pernoctes | no | sí |
 
 ---
 
-### 4.2 Cadena Liquidaciones (Módulo C)
-
-```mermaid
-sequenceDiagram
-  participant CAMP as administrativo_campamento
-  participant FIN as administrativo_finanzas
-  participant GER as gerencia
-  participant FS as Firestore
-
-  CAMP->>FS: registros_comedor + historial_pernoctes
-  FIN->>FS: generarPreviewLiquidacion
-  FIN->>FS: emitirLiquidacion (EMITIDA)
-  FIN->>FS: anularLiquidacion (si aplica)
-  GER->>FS: consulta historial (lectura)
-```
-
----
-
-### 4.3 Mapa de dependencias (SoD)
+## 8. Flujos entre roles
 
 ```mermaid
 flowchart TB
+  TERM[control_comedor]
   CAMP[administrativo_campamento]
   DEP[admin_deposito]
+  COC[admin_cocina]
+  NUT[nutricion]
   FIN[administrativo_finanzas]
+  LIQ[administrativo_liquidaciones]
   GER[gerencia]
   ANA[analista]
-  COC[admin_cocina]
+  PUB[pedido público]
 
-  CAMP -->|consumos| FIN
+  TERM -->|registros_comedor| LIQ
+  CAMP -->|pernoctes + comedor| LIQ
+  CAMP -->|solicitud traslado| DEP
+  COC -->|solicitud traslado| DEP
   DEP -->|requisición| FIN
-  FIN -->|OC pendiente| GER
-  GER -->|OC aprobada| DEP
-  DEP -->|recibida| FIN
-  FIN -->|factura/OP| ANA
-  FIN -->|liquidación| GER
-  COC -.->|mercadería| DEP
-  CAMP -.->|no finanzas| FIN
+  FIN -->|OC APROBADA| DEP
+  DEP -->|recepción OC| FIN
+  FIN -->|factura / OP| ANA
+  LIQ -->|liquidación| GER
+  PUB -->|pedidos| COC
+  NUT -.->|lee menú y producción| COC
+  DEP -->|egreso Casposo/Cocina| CAMP
+  DEP -->|egreso Cocina| COC
 ```
 
----
+### 8.1 Mercadería depósito → cocina / campamento
 
-## 5. Funciones por rol — Resumen ejecutivo
+1. Cocina o campamento crea `solicitudes_mercaderia`.
+2. Depósito arma **egreso** (lote FIFO) con destino Cocina Central o Campamento Casposo.
+3. Destino **recibe** el remito (`RecepcionTrasladoContenido`).
+4. Campamento consume con **comandas**; cocina consume en **producción**.
 
-### `administrativo_campamento`
+### 8.2 Compras → recepción → tesorería
 
-| Ámbito | Detalle |
-|--------|---------|
-| **UI** | `/control` (operaciones), `/terminal`, legacy `/campamento`, `/hoteleria` |
-| **Escritura** | Comensales, hotelería, padrón, camas, config, terminal |
-| **No ve** | Menú Finanzas |
-| **No puede** | OC, tesorería, liquidaciones, depósito |
+1. Depósito: requisición interna.
+2. Finanzas: crea OC (**hoy estado APROBADA al emitir**).
+3. Depósito: ingreso contra OC (`/deposito/ingreso`) → `registrarRecepcionOcEnIngreso`.
+4. Finanzas: factura proveedor + orden de pago.
 
-### `administrativo_finanzas`
+Estados OC en código: `BORRADOR` → `PENDIENTE_APROBACION` → `APROBADA` → `RECIBIDA_PARCIAL` / `COMPLETADA`. El paso gerencia está en **reglas y funciones**, no en el flujo UI cotidiano.
 
-| Ámbito | Detalle |
-|--------|---------|
-| **UI** | `/control/compras`, `/control/tesoreria`, `/control/liquidaciones` |
-| **Escritura** | Crear/enviar OC, facturas, OP, liquidaciones |
-| **No puede** | Aprobar OC, operativo campamento, depósito |
-| **Home** | `/control/compras` |
+### 8.3 Liquidaciones
 
-### `gerencia`
+Campamento/terminal generan `registros_comedor` e `historial_pernoctes`. Rol liquidaciones arma preview, emite, marca `liquidado`. Gerencia/analista consultan.
 
-| Ámbito | Detalle |
-|--------|---------|
-| **UI** | `/control` completo (operaciones + finanzas) en **lectura** |
-| **Escritura exclusiva** | Aprobar OC (`puedeAprobarOc`) |
-| **Supervisión** | Ve todo; no crea facturas ni liquidaciones |
+### 8.4 Viandas empresas
 
-### `analista`
-
-| Ámbito | Detalle |
-|--------|---------|
-| **UI** | `/control` + `/analista/*` (BI legacy) |
-| **Permiso** | 100% lectura; sin botones de acción en finanzas ni operativo |
-
-### `admin_deposito` / `admin_cocina`
-
-Sin cambios respecto al diseño previo (depósito: requisiciones + recepción; cocina: `/admin/*`).
+Cocina publica planificación → token. Empleado abre `/pedido/:token`. Cocina ve pedidos, produce, despacha remito.
 
 ---
 
-## 6. Matriz UI — Menú sidebar `/control`
-
-| Ítem menú | adm. campamento | adm. finanzas | gerencia | analista |
-|-----------|:---:|:---:|:---:|:---:|
-| Operaciones (comensales, hotel, padrón) | ✅ W | — | ✅ R | ✅ R |
-| Finanzas → Compras | — | ✅ W† | ✅ R‡ | ✅ R |
-| Finanzas → Liquidaciones | — | ✅ W | ✅ R | ✅ R |
-| Finanzas → Tesorería | — | ✅ W | ✅ R | ✅ R |
-| Configuración | ✅ W | — | ✅ R | ✅ R |
-| Terminal `/terminal` | ✅ | — | — | — |
-| Depósito `/deposito` | — | — | — | — |
-| Cocina `/admin` | — | — | — | — |
-
-W = escritura · R = lectura · † = crear/enviar OC · ‡ = solo botón Aprobar OC
-
----
-
-## 7. Matriz Firestore — Finanzas (SoD)
-
-Leyenda: **R** lectura, **W** escritura, **A** aprobación OC, **—** sin acceso.
-
-### 7.1 Compras y tesorería
-
-| Colección | admin_deposito | adm. finanzas | gerencia | analista | adm. campamento |
-|-----------|:---:|:---:|:---:|:---:|:---:|
-| `ordenes_compra` | R + W‡ | R/W (borrador/envío) | R + **A** | R | — |
-| `solicitudes_mercaderia` | R/W req. | R + W† | R | R | — |
-| `facturas_proveedores` | — | R/W | R | R | — |
-| `ordenes_pago` | — | R/W | R | R | — |
-| `contadores/numeracion_oc` | R | R/W | R | — | — |
-| `padron_empresas` | R/W | R/W | R | R | R/W operativo |
-
-- ‡ Depósito: update solo recepción (`depositoActualizaOcRecepcion`).
-- † Finanzas vincula requisición al crear OC (`compradorVinculaRequisicionOc`).
-- **A** Gerencia: `gerenciaApruebaOrdenCompra` (PENDIENTE → APROBADA).
-
-### 7.2 Liquidaciones
-
-| Colección / campo | adm. finanzas | gerencia | analista |
-|-------------------|:---:|:---:|:---:|
-| `liquidaciones_contratistas` | R/W | R | R |
-| `registros_comedor.liquidado` | W (batch) | — | — |
-| `historial_pernoctes.liquidado` | W (batch) | — | — |
-
-Funciones reglas: `isComprador()` = `administrativo_finanzas`; `finanzasEscritura()` / `finanzasLectura()`; `panelControlEscritura()` = solo `administrativo_campamento`.
-
----
-
-## 8. Colecciones Firestore — ERP extendido
-
-*(Sin cambios de nombre respecto a iteraciones anteriores.)*
+## 9. Colecciones Firestore
 
 | Colección | Propósito |
 |-----------|-----------|
-| `ordenes_compra` | OC con estados y segregación comprador/aprobador |
-| `solicitudes_mercaderia` | Requisiciones depósito → finanzas |
-| `facturas_proveedores`, `ordenes_pago` | Tesorería (Módulo B) |
-| `liquidaciones_contratistas` | Pre-facturas contratistas (Módulo C) |
-| `padron_empresas` | Dual PROVEEDOR / CONTRATISTA + `saldoCuentaCorriente` |
+| `usuarios` | `rol`, `ubicacionId` (doc id = UID) |
+| `menu`, `pedidos`, `planificacion_menu_empresa` | Menú y pedidos (público + cocina) |
+| `recetario` | Fichas nutrición |
+| `insumos`, `categorias` | Catálogo depósito |
+| `solicitudes_mercaderia` | Pedidos a depósito **y** requisiciones a compras |
+| `movimientos_inventario` | Ingresos, egresos, ajustes, decomisos (cantidad en unidad base) |
+| `saldo_lotes` | Stock atómico por ubicación/insumo/lote |
+| `produccion_cocina` | Corridas de producción |
+| `despachos_viandas` | Remitos de viandas |
+| `padron_personas`, `padron_empresas` | Personas y empresas (proveedor / contratista / cliente) |
+| `registros_comedor` | Accesos al comedor |
+| `camas`, `historial_limpiezas`, `historial_pernoctes` | Hotelería |
+| `ordenes_compra`, `facturas_proveedores`, `ordenes_pago` | Módulos A/B |
+| `documentos_adjuntos` | Expediente digital |
+| `liquidaciones_contratistas` | Módulo C |
+| `contadores` | Numeración OC / OP / liquidaciones |
 
 ---
 
-## 9. Autenticación
+## 10. Matriz SoD resumida
 
-| Rol | `rutaHomePorRol()` |
-|-----|---------------------|
-| `administrativo_campamento`, `gerencia`, `analista` | `/control` |
-| `administrativo_finanzas` | `/control/compras` |
-| `admin_deposito` | `/deposito` |
-| `admin_cocina` | `/admin/pedidos` |
+| Acción | Terminal | Nutrición | Cocina | Depósito | Campamento | Liquidaciones | Finanzas | Analista | Gerencia |
+|--------|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| Registrar comedor (quiosco) | W | — | — | — | — | — | — | — | — |
+| Recetario | — | W | — | — | — | — | — | — | — |
+| Menú / producción / despacho / pedidos | — | R* | W | — | — | — | — | — | — |
+| Catálogo y stock CENTRAL | — | — | — | W | — | — | — | R† | R† |
+| Stock Casposo / comandas / recepción | — | — | — | — | W | — | — | R | R |
+| Padrón / camas / limpieza | — | — | — | — | W | — | — | R‡ | R‡ |
+| Crear OC / factura / OP | — | — | — | req. | — | — | W | R | R |
+| Aprobar OC (reglas) | — | — | — | — | — | — | — | — | A |
+| Emitir liquidación | — | — | — | — | — | W | — | R | R |
+| Reportes `/analista` | — | — | — | — | — | — | — | R | R |
 
-**Login:** `rolPuedeAccederRuta()` valida deep-links. Roles legacy en Firestore → logout (rol no reconocido).
-
-**Despliegue reglas SoD:**
-```bash
-firebase deploy --only firestore:rules
-```
-
----
-
-## 10. Brechas y pendientes
-
-### 10.1 Compras
-
-| Ítem | Estado |
-|------|--------|
-| SoD comprador vs aprobador | ✅ Hecho (Iter. 12) |
-| Editar borrador OC | ❌ Falta |
-| Rechazar / cancelar OC | ❌ Falta |
-| ABM proveedor en UI | ❌ Falta |
-
-### 10.2 Roles
-
-| Ítem | Estado |
-|------|--------|
-| Migración `usuarios/{uid}.rol` en Firestore | ⚠️ Manual |
-| Menú operativo oculto para finanzas | ✅ Hecho |
-| Menú finanzas oculto para campamento | ✅ Hecho |
-| Gerencia solo lectura en operativo (UI) | ✅ Hecho (reglas + UI) |
-
-### 10.3 Checklist E2E (SoD)
-
-**Compras:**
-1. [ ] Depósito: requisición
-2. [ ] **Administrativo finanzas:** crear OC → enviar
-3. [ ] **Gerencia:** aprobar (sin poder crear OC)
-4. [ ] Depósito: recepcionar
-5. [ ] **Administrativo finanzas:** factura + OP
-6. [ ] **Analista:** ver saldos sin modificar
+\* Nutrición lee menú/producción para costos; no opera cocina.  
+† Vía `/analista/movimientos` y dashboard, no el panel depósito.  
+‡ En `/control`; escritura bloqueada en Firestore. UI de padrón/camas no siempre oculta botones.
 
 ---
 
-## 11. Módulos legacy
+## 11. Alcance analítico (qué se puede saber)
 
-| Prefijo | Rol actual |
-|---------|------------|
-| `/campamento`, `/hoteleria` | `administrativo_campamento` |
-| `/analista` | `gerencia`, `analista` |
+Los datos de “¿cuánta carne ingresó esta semana?” o “¿cuánto se mandó a Casposo en kg por insumo?” **existen** en `movimientos_inventario`.
+
+- **Depósito:** no hay ese reporte; Excel de movimientos es por remito, no por insumo.
+- **Analista → Historial y logística:** filtros fecha / rubro / destino / tipo → Excel de **líneas**. El total se hace en pivot. No hay constructor SQL ni cruce libre (comedor × recetas × OC).
+
+El rol analista es **módulos con rieles**, no laboratorio. Un BI/SQL real exigiría warehouse (p. ej. Firestore → BigQuery), no mutar estas pantallas.
 
 ---
 
-## 12. Discrepancias conocidas
+## 12. Brechas y discrepancias conocidas
 
-1. **Dos ingresos depósito:** manual vs recepción OC — solo el segundo alimenta finanzas.
-2. **Padrón dual:** proveedores y contratistas comparten `saldoCuentaCorriente` con significado distinto.
-3. **Dos UIs liquidaciones:** `/control/liquidaciones` (ERP) vs `/analista/liquidaciones` (Excel legacy).
-4. **Batch billing eventual:** fallo post-emisión requiere reconciliación manual.
-5. **Migración pendiente:** usuarios con roles legacy no pueden iniciar sesión hasta actualizar Firestore.
+1. **`puedeAprobarOc` no se usa en UI.** Finanzas emite OC ya APROBADA. Las reglas siguen contemplando aprobación de gerencia.
+2. **Facturación `/control/facturacion`** es sábana operativa, no AFIP.
+3. **Campamento fuera de `/control`.** Perdió dashboard comensales, empresas, facturación sábana y dashboard hotelería. `/hoteleria` existe pero **no hay enlace** en el menú de stock.
+4. **Ajustes de pernocte** viven en `/control/hoteleria`; campamento no entra ahí.
+5. **Gerencia/analista en padrón/camas `/control`:** UI de escritura visible; Firestore niega.
+6. **Dos UIs de liquidación:** `/control/liquidaciones` (emite) vs `/analista/liquidaciones` (Excel consulta).
+7. **Ingreso depósito vs OC:** ingreso libre no alimenta match 3 vías; sí el ingreso contra OC.
+8. **Stock en kilos, no en cajas.** Abrir una caja y mandar 5 kg es un egreso de 5 kg; no hay “cajas cerradas + sueltos”.
+9. **Un solo campamento** en destinos (`CASPOSO`).
+10. **Sin ABM de usuarios, recuperar contraseña ni SSO.**
+11. **Sin stock mínimo / punto de pedido** ni foto histórica de inventario.
+12. **Analista no es ciencia de datos:** no SQL, no joins ad hoc.
 
 ---
 
@@ -543,13 +410,15 @@ firebase deploy --only firestore:rules
 
 | Concepto | Archivo |
 |----------|---------|
-| Roles (6) | `src/context/AuthContext.tsx` |
-| RBAC SoD | `src/lib/rbac.ts` |
-| Rutas + ProtectedRoute | `src/App.tsx` |
-| Sidebar segregado | `src/components/layouts/ControlSidebar.tsx` |
-| Compras UI SoD | `src/views/control/ComprasAprobacionPage.tsx` |
-| Reglas Firestore SoD | `firestore.rules` |
+| Roles (9) | `src/context/AuthContext.tsx` |
+| RBAC | `src/lib/rbac.ts` |
+| Router | `src/App.tsx` |
+| Sidebar control / campamento | `src/components/layouts/ControlSidebar.tsx` |
+| Sidebars depósito, cocina, nutrición, analista, hotelería | `src/components/*/…Sidebar.tsx` |
+| Presentaciones de empaque | `src/lib/presentacionesInsumo.ts`, `src/types/insumo.ts` |
+| Reglas | `firestore.rules` |
+| Compras / tesorería / liquidaciones (detalle de dominio) | `docs/MODULO_A_COMPRAS.md`, `docs/MODULO_B_TESORERIA.md`, `docs/MODULO_C_FACTURACION.md` |
 
 ---
 
-*Última actualización: mayo 2026 — Iter. 12: Segregación de Funciones con 6 roles. Comprador (`administrativo_finanzas`) separado de aprobador (`gerencia`). Operativo unificado en `administrativo_campamento`.*
+*Última actualización: 1 sep 2026 — 9 roles. Campamento: solo stock en `/campamento` + hotelería en `/hoteleria` (sin `/control`). Terminal = `control_comedor`. Liquidaciones separadas de finanzas. Nutrición con recetario. Pedidos públicos activos. Analista = reportes estructurados.*

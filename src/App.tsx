@@ -340,7 +340,10 @@ export default function App() {
         <Route path="inventario" element={<CampamentoInventarioPage />} />
         <Route path="comandas/nueva" element={<CampamentoNuevaComandaPage />} />
         <Route path="comandas" element={<CampamentoComandasPage />} />
-        <Route path="comensales" element={<DashboardComensalesPage />} />
+        <Route
+          path="comensales"
+          element={<Navigate to="/campamento/recepcion" replace />}
+        />
       </Route>
 
       <Route

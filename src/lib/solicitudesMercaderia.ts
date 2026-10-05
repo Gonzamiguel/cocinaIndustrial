@@ -88,7 +88,18 @@ export interface SolicitudMercaderia {
   /** OC generada por Compras/Gerencia a partir de esta requisición. */
   ordenCompraId?: string
   ordenCompraNumero?: string
+  planificacionProduccionId?: string
+  pedidoCocina?: PedidoCocinaLinea[]
   items: ItemSolicitudMercaderia[]
+}
+
+export type PedidoCocinaLinea = {
+  fechaYmd: string
+  recetaId: string
+  recetaNombre: string
+  recetaCodigo: string
+  tipo: 'VIANDA' | 'GRANEL'
+  cantidad: number
 }
 
 export interface CrearSolicitudMercaderiaInput {
@@ -98,6 +109,9 @@ export interface CrearSolicitudMercaderiaInput {
   /** Ubicación operativa del usuario que envía la solicitud. */
   ubicacionSolicitanteId?: string | null
   tipoSolicitud?: TipoSolicitudMercaderia
+  planificacionProduccionId?: string
+  /** Pedido de viandas/granel a cocina (campamento). */
+  pedidoCocina?: PedidoCocinaLinea[]
 }
 
 function mapItem(raw: unknown): ItemSolicitudMercaderia | null {
@@ -194,6 +208,31 @@ function mapDoc(id: string, data: Record<string, unknown>): SolicitudMercaderia 
     }
   }
 
+  const pedidoCocina: PedidoCocinaLinea[] = []
+  if (Array.isArray(data.pedidoCocina)) {
+    for (const raw of data.pedidoCocina) {
+      if (!raw || typeof raw !== 'object') continue
+      const o = raw as Record<string, unknown>
+      const recetaId = typeof o.recetaId === 'string' ? o.recetaId.trim() : ''
+      const cantidad = Number(o.cantidad)
+      const fechaYmd = typeof o.fechaYmd === 'string' ? o.fechaYmd.trim() : ''
+      if (!recetaId || !fechaYmd || !Number.isFinite(cantidad) || cantidad <= 0) continue
+      pedidoCocina.push({
+        fechaYmd,
+        recetaId,
+        recetaNombre: typeof o.recetaNombre === 'string' ? o.recetaNombre : '',
+        recetaCodigo: typeof o.recetaCodigo === 'string' ? o.recetaCodigo : '',
+        tipo: o.tipo === 'GRANEL' ? 'GRANEL' : 'VIANDA',
+        cantidad,
+      })
+    }
+  }
+
+  const planificacionProduccionId =
+    typeof data.planificacionProduccionId === 'string' && data.planificacionProduccionId.trim()
+      ? data.planificacionProduccionId.trim()
+      : undefined
+
   return {
     id,
     fechaCreacion,
@@ -206,6 +245,8 @@ function mapDoc(id: string, data: Record<string, unknown>): SolicitudMercaderia 
     ...(ubicacionSolicitanteId ? { ubicacionSolicitanteId } : {}),
     ...(ordenCompraId ? { ordenCompraId } : {}),
     ...(ordenCompraNumero ? { ordenCompraNumero } : {}),
+    ...(planificacionProduccionId ? { planificacionProduccionId } : {}),
+    ...(pedidoCocina.length > 0 ? { pedidoCocina } : {}),
     items,
   }
 }
@@ -267,7 +308,7 @@ export function subscribeSolicitudMercaderiaPorId(
 
 export async function crearSolicitudMercaderia(
   input: CrearSolicitudMercaderiaInput,
-): Promise<void> {
+): Promise<string> {
   const items = input.items
     .map((it) => {
       const base = {
@@ -292,7 +333,7 @@ export async function crearSolicitudMercaderia(
   const db = getDb()
   const ubicSol = input.ubicacionSolicitanteId?.trim().toUpperCase()
   const tipoSolicitud = input.tipoSolicitud ?? 'TRASLADO_INTERNO'
-  await addDoc(collection(db, COLLECTION_SOLICITUDES), {
+  const ref = await addDoc(collection(db, COLLECTION_SOLICITUDES), {
     fechaCreacion: serverTimestamp(),
     fechaEntregaEsperada: input.fechaEntregaEsperada.trim(),
     prioridad: input.prioridad,
@@ -301,15 +342,22 @@ export async function crearSolicitudMercaderia(
     observacionesDeposito: '',
     observacionesRecepcion: '',
     ...(ubicSol ? { ubicacionSolicitanteId: ubicSol } : {}),
+    ...(input.planificacionProduccionId
+      ? { planificacionProduccionId: input.planificacionProduccionId }
+      : {}),
+    ...(input.pedidoCocina && input.pedidoCocina.length > 0
+      ? { pedidoCocina: input.pedidoCocina }
+      : {}),
     items,
   })
+  return ref.id
 }
 
 /** Requisición interna de compra (depósito → área Compras/Gerencia). */
 export async function crearRequisicionCompraInterna(
   input: Omit<CrearSolicitudMercaderiaInput, 'tipoSolicitud'>,
 ): Promise<void> {
-  return crearSolicitudMercaderia({
+  await crearSolicitudMercaderia({
     ...input,
     tipoSolicitud: 'REQUISICION_COMPRA',
   })

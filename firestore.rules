@@ -273,6 +273,37 @@ service cloud.firestore {
         && (
           !request.resource.data.keys().hasAny(['fechaConsumo'])
           || request.resource.data.fechaConsumo is string
+        )
+        && (
+          !request.resource.data.keys().hasAny(['dni'])
+          || (
+            request.resource.data.dni is string
+            && request.resource.data.dni.size() >= 7
+            && request.resource.data.dni.size() <= 9
+          )
+        )
+        && (
+          !request.resource.data.keys().hasAny(['servicio'])
+          || request.resource.data.servicio == 'ALMUERZO'
+          || request.resource.data.servicio == 'CENA'
+        );
+    }
+
+    function lockPedidoUnicoEmpresaValido() {
+      return request.resource.data.keys().hasAll(['planificacionId', 'dni', 'fechaConsumo'])
+        && request.resource.data.planificacionId is string
+        && request.resource.data.dni is string
+        && request.resource.data.dni.size() >= 7
+        && request.resource.data.dni.size() <= 9
+        && request.resource.data.fechaConsumo is string
+        && (
+          !request.resource.data.keys().hasAny(['fechaYmd'])
+          || request.resource.data.fechaYmd is string
+        )
+        && (
+          !request.resource.data.keys().hasAny(['servicio'])
+          || request.resource.data.servicio == 'ALMUERZO'
+          || request.resource.data.servicio == 'CENA'
         );
     }
 
@@ -661,6 +692,18 @@ service cloud.firestore {
       allow delete: if isAdminCocina();
     }
 
+    /**
+     * Lock anti-duplicado B2B: un DNI por planificación y día de consumo.
+     * `get` anónimo es necesario para la transacción; `list` queda restringido al staff.
+     */
+    match /pedidos_unicos_empresa/{lockId} {
+      allow get: if isClientePedido()
+        || (signedIn() && (isAdminCocina() || isNutricion() || isAnalista() || isGerencia()));
+      allow list: if signedIn() && (isAdminCocina() || isNutricion() || isAnalista() || isGerencia());
+      allow create: if isClientePedido() && lockPedidoUnicoEmpresaValido();
+      allow update, delete: if false;
+    }
+
     match /planificacion_menu_empresa/{planId} {
       allow read: if signedIn() && (
         isAdminCocina() || isNutricion() || isAnalista() || isGerencia()
@@ -682,6 +725,12 @@ service cloud.firestore {
     match /recetario/{docId} {
       allow read: if signedIn() && (isAdminCocina() || isNutricion() || isAdminDeposito() || isAnalista() || isGerencia());
       allow create, update, delete: if isNutricion();
+    }
+
+    match /planificacion_produccion_cocina/{id} {
+      allow read: if signedIn() && (isAdminCocina() || isNutricion() || isAdminDeposito() || isAnalista() || isGerencia());
+      allow create, update: if signedIn() && isAdminCocina();
+      allow delete: if false;
     }
 
     match /solicitudes_mercaderia/{id} {

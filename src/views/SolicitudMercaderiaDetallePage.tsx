@@ -178,6 +178,38 @@ export function SolicitudMercaderiaDetallePage() {
               </div>
             ) : null}
 
+            {solicitud.pedidoCocina && solicitud.pedidoCocina.length > 0 ? (
+              <section>
+                <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-[#CD1818]">
+                  Pedido a cocina (viandas / granel)
+                </h2>
+                <div className="overflow-x-auto rounded-xl border border-neutral-200 bg-white shadow-sm">
+                  <table className="w-full min-w-[560px] border-collapse text-left text-sm">
+                    <thead>
+                      <tr className="border-b border-neutral-200 bg-neutral-50 text-xs uppercase tracking-wide text-neutral-600">
+                        <th className="px-4 py-3 font-semibold">Día</th>
+                        <th className="px-4 py-3 font-semibold">Código</th>
+                        <th className="px-4 py-3 font-semibold">Elaboración</th>
+                        <th className="px-4 py-3 font-semibold">Tipo</th>
+                        <th className="px-4 py-3 font-semibold">Cantidad</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-neutral-100">
+                      {solicitud.pedidoCocina.map((l, idx) => (
+                        <tr key={`${l.recetaId}-${idx}`}>
+                          <td className="px-4 py-3">{l.fechaYmd}</td>
+                          <td className="px-4 py-3 font-mono">{l.recetaCodigo || '—'}</td>
+                          <td className="px-4 py-3 font-medium">{l.recetaNombre}</td>
+                          <td className="px-4 py-3">{l.tipo === 'GRANEL' ? 'Granel' : 'Vianda'}</td>
+                          <td className="px-4 py-3 tabular-nums">{l.cantidad}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            ) : null}
+
             <section>
               <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-[#CD1818]">
                 Insumos pedidos

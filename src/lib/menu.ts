@@ -17,6 +17,13 @@ import {
   type Unsubscribe,
 } from 'firebase/firestore'
 import { getDb } from './firebase'
+import { sanitizarDniInput } from './padronFormInput'
+import {
+  COL_PEDIDOS_UNICOS_EMPRESA,
+  dniPedidoEmpresaValido,
+  idPedidoUnicoEmpresa,
+  ymdDesdeFechaConsumoLabel,
+} from './pedidosUnicosEmpresa'
 
 export type CategoriaMenu = 'principal' | 'guarnicion'
 
@@ -79,6 +86,10 @@ export interface PedidoDelDia {
   empresaId?: string
   empresaNombre?: string
   planificacionId?: string
+  /** Documento del comensal (portal B2B). */
+  dni?: string
+  /** Almuerzo o cena (formulario empresa). */
+  servicio?: 'ALMUERZO' | 'CENA'
   despachoId?: string
   numeroRemito?: string
 }
@@ -131,6 +142,9 @@ function mapPedidoDoc(id: string, data: Record<string, unknown>): PedidoDelDia {
       typeof data.empresaNombre === 'string' ? data.empresaNombre : undefined,
     planificacionId:
       typeof data.planificacionId === 'string' ? data.planificacionId : undefined,
+    dni: typeof data.dni === 'string' && data.dni.trim() ? data.dni.trim() : undefined,
+    servicio:
+      data.servicio === 'CENA' || data.servicio === 'ALMUERZO' ? data.servicio : undefined,
     despachoId: typeof data.despachoId === 'string' ? data.despachoId : undefined,
     numeroRemito:
       typeof data.numeroRemito === 'string' ? data.numeroRemito : undefined,
@@ -770,6 +784,9 @@ export interface LineaPedidoSemanal {
   fechaConsumo: string
   principalId: string | null
   guarnicionId: string | null
+  /** YYYY-MM-DD local del servicio (almuerzo del día). */
+  fechaYmd?: string
+  servicio?: 'ALMUERZO' | 'CENA'
 }
 
 export interface ConfirmarPedidoSemanalInput {
@@ -779,6 +796,8 @@ export interface ConfirmarPedidoSemanalInput {
   empresaId?: string
   empresaNombre?: string
   planificacionId?: string
+  /** Obligatorio en pedidos B2B (token de empresa). */
+  dni?: string
 }
 
 /**
@@ -796,10 +815,17 @@ export async function confirmarPedidoSemanalConTransaccion(
     throw new Error('Falta el lugar de entrega')
   }
   const lugarEntrega = input.lugarEntrega.trim()
-  const esPedidoEmpresa = Boolean(input.empresaNombre?.trim())
+  const esPedidoEmpresa = Boolean(input.empresaNombre?.trim() || input.planificacionId?.trim())
   if (!esPedidoEmpresa && !esLugarEntregaValido(lugarEntrega)) {
     throw new Error('Elegí un lugar de entrega válido')
   }
+
+  const dni = sanitizarDniInput(input.dni ?? '')
+  if (esPedidoEmpresa && !dniPedidoEmpresaValido(dni)) {
+    throw new Error('Ingresá un DNI válido (7 a 9 dígitos) para este servicio.')
+  }
+
+  const planificacionId = input.planificacionId?.trim() ?? ''
 
   const lineasValidadas: LineaPedidoSemanal[] = []
 
@@ -821,10 +847,17 @@ export async function confirmarPedidoSemanalConTransaccion(
       throw new Error('Falta la fecha de consumo en una línea del pedido')
     }
 
+    const fechaYmd =
+      raw.fechaYmd?.trim() || ymdDesdeFechaConsumoLabel(fechaConsumo) || ''
+
     lineasValidadas.push({
       fechaConsumo,
       principalId: tienePrincipal ? raw.principalId : null,
       guarnicionId: tieneGuarnicion ? raw.guarnicionId : null,
+      ...(fechaYmd ? { fechaYmd } : {}),
+      ...(raw.servicio === 'CENA' || raw.servicio === 'ALMUERZO'
+        ? { servicio: raw.servicio }
+        : {}),
     })
   }
 
@@ -870,6 +903,45 @@ export async function confirmarPedidoSemanalConTransaccion(
       cache.set(menuId, item)
     }
 
+    const lockRefs: {
+      ref: ReturnType<typeof doc>
+      fechaConsumo: string
+      fechaYmd: string
+      servicio: 'ALMUERZO' | 'CENA'
+    }[] = []
+    if (esPedidoEmpresa) {
+      if (!planificacionId) {
+        throw new Error('Falta la planificación de la empresa para validar el DNI.')
+      }
+      const vistos = new Set<string>()
+      for (const line of lineasValidadas) {
+        const fechaYmd =
+          line.fechaYmd?.trim() || ymdDesdeFechaConsumoLabel(line.fechaConsumo) || ''
+        if (!fechaYmd) {
+          throw new Error('No se pudo determinar la fecha del servicio para el DNI.')
+        }
+        const servicio = line.servicio === 'CENA' ? 'CENA' : 'ALMUERZO'
+        const lockId = idPedidoUnicoEmpresa(planificacionId, dni, fechaYmd, servicio)
+        if (vistos.has(lockId)) continue
+        vistos.add(lockId)
+        lockRefs.push({
+          ref: doc(db, COL_PEDIDOS_UNICOS_EMPRESA, lockId),
+          fechaConsumo: line.fechaConsumo,
+          fechaYmd,
+          servicio,
+        })
+      }
+      for (const lock of lockRefs) {
+        const snap = await transaction.get(lock.ref)
+        if (snap.exists()) {
+          const labelSrv = lock.servicio === 'CENA' ? 'cena' : 'almuerzo'
+          throw new Error(
+            `Ya existe un pedido con el DNI ${dni} para ${lock.fechaConsumo} (${labelSrv}). No se puede reenviar el mismo servicio.`,
+          )
+        }
+      }
+    }
+
     for (const line of lineasValidadas) {
       const p = line.principalId ? cache.get(line.principalId) ?? null : null
       const g = line.guarnicionId ? cache.get(line.guarnicionId) ?? null : null
@@ -912,10 +984,27 @@ export async function confirmarPedidoSemanalConTransaccion(
       if (input.empresaNombre?.trim()) {
         pedidoData.empresaNombre = input.empresaNombre.trim()
       }
-      if (input.planificacionId?.trim()) {
-        pedidoData.planificacionId = input.planificacionId.trim()
+      if (planificacionId) {
+        pedidoData.planificacionId = planificacionId
+      }
+      if (dni) {
+        pedidoData.dni = dni
+      }
+      if (line.servicio === 'CENA' || line.servicio === 'ALMUERZO') {
+        pedidoData.servicio = line.servicio
       }
       transaction.set(pedidoRef, pedidoData)
+    }
+
+    for (const lock of lockRefs) {
+      transaction.set(lock.ref, {
+        planificacionId,
+        dni,
+        fechaConsumo: lock.fechaConsumo,
+        fechaYmd: lock.fechaYmd,
+        servicio: lock.servicio,
+        creadoEn: serverTimestamp(),
+      })
     }
   })
 }

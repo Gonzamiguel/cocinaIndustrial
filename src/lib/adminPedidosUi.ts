@@ -14,6 +14,18 @@ export function ordenFechaConsumo(fechaConsumo: string): number {
   return new Date(Number(yyyy), Number(mm) - 1, Number(dd), 12, 0, 0, 0).getTime()
 }
 
+export function etiquetaServicioPedido(servicio?: 'ALMUERZO' | 'CENA'): string | null {
+  if (servicio === 'CENA') return 'Cena'
+  if (servicio === 'ALMUERZO') return 'Almuerzo'
+  return null
+}
+
+export function etiquetaConsumoPedido(p: PedidoDelDia): string {
+  const dia = p.fechaConsumo?.trim() || '—'
+  const srv = etiquetaServicioPedido(p.servicio)
+  return srv ? `${dia} · ${srv}` : dia
+}
+
 export function etiquetaCortaFechaConsumo(fechaConsumo: string): string {
   const m = fechaConsumo.match(RE_FECHA_CONSUMO)
   if (!m) return fechaConsumo

@@ -7,11 +7,13 @@ import {
   LUGARES_ENTREGA,
   stockDisponibleParaPedidos,
   subscribeMenu,
+  type LineaPedidoSemanal,
   type LugarEntrega,
   type MenuItem,
 } from '../lib/menu'
 import {
   formatEtiquetaPestaña,
+  formatYmdLocal,
   getVentanaRodanteConsumo,
   type DiaConsumo,
 } from '../lib/fechasDinamicas'
@@ -22,10 +24,21 @@ import {
   itemsMenuDesdeOpcionesPlanificadas,
   opcionesGuarnicionesPermitidas,
   opcionesPrincipalesPermitidas,
+  seleccionDiaMenuVacia,
   seleccionInicialDesdePlanificacion,
+  seleccionServicioVacia,
   validarLineasContraPlanificacion,
+  type SeleccionDiaMenuEmpresa,
+  type SeleccionServicioMenu,
 } from '../lib/planificacionMenuEmpresa'
-import type { PlanificacionMenuEmpresa } from '../types/planificacionMenuEmpresa'
+import {
+  SERVICIOS_PEDIDO_EMPRESA,
+  labelServicioPedidoEmpresa,
+  type PlanificacionMenuEmpresa,
+  type ServicioPedidoEmpresa,
+} from '../types/planificacionMenuEmpresa'
+import { sanitizarDniInput } from '../lib/padronFormInput'
+import { dniPedidoEmpresaValido } from '../lib/pedidosUnicosEmpresa'
 
 /** Paleta sobria alineada con dashboard. */
 const TAB_ACTIVO = 'bg-[#CD1818] text-white shadow-sm'
@@ -34,13 +47,10 @@ const TAB_INACTIVO =
 const TAB_COMPLETADO =
   'bg-gray-50 text-[#171717] ring-1 ring-gray-200 hover:bg-gray-100'
 
-type SeleccionDia = {
-  principalId: string | null
-  guarnicionId: string | null
-}
+type SeleccionDia = SeleccionDiaMenuEmpresa
 
 function crearSeleccionVacia(): SeleccionDia {
-  return { principalId: null, guarnicionId: null }
+  return seleccionDiaMenuVacia()
 }
 
 function seleccionInicial(dias: DiaConsumo[]): Record<string, SeleccionDia> {
@@ -62,6 +72,15 @@ function normalizarSelecciones(
   return next
 }
 
+function serviciosDelDia(dia: SeleccionDia): SeleccionServicioMenu[] {
+  return [dia.ALMUERZO, dia.CENA]
+}
+
+function diaTieneSeleccion(dia: SeleccionDia | undefined): boolean {
+  if (!dia) return false
+  return serviciosDelDia(dia).some((s) => Boolean(s.principalId || s.guarnicionId))
+}
+
 function getDiaTabId(fechaConsumo: string): string {
   const slug = fechaConsumo
     .normalize('NFD')
@@ -79,17 +98,21 @@ function validarPedidoSemanal(input: {
   lugarEntrega: LugarEntrega | ''
   hayAlMenosUnDiaConMenú: boolean
   esFormularioEmpresa: boolean
+  dni?: string
 }): string | null {
   const nombre = input.nombreCliente.trim()
   if (!nombre) {
     return 'Por favor, ingresá tu nombre y apellido.'
+  }
+  if (input.esFormularioEmpresa && !dniPedidoEmpresaValido(input.dni ?? '')) {
+    return 'Ingresá tu DNI (7 a 9 dígitos). Un envío por DNI, día y servicio (almuerzo o cena).'
   }
   if (!input.esFormularioEmpresa && !input.lugarEntrega) {
     return 'Por favor, elegí un lugar de entrega.'
   }
   if (!input.hayAlMenosUnDiaConMenú) {
     return input.esFormularioEmpresa
-      ? 'Elegí al menos un día con plato principal o guarnición.'
+      ? 'Elegí al menos un almuerzo o una cena con plato principal o guarnición.'
       : 'Elegí al menos un día dentro de los próximos 7 días con plato principal o guarnición.'
   }
   return null
@@ -116,6 +139,7 @@ export function ClientView() {
   )
 
   const [nombreCliente, setNombreCliente] = useState('')
+  const [dniCliente, setDniCliente] = useState('')
   const [lugarEntrega, setLugarEntrega] = useState<LugarEntrega | ''>('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -225,82 +249,111 @@ export function ClientView() {
   const usoPorItemId = useMemo(() => {
     const m = new Map<string, number>()
     for (const sel of Object.values(selecciones)) {
-      if (sel.principalId) {
-        m.set(sel.principalId, (m.get(sel.principalId) ?? 0) + 1)
-      }
-      if (sel.guarnicionId) {
-        m.set(sel.guarnicionId, (m.get(sel.guarnicionId) ?? 0) + 1)
+      for (const srv of serviciosDelDia(sel)) {
+        if (srv.principalId) {
+          m.set(srv.principalId, (m.get(srv.principalId) ?? 0) + 1)
+        }
+        if (srv.guarnicionId) {
+          m.set(srv.guarnicionId, (m.get(srv.guarnicionId) ?? 0) + 1)
+        }
       }
     }
     return m
   }, [selecciones])
 
-  function disponibleParaDia(menuId: string, fechaConsumo: string): number {
+  function disponibleParaDia(
+    menuId: string,
+    fechaConsumo: string,
+    servicio: ServicioPedidoEmpresa,
+  ): number {
     const base = stockDisponibleParaPedidos(itemsById.get(menuId))
     const usadoGlobal = usoPorItemId.get(menuId) ?? 0
-    const sel = selecciones[fechaConsumo]
-    const enEsteDía =
+    const sel = selecciones[fechaConsumo]?.[servicio]
+    const enEsteServicio =
       (sel?.principalId === menuId ? 1 : 0) +
       (sel?.guarnicionId === menuId ? 1 : 0)
-    return base - usadoGlobal + enEsteDía
+    return base - usadoGlobal + enEsteServicio
   }
 
-  function setPrincipalDia(fechaConsumo: string, principalId: string | null) {
+  function setPrincipalServicio(
+    fechaConsumo: string,
+    servicio: ServicioPedidoEmpresa,
+    principalId: string | null,
+  ) {
     setError(null)
     setSelecciones((prev) => {
       const actual = prev[fechaConsumo] ?? crearSeleccionVacia()
+      const actualSrv = actual[servicio] ?? seleccionServicioVacia()
       const principal = principalId ? itemsById.get(principalId) : null
       const limpiarGuarni =
         !principalId || principal?.aceptaGuarnicion === false
           ? null
-          : actual.guarnicionId
+          : actualSrv.guarnicionId
       return {
         ...prev,
         [fechaConsumo]: {
-          principalId,
-          guarnicionId: limpiarGuarni,
+          ...actual,
+          [servicio]: {
+            principalId,
+            guarnicionId: limpiarGuarni,
+          },
         },
       }
     })
   }
 
-  function setGuarnicionDia(fechaConsumo: string, guarnicionId: string | null) {
+  function setGuarnicionServicio(
+    fechaConsumo: string,
+    servicio: ServicioPedidoEmpresa,
+    guarnicionId: string | null,
+  ) {
     setError(null)
-    setSelecciones((prev) => ({
-      ...prev,
-      [fechaConsumo]: {
-        ...(prev[fechaConsumo] ?? crearSeleccionVacia()),
-        guarnicionId,
-      },
-    }))
+    setSelecciones((prev) => {
+      const actual = prev[fechaConsumo] ?? crearSeleccionVacia()
+      return {
+        ...prev,
+        [fechaConsumo]: {
+          ...actual,
+          [servicio]: {
+            ...(actual[servicio] ?? seleccionServicioVacia()),
+            guarnicionId,
+          },
+        },
+      }
+    })
   }
 
   const lineasParaEnvio = useMemo(() => {
-    const lineas: {
-      fechaConsumo: string
-      principalId: string | null
-      guarnicionId: string | null
-    }[] = []
+    const lineas: LineaPedidoSemanal[] = []
     for (const d of diasDisponibles) {
-      const s = selecciones[d.fechaConsumo] ?? crearSeleccionVacia()
-      const principal = s.principalId ? itemsById.get(s.principalId) : null
-      const aceptaGuarnicion = principal?.aceptaGuarnicion !== false
-      const principalId = s.principalId
-      const guarnicionId = aceptaGuarnicion ? s.guarnicionId : null
-      if (!principalId && !guarnicionId) continue
-      lineas.push({
-        fechaConsumo: d.fechaConsumo,
-        principalId,
-        guarnicionId,
-      })
+      const dia = selecciones[d.fechaConsumo] ?? crearSeleccionVacia()
+      const servicios: ServicioPedidoEmpresa[] = planificacion
+        ? SERVICIOS_PEDIDO_EMPRESA
+        : ['ALMUERZO']
+      for (const servicio of servicios) {
+        const s = dia[servicio] ?? seleccionServicioVacia()
+        const principal = s.principalId ? itemsById.get(s.principalId) : null
+        const aceptaGuarnicion = principal?.aceptaGuarnicion !== false
+        const principalId = s.principalId
+        const guarnicionId = aceptaGuarnicion ? s.guarnicionId : null
+        if (!principalId && !guarnicionId) continue
+        lineas.push({
+          fechaConsumo: d.fechaConsumo,
+          principalId,
+          guarnicionId,
+          fechaYmd: formatYmdLocal(d.fecha),
+          ...(planificacion ? { servicio } : {}),
+        })
+      }
     }
     return lineas
-  }, [diasDisponibles, itemsById, selecciones])
+  }, [diasDisponibles, itemsById, planificacion, selecciones])
 
   const hayAlMenosUnDiaConMenú = lineasParaEnvio.length > 0
 
   function resetForm() {
     setNombreCliente('')
+    setDniCliente('')
     if (!planificacion) {
       setLugarEntrega('')
     }
@@ -321,6 +374,7 @@ export function ClientView() {
       lugarEntrega,
       hayAlMenosUnDiaConMenú,
       esFormularioEmpresa: Boolean(planificacion),
+      dni: dniCliente,
     })
     if (msg) {
       setError(msg)
@@ -348,6 +402,7 @@ export function ClientView() {
               empresaId: planificacion.empresaId,
               empresaNombre: planificacion.empresaNombre,
               planificacionId: planificacion.id,
+              dni: dniCliente,
             }
           : {}),
       })
@@ -378,17 +433,18 @@ export function ClientView() {
   }
 
   function díaTieneMenúElegido(fc: string): boolean {
-    const s = selecciones[fc]
-    return Boolean(s?.principalId || s?.guarnicionId)
+    return diaTieneSeleccion(selecciones[fc])
   }
 
   const fcTarjeta = diaVista?.fechaConsumo
   const selTarjeta = fcTarjeta
     ? (selecciones[fcTarjeta] ?? crearSeleccionVacia())
     : crearSeleccionVacia()
-  const hayPrincipalTarjeta = Boolean(selTarjeta.principalId)
+  const serviciosVisibles: ServicioPedidoEmpresa[] = planificacion
+    ? SERVICIOS_PEDIDO_EMPRESA
+    : ['ALMUERZO']
 
-  function principalesParaDia(fechaConsumo: string, sel: SeleccionDia): MenuItem[] {
+  function principalesParaDia(fechaConsumo: string, sel: SeleccionServicioMenu): MenuItem[] {
     if (planificacion) {
       return itemsMenuDesdeOpcionesPlanificadas(
         opcionesPrincipalesPermitidas(planificacion, fechaConsumo),
@@ -400,7 +456,7 @@ export function ClientView() {
     return principales
   }
 
-  function guarnicionesParaDia(fechaConsumo: string, sel: SeleccionDia): MenuItem[] {
+  function guarnicionesParaDia(fechaConsumo: string, sel: SeleccionServicioMenu): MenuItem[] {
     if (planificacion) {
       const principal = sel.principalId ? itemsById.get(sel.principalId) : null
       const principalSnap = sel.principalId
@@ -425,35 +481,33 @@ export function ClientView() {
   function opcionesFiltradasPorStock(
     lista: MenuItem[],
     fechaConsumo: string,
+    servicio: ServicioPedidoEmpresa,
     seleccionadoId: string | null,
   ): MenuItem[] {
     if (planificacion) return lista
     return lista.filter((item) => {
-      const disp = disponibleParaDia(item.id, fechaConsumo)
+      const disp = disponibleParaDia(item.id, fechaConsumo, servicio)
       return disp > 0 || seleccionadoId === item.id
     })
   }
 
-  function etiquetaOpcionMenu(item: MenuItem, fechaConsumo: string, esActual: boolean): string {
+  function etiquetaOpcionMenu(
+    item: MenuItem,
+    fechaConsumo: string,
+    servicio: ServicioPedidoEmpresa,
+    esActual: boolean,
+  ): string {
     if (planificacion) return item.nombre
-    const disp = disponibleParaDia(item.id, fechaConsumo)
+    const disp = disponibleParaDia(item.id, fechaConsumo, servicio)
     if (disp > 0) {
       return `${item.nombre} (${disp} disponible${disp === 1 ? '' : 's'})`
     }
     return esActual ? `${item.nombre} — sin stock (elegí otro)` : item.nombre
   }
 
-  const principalesDia = principalesParaDia(diaVista?.fechaConsumo ?? '', selTarjeta)
-  const guarnicionesDia = guarnicionesParaDia(diaVista?.fechaConsumo ?? '', selTarjeta)
   const hayGuarnicionesPlanificadas =
     !planificacion ||
     opcionesGuarnicionesPermitidas(planificacion, diaVista?.fechaConsumo ?? '').length > 0
-  const principalTarjeta = selTarjeta.principalId
-    ? itemsById.get(selTarjeta.principalId) ??
-      principalesDia.find((p) => p.id === selTarjeta.principalId) ??
-      null
-    : null
-  const aceptaGuarnicionTarjeta = principalTarjeta?.aceptaGuarnicion !== false
 
   if (!authLoading && user && rol && !modoPlanificacion) {
     const home = rutaHomePorRol(rol)
@@ -490,8 +544,8 @@ export function ClientView() {
           <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-[#8997A6]">
             {planificacion ? (
               <>
-                Completá tu pedido eligiendo entre las opciones planificadas para{' '}
-                {planificacion.empresaNombre}. La empresa comparte este link con cada empleado.
+                Completá tu pedido de lunes a domingo. En cada día podés elegir almuerzo, cena o
+                ambos, entre las opciones planificadas para {planificacion.empresaNombre}.
                 {planificacion.mensajeEmpresa?.trim() ? (
                   <>
                     {' '}
@@ -545,6 +599,32 @@ export function ClientView() {
                   required
                 />
               </label>
+              {planificacion ? (
+                <label className="block text-left">
+                  <span className="text-xs font-medium text-[#8997A6]">
+                    DNI
+                  </span>
+                  <input
+                    name="dniCliente"
+                    inputMode="numeric"
+                    autoComplete="off"
+                    value={dniCliente}
+                    onChange={(e) => {
+                      setError(null)
+                      setDniCliente(sanitizarDniInput(e.target.value))
+                    }}
+                    className={inputClass}
+                    placeholder="Ej. 30123456"
+                    maxLength={9}
+                    aria-invalid={Boolean(error?.toLowerCase().includes('dni'))}
+                    required
+                  />
+                  <span className="mt-1 block text-[11px] text-[#8997A6]">
+                    Un envío por DNI, día y servicio (almuerzo o cena). Podés pedir ambos el mismo
+                    día.
+                  </span>
+                </label>
+              ) : null}
               {!planificacion ? (
                 <label className="block text-left">
                   <span className="text-xs font-medium text-[#8997A6]">
@@ -579,7 +659,7 @@ export function ClientView() {
               </h2>
               <p className="mt-1 text-xs leading-relaxed text-[#8997A6]">
                 {planificacion
-                  ? 'Elegí un plato principal (y guarnición si corresponde) entre las opciones de ese día.'
+                  ? 'Lunes a domingo. En cada día podés pedir almuerzo, cena o ambos, con las mismas opciones de menú.'
                   : 'Elegí el día en las pestañas. El stock es compartido entre todos los días.'}
               </p>
             </div>
@@ -627,94 +707,132 @@ export function ClientView() {
                 </h3>
                 <p className="mt-0.5 text-xs text-[#8997A6]">
                   {planificacion
-                    ? 'Opciones planificadas para este día. Si no pedís, dejá «No pedir nada este día».'
+                    ? 'Mismas opciones para almuerzo y cena. Si no pedís un servicio, dejá «No pedir».'
                     : 'Elegí tu plato principal para este día y, si corresponde, su guarnición.'}
                 </p>
 
-                <div className="mt-6 space-y-5">
-                  <label className="block text-left">
-                    <span className="text-xs font-medium text-[#8997A6]">
-                      Plato principal
-                    </span>
-                    <select
-                      value={selTarjeta.principalId ?? ''}
-                      onChange={(e) => {
-                        const v = e.target.value
-                        setPrincipalDia(
-                          diaVista.fechaConsumo,
-                          v === '' ? null : v,
-                        )
-                      }}
-                      className={inputClass}
-                    >
-                      <option value="">-- No pedir nada este día --</option>
-                      {opcionesFiltradasPorStock(
-                        principalesDia,
-                        diaVista.fechaConsumo,
-                        selTarjeta.principalId,
-                      ).map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {etiquetaOpcionMenu(
-                            p,
-                            diaVista.fechaConsumo,
-                            selTarjeta.principalId === p.id,
-                          )}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-
-                  {!hayPrincipalTarjeta ? (
-                    <p className="rounded-xl border border-dashed border-gray-200 bg-gray-50 px-3 py-2.5 text-sm text-[#8997A6]">
-                      La guarnición se habilita cuando elegís un plato principal.
-                    </p>
-                  ) : !aceptaGuarnicionTarjeta ? (
-                    <p className="rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm text-[#171717]">
-                      Este plato no requiere guarnición.
-                    </p>
-                  ) : !hayGuarnicionesPlanificadas ? (
-                    <p className="rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm text-[#8997A6]">
-                      No hay guarniciones planificadas para este día.
-                    </p>
-                  ) : (
-                    <label className="block text-left">
-                      <span className="text-xs font-medium text-[#8997A6]">
-                        Guarnición
-                        {!planificacion ? (
-                          <span className="font-normal text-[#8997A6]">
-                            {' '}
-                            (opcional si elegís principal)
-                          </span>
-                        ) : null}
-                      </span>
-                      <select
-                        value={selTarjeta.guarnicionId ?? ''}
-                        onChange={(e) => {
-                          const v = e.target.value
-                          setGuarnicionDia(
-                            diaVista.fechaConsumo,
-                            v === '' ? null : v,
-                          )
-                        }}
-                        className={inputClass}
+                <div className="mt-6 space-y-6">
+                  {serviciosVisibles.map((servicio) => {
+                    const selSrv = selTarjeta[servicio] ?? seleccionServicioVacia()
+                    const principalesDia = principalesParaDia(diaVista.fechaConsumo, selSrv)
+                    const guarnicionesDia = guarnicionesParaDia(diaVista.fechaConsumo, selSrv)
+                    const hayPrincipal = Boolean(selSrv.principalId)
+                    const principalItem = selSrv.principalId
+                      ? itemsById.get(selSrv.principalId) ??
+                        principalesDia.find((p) => p.id === selSrv.principalId) ??
+                        null
+                      : null
+                    const aceptaGuarnicion = principalItem?.aceptaGuarnicion !== false
+                    return (
+                      <div
+                        key={servicio}
+                        className={
+                          planificacion
+                            ? 'space-y-4 rounded-xl border border-gray-100 bg-gray-50/60 p-4'
+                            : 'space-y-5'
+                        }
                       >
-                        <option value="">-- Sin guarnición --</option>
-                        {opcionesFiltradasPorStock(
-                          guarnicionesDia,
-                          diaVista.fechaConsumo,
-                          selTarjeta.guarnicionId,
-                        ).map((g) => (
-                          <option key={g.id} value={g.id}>
-                            {etiquetaOpcionMenu(
-                              g,
+                        {planificacion ? (
+                          <h4 className="text-sm font-semibold text-[#171717]">
+                            {labelServicioPedidoEmpresa(servicio)}
+                          </h4>
+                        ) : null}
+                        <label className="block text-left">
+                          <span className="text-xs font-medium text-[#8997A6]">
+                            Plato principal
+                          </span>
+                          <select
+                            value={selSrv.principalId ?? ''}
+                            onChange={(e) => {
+                              const v = e.target.value
+                              setPrincipalServicio(
+                                diaVista.fechaConsumo,
+                                servicio,
+                                v === '' ? null : v,
+                              )
+                            }}
+                            className={inputClass}
+                          >
+                            <option value="">
+                              {planificacion
+                                ? `-- No pedir ${labelServicioPedidoEmpresa(servicio).toLowerCase()} --`
+                                : '-- No pedir nada este día --'}
+                            </option>
+                            {opcionesFiltradasPorStock(
+                              principalesDia,
                               diaVista.fechaConsumo,
-                              selTarjeta.guarnicionId === g.id,
-                            )}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  )}
+                              servicio,
+                              selSrv.principalId,
+                            ).map((p) => (
+                              <option key={p.id} value={p.id}>
+                                {etiquetaOpcionMenu(
+                                  p,
+                                  diaVista.fechaConsumo,
+                                  servicio,
+                                  selSrv.principalId === p.id,
+                                )}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+
+                        {!hayPrincipal ? (
+                          <p className="rounded-xl border border-dashed border-gray-200 bg-white px-3 py-2.5 text-sm text-[#8997A6]">
+                            La guarnición se habilita cuando elegís un plato principal.
+                          </p>
+                        ) : !aceptaGuarnicion ? (
+                          <p className="rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm text-[#171717]">
+                            Este plato no requiere guarnición.
+                          </p>
+                        ) : !hayGuarnicionesPlanificadas ? (
+                          <p className="rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm text-[#8997A6]">
+                            No hay guarniciones planificadas para este día.
+                          </p>
+                        ) : (
+                          <label className="block text-left">
+                            <span className="text-xs font-medium text-[#8997A6]">
+                              Guarnición
+                              {!planificacion ? (
+                                <span className="font-normal text-[#8997A6]">
+                                  {' '}
+                                  (opcional si elegís principal)
+                                </span>
+                              ) : null}
+                            </span>
+                            <select
+                              value={selSrv.guarnicionId ?? ''}
+                              onChange={(e) => {
+                                const v = e.target.value
+                                setGuarnicionServicio(
+                                  diaVista.fechaConsumo,
+                                  servicio,
+                                  v === '' ? null : v,
+                                )
+                              }}
+                              className={inputClass}
+                            >
+                              <option value="">-- Sin guarnición --</option>
+                              {opcionesFiltradasPorStock(
+                                guarnicionesDia,
+                                diaVista.fechaConsumo,
+                                servicio,
+                                selSrv.guarnicionId,
+                              ).map((g) => (
+                                <option key={g.id} value={g.id}>
+                                  {etiquetaOpcionMenu(
+                                    g,
+                                    diaVista.fechaConsumo,
+                                    servicio,
+                                    selSrv.guarnicionId === g.id,
+                                  )}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                        )}
+                      </div>
+                    )
+                  })}
                 </div>
 
                 <div className="mt-8 flex items-center justify-between gap-3 border-t border-gray-100 pt-5">
